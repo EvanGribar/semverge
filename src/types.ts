@@ -100,7 +100,7 @@ export interface MonorepoConfig {
   unscopedChanges: "all" | "root";
 }
 
-export type HealthWorkflowPurpose = "package" | "deployment" | "rollback" | "custom";
+export type HealthWorkflowPurpose = "package" | "deployment" | "custom";
 
 export interface HealthWorkflow {
   name: string;
@@ -113,7 +113,6 @@ export interface HealthConfig {
   workflows: HealthWorkflow[];
   expectedArtifacts: string[];
   requiredLinks: string[];
-  hotfixWindowHours: number;
 }
 
 export interface NpmPublishConfig {

@@ -30,8 +30,10 @@ outputs:
     description: URL of the maintained release pull request, when one is created.
   release-url:
     description: URL of the GitHub release, when one is published.
+  post-release-verification:
+    description: JSON post-release verification report generated after a release is published.
   health:
-    description: JSON release-health report generated after a release is published.
+    description: Deprecated alias for the post-release-verification output.
 runs:
   using: node20
   main: dist/index.js

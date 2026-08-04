@@ -34,8 +34,7 @@ export const DEFAULT_CONFIG: SemVergeConfig = {
     enabled: true,
     workflows: [],
     expectedArtifacts: [],
-    requiredLinks: [],
-    hotfixWindowHours: 48
+    requiredLinks: []
   },
   publishing: {
     npm: {
@@ -99,17 +98,13 @@ function healthWorkflows(value: unknown): HealthWorkflow[] {
     if (typeof record.name !== "string" || !record.name.trim()) {
       return [];
     }
-    const purpose = record.purpose === "package" || record.purpose === "deployment" || record.purpose === "rollback" || record.purpose === "custom" ? record.purpose : "custom";
+    const purpose = record.purpose === "package" || record.purpose === "deployment" || record.purpose === "custom" ? record.purpose : "custom";
     return [{ name: record.name.trim(), purpose, required: record.required !== false }];
   });
 }
 
 function booleanValue(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
-}
-
-function positiveNumber(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
 function mergeConfig(raw: unknown): SemVergeConfig {
@@ -159,8 +154,7 @@ function mergeConfig(raw: unknown): SemVergeConfig {
       enabled: booleanValue(health.enabled, DEFAULT_CONFIG.health.enabled),
       workflows: healthWorkflows(health.workflows),
       expectedArtifacts: strings(health.expectedArtifacts),
-      requiredLinks: strings(health.requiredLinks),
-      hotfixWindowHours: positiveNumber(health.hotfixWindowHours, DEFAULT_CONFIG.health.hotfixWindowHours)
+      requiredLinks: strings(health.requiredLinks)
     },
     publishing: {
       npm: {

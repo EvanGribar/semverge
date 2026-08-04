@@ -8,7 +8,7 @@ function encoded(content: string): string {
   return Buffer.from(content, "utf8").toString("base64");
 }
 
-describe("published release health action", () => {
+describe("published release post-release verification action", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("checks expected assets and configured publishing workflows", async () => {
@@ -30,9 +30,6 @@ describe("published release health action", () => {
       if (url.pathname.endsWith("/actions/runs")) {
         return new Response(JSON.stringify({ workflow_runs: [{ id: 4, name: "Publish package", status: "completed", conclusion: "success", head_sha: "merge-sha", html_url: "https://github.com/demo/repo/actions/runs/4", created_at: "2026-08-04T00:00:00Z", updated_at: "2026-08-04T00:01:00Z" }] }), { status: 200 });
       }
-      if (url.pathname.endsWith("/releases")) {
-        return new Response(JSON.stringify([{ tag_name: "v1.0.0", published_at: "2026-08-04T00:00:00Z" }]), { status: 200 });
-      }
       return new Response(JSON.stringify({ message: `Unhandled ${url.pathname}` }), { status: 500 });
     }));
 
@@ -52,5 +49,6 @@ describe("published release health action", () => {
       rmSync(directory, { recursive: true, force: true });
     }
     expect(output).toContain('"status":"healthy"');
+    expect(output).toContain("post-release-verification");
   });
 });
