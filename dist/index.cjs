@@ -9362,8 +9362,8 @@ __export(action_exports, {
 });
 module.exports = __toCommonJS(action_exports);
 var import_node_fs = require("node:fs");
-var import_node_child_process = require("node:child_process");
-var import_node_util = require("node:util");
+var import_node_child_process2 = require("node:child_process");
+var import_node_util2 = require("node:util");
 var import_node_path3 = require("node:path");
 
 // src/metadata.ts
@@ -11066,8 +11066,34 @@ function postReleaseVerificationMarkdown(report) {
   ].join("\n");
 }
 
-// src/action.ts
+// src/workspace-integrity.ts
+var import_node_child_process = require("node:child_process");
+var import_node_util = require("node:util");
 var exec = (0, import_node_util.promisify)(import_node_child_process.exec);
+async function readWorkspaceHead(workspace) {
+  const result = await exec("git rev-parse HEAD", { cwd: workspace, shell: process.env.ComSpec ?? "/bin/sh" });
+  return result.stdout.trim();
+}
+async function assertWorkspaceAtCommit(workspace, mergeSha, readHead = readWorkspaceHead) {
+  if (!workspace.trim()) {
+    throw new Error("SemVerge requires GITHUB_WORKSPACE to be set before running release commands.");
+  }
+  if (!/^[0-9a-f]{7,40}$/i.test(mergeSha)) {
+    throw new Error(`SemVerge cannot verify the release checkout because merge commit ${mergeSha || "<missing>"} is not a valid commit SHA.`);
+  }
+  let head;
+  try {
+    head = await readHead(workspace);
+  } catch (error) {
+    throw new Error(`SemVerge requires a checkout at release merge commit ${mergeSha}; could not read ${workspace} with git rev-parse HEAD. Check out the merge commit before publication.`, { cause: error });
+  }
+  if (head.toLowerCase() !== mergeSha.toLowerCase()) {
+    throw new Error(`SemVerge requires GITHUB_WORKSPACE at release merge commit ${mergeSha}, but found ${head || "<no HEAD>"}. Check out the merge commit before publication.`);
+  }
+}
+
+// src/action.ts
+var exec2 = (0, import_node_util2.promisify)(import_node_child_process2.exec);
 function input(name) {
   const normalized = name.toUpperCase().replace(/\s+/g, "_");
   return process.env[`INPUT_${normalized}`]?.trim() ?? process.env[`INPUT_${normalized.replace(/-/g, "_")}`]?.trim() ?? "";
@@ -11122,7 +11148,7 @@ async function localCommitFiles(sha) {
     return void 0;
   }
   try {
-    const { stdout } = await exec(`git diff-tree --no-commit-id --name-only -r -m ${sha}`, { cwd: workspace, maxBuffer: 1024 * 1024 * 2 });
+    const { stdout } = await exec2(`git diff-tree --no-commit-id --name-only -r -m ${sha}`, { cwd: workspace, maxBuffer: 1024 * 1024 * 2 });
     return [...new Set(stdout.split(/\r?\n/).map((path) => path.trim()).filter(Boolean))];
   } catch {
     return void 0;
@@ -11234,7 +11260,7 @@ async function runReadinessCommands(config) {
   for (const command of config.readiness.commands) {
     try {
       log(`Running readiness check: ${command.name}`);
-      await exec(command.run, { cwd: workspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
+      await exec2(command.run, { cwd: workspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
       results[command.name] = true;
     } catch {
       results[command.name] = false;
@@ -11525,9 +11551,12 @@ async function publishRelease(client, pr, config) {
   }
   const artifactCommand = input("artifact-command") || config.artifacts.command;
   const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
+  if (artifactCommand || config.artifacts.paths.length > 0 || config.publishing.npm.enabled) {
+    await assertWorkspaceAtCommit(workspace, mergeSha);
+  }
   if (artifactCommand) {
     log(`Running artifact command: ${artifactCommand}`);
-    await exec(artifactCommand, { cwd: workspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
+    await exec2(artifactCommand, { cwd: workspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
   }
   const artifactFiles = config.artifacts.paths.flatMap((path) => collectFiles(path, workspace));
   const releaseInputs = await Promise.all(releasePackages.map(async (packageItem) => {
@@ -11576,7 +11605,7 @@ async function publishRelease(client, pr, config) {
     }
     const packageWorkspace = packageItem.directory ? (0, import_node_path3.resolve)(workspace, packageItem.directory) : workspace;
     log(`Publishing ${packageItem.name} with npm command.`);
-    await exec(config.publishing.npm.command, { cwd: packageWorkspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
+    await exec2(config.publishing.npm.command, { cwd: packageWorkspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
     progress.publishedPackages = [.../* @__PURE__ */ new Set([...progress.publishedPackages, id])];
     await persistReleaseProgress(client, executions, progress);
   }

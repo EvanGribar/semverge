@@ -1,4 +1,5 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,7 +13,7 @@ function encoded(content: string): string {
   return Buffer.from(content, "utf8").toString("base64");
 }
 
-function publishEvent(directory: string): string {
+function publishEvent(directory: string, mergeSha = "merge-sha"): string {
   const eventPath = join(directory, "event.json");
   writeFileSync(eventPath, JSON.stringify({
     action: "closed",
@@ -24,7 +25,7 @@ function publishEvent(directory: string): string {
       state: "closed",
       merged: true,
       merged_at: "2026-08-04T00:00:00Z",
-      merge_commit_sha: "merge-sha",
+      merge_commit_sha: mergeSha,
       head: { ref: "release/bot", sha: "release-sha", repo: { full_name: "demo/repo" } },
       base: { ref: "main", sha: "main-sha" },
       labels: []
@@ -33,13 +34,13 @@ function publishEvent(directory: string): string {
   return eventPath;
 }
 
-function setPublishEnvironment(directory: string, eventPath: string, outputPath: string, workspace = directory): Map<string, string | undefined> {
+function setPublishEnvironment(directory: string, eventPath: string, outputPath: string, workspace = directory, mergeSha = "merge-sha"): Map<string, string | undefined> {
   const previous = new Map<string, string | undefined>();
   for (const [key, value] of Object.entries({
     GITHUB_API_URL: "https://api.github.test",
     GITHUB_REPOSITORY: "demo/repo",
     GITHUB_EVENT_NAME: "pull_request",
-    GITHUB_SHA: "merge-sha",
+    GITHUB_SHA: mergeSha,
     GITHUB_EVENT_PATH: eventPath,
     GITHUB_OUTPUT: outputPath,
     GITHUB_WORKSPACE: workspace,
@@ -66,6 +67,18 @@ function manifest(): string {
     readiness: { passed: true },
     packages: [{ id: "demo", name: "demo", directory: "", version: "0.2.0", customerNotes: "RELEASE_NOTES.md" }]
   });
+}
+
+function prepareGitWorkspace(source: string): { directory: string; mergeSha: string } {
+  const directory = mkdtempSync(join(tmpdir(), "semverge-workspace-"));
+  cpSync(source, directory, { recursive: true });
+  execFileSync("git", ["init"], { cwd: directory, stdio: "ignore" });
+  execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: directory, stdio: "ignore" });
+  execFileSync("git", ["config", "user.name", "SemVerge Test"], { cwd: directory, stdio: "ignore" });
+  execFileSync("git", ["add", "."], { cwd: directory, stdio: "ignore" });
+  execFileSync("git", ["commit", "-m", "fixture"], { cwd: directory, stdio: "ignore" });
+  const mergeSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: directory, encoding: "utf8" }).trim();
+  return { directory, mergeSha };
 }
 
 describe("merged release publication", () => {
@@ -163,7 +176,8 @@ describe("merged release publication", () => {
 
   it("resumes a draft release without recreating it after a package publish failure", async () => {
     const directory = mkdtempSync(join(tmpdir(), "semverge-retry-"));
-    const eventPath = publishEvent(directory);
+    const workspace = prepareGitWorkspace(retryFixtureDirectory);
+    const eventPath = publishEvent(directory, workspace.mergeSha);
     const outputPath = join(directory, "outputs.txt");
     const requests: Array<{ method: string; path: string; body?: Record<string, unknown> }> = [];
     let release: Record<string, unknown> | null = null;
@@ -181,7 +195,7 @@ describe("merged release publication", () => {
         return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded("# What's new\n") }), { status: 200 });
       }
       if (url.pathname.endsWith("/git/ref/tags/v0.2.0")) {
-        return release ? new Response(JSON.stringify({ ref: "refs/tags/v0.2.0", object: { sha: "merge-sha", type: "commit" } }), { status: 200 }) : new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
+        return release ? new Response(JSON.stringify({ ref: "refs/tags/v0.2.0", object: { sha: workspace.mergeSha, type: "commit" } }), { status: 200 }) : new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
       }
       if (url.pathname.endsWith("/releases/tags/v0.2.0")) {
         return release ? new Response(JSON.stringify(release), { status: 200 }) : new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
@@ -197,7 +211,7 @@ describe("merged release publication", () => {
       return new Response(JSON.stringify({ message: `Unhandled ${init?.method ?? "GET"} ${url.pathname}` }), { status: 500 });
     }));
 
-    const previous = setPublishEnvironment(directory, eventPath, outputPath, retryFixtureDirectory);
+    const previous = setPublishEnvironment(directory, eventPath, outputPath, workspace.directory, workspace.mergeSha);
     const previousRetry = process.env.SEMVERGE_RETRY;
     delete process.env.SEMVERGE_RETRY;
     try {
@@ -208,6 +222,7 @@ describe("merged release publication", () => {
       if (previousRetry === undefined) delete process.env.SEMVERGE_RETRY; else process.env.SEMVERGE_RETRY = previousRetry;
       restoreEnvironment(previous);
       rmSync(directory, { recursive: true, force: true });
+      rmSync(workspace.directory, { recursive: true, force: true });
     }
 
     expect(requests.filter((request) => request.method === "POST" && request.path.endsWith("/releases"))).toHaveLength(1);
