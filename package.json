@@ -25,7 +25,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "bundle": "esbuild src/action.ts --bundle --platform=node --target=node20 --outfile=dist/index.js --sourcemap --sources-content=false",
+    "bundle": "esbuild src/action.ts --bundle --platform=node --target=node20 --format=cjs --outfile=dist/index.cjs --sourcemap --sources-content=false",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "verify": "pnpm typecheck && pnpm test && pnpm build && pnpm bundle"
