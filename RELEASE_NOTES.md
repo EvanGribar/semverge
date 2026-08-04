@@ -1,7 +1,7 @@
-# What's new in 0.1.9
+# What's new in 0.1.10
 
 A clear summary of the changes included in this release.
 
 ### Improvements and Fixes
 
-- [verify releases after transactional publication](https://github.com/EvanGribar/semverge/pull/41) (#41)
+- [require the release workspace commit](https://github.com/EvanGribar/semverge/pull/43) (#43)
