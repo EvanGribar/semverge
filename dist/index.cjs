@@ -11472,6 +11472,7 @@ async function persistReleaseProgress(client, executions, progress, finalize = f
     }
     const updated = await client.updateRelease(execution.release.id, {
       body: releaseBody(execution.customerNotes, progress),
+      tag_name: execution.tag,
       ...finalize ? { draft: false } : {}
     });
     execution.release = { ...execution.release, ...updated, draft: finalize ? false : updated.draft ?? execution.release.draft ?? true };
