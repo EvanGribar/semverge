@@ -667,6 +667,7 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
 
 export async function run(): Promise<void> {
   const token = input("github-token") || process.env.GITHUB_TOKEN || "";
+  log(`GitHub token configured: ${token.length > 0}`);
   const repository = process.env.GITHUB_REPOSITORY;
   if (!repository) {
     throw new Error("GITHUB_REPOSITORY is required.");

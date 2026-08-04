@@ -11619,6 +11619,7 @@ async function publishRelease(client, pr, config) {
 }
 async function run() {
   const token = input("github-token") || process.env.GITHUB_TOKEN || "";
+  log(`GitHub token configured: ${token.length > 0}`);
   const repository = process.env.GITHUB_REPOSITORY;
   if (!repository) {
     throw new Error("GITHUB_REPOSITORY is required.");
