@@ -65,6 +65,27 @@ function isDryRun(): boolean {
   return input("dry-run").toLowerCase() === "true";
 }
 
+function localWorkspaceFile(path: string): string | undefined {
+  const workspace = process.env.GITHUB_WORKSPACE;
+  if (!workspace) {
+    return undefined;
+  }
+  const absolute = resolve(workspace, path);
+  const workspaceRelative = relative(workspace, absolute);
+  if (workspaceRelative === ".." || workspaceRelative.startsWith(`..${sep}`) || !existsSync(absolute)) {
+    return undefined;
+  }
+  try {
+    return statSync(absolute).isFile() ? readFileSync(absolute, "utf8") : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function fileAtHead(client: GitHubClient, path: string, ref: string): Promise<string | null> {
+  return localWorkspaceFile(path) ?? await client.getFile(path, ref);
+}
+
 async function localCommitFiles(sha: string | null | undefined): Promise<string[] | undefined> {
   const workspace = process.env.GITHUB_WORKSPACE;
   if (!workspace || !sha || !/^[0-9a-f]{7,40}$/i.test(sha) || !existsSync(join(workspace, ".git"))) {
@@ -93,7 +114,7 @@ async function pullRequestChange(client: GitHubClient, pr: GitHubPullRequest) {
   });
 }
 
-function commitChange(commit: GitHubCommitSummary) {
+function commitChange(commit: GitHubCommitSummary, files?: string[]) {
   return parseChange({
     title: commit.commit.message.split(/\r?\n/, 1)[0] ?? commit.commit.message,
     body: commit.commit.message,
@@ -101,8 +122,13 @@ function commitChange(commit: GitHubCommitSummary) {
     sha: commit.sha,
     url: commit.html_url,
     author: commit.commit.author?.name,
-    mergedAt: commit.commit.author?.date
+    mergedAt: commit.commit.author?.date,
+    files
   });
+}
+
+function isConventionalCommit(message: string): boolean {
+  return /^(?:feat|feature|fix|bugfix|perf|docs|chore|ci|build|refactor|revert|style|test)(?:\([^\r\n)]+\))?!?:\s+\S/i.test(message.trim());
 }
 
 async function limitedMap<T, R>(values: T[], limit: number, mapper: (value: T) => Promise<R>): Promise<R[]> {
@@ -117,10 +143,17 @@ async function changesSinceTag(client: GitHubClient, head: string, tag: string |
   const commits = tag ? (await client.compare(tag, head)).commits : await client.listCommits(head);
   const pullRequests = new Map<number, GitHubPullRequest>();
   const changes = [];
-  const associations = await limitedMap(commits, 8, async (commit) => ({ commit, pullRequests: await client.commitPullRequests(commit.sha) }));
-  for (const { commit, pullRequests: associated } of associations) {
+  const associationCandidates = commits.filter((commit) => !isConventionalCommit(commit.commit.message));
+  const associations = await limitedMap(associationCandidates, 8, async (commit) => ({ commit, pullRequests: await client.commitPullRequests(commit.sha) }));
+  const associationMap = new Map(associations.map(({ commit, pullRequests: associated }) => [commit.sha, associated]));
+  for (const commit of commits) {
+    if (isConventionalCommit(commit.commit.message)) {
+      changes.push(commitChange(commit, await localCommitFiles(commit.sha)));
+      continue;
+    }
+    const associated = associationMap.get(commit.sha) ?? [];
     if (associated.length === 0) {
-      changes.push(commitChange(commit));
+      changes.push(commitChange(commit, await localCommitFiles(commit.sha)));
       continue;
     }
     for (const pr of associated) {
@@ -148,7 +181,7 @@ async function latestReleaseTag(client: GitHubClient, config: SemVergeConfig): P
 }
 
 async function loadConfig(client: GitHubClient, path: string, ref: string): Promise<SemVergeConfig> {
-  const content = await client.getFile(path, ref);
+  const content = await fileAtHead(client, path, ref);
   return content ? parseConfig(content, path) : parseConfig("");
 }
 
@@ -249,7 +282,7 @@ async function prepareRelease(client: GitHubClient, head: string, config: SemVer
   const repositoryTree = await client.getTree(baseCommit.tree.sha);
   const allPaths = repositoryTree.filter((entry) => entry.type === "blob").map((entry) => entry.path);
   const manifestPaths = allPaths.filter((path) => path === "package.json" || path.endsWith("/package.json") || path === "pyproject.toml" || path.endsWith("/pyproject.toml") || path === "Cargo.toml" || path.endsWith("/Cargo.toml") || path === "pnpm-workspace.yaml");
-  const manifestEntries = await Promise.all(manifestPaths.map(async (path) => [path, await client.getFile(path, head)] as const));
+  const manifestEntries = await Promise.all(manifestPaths.map(async (path) => [path, await fileAtHead(client, path, head)] as const));
   const manifestFiles = Object.fromEntries(manifestEntries.flatMap(([path, content]) => content === null ? [] : [[path, content]]));
   const discovered = discoverPackages(manifestFiles, allPaths, config);
   const changes = await changesSinceTag(client, head, await latestReleaseTag(client, config));
@@ -270,7 +303,7 @@ async function prepareRelease(client: GitHubClient, head: string, config: SemVer
     ...effectiveConfig.readiness.requiredFiles,
     ...effectiveConfig.readiness.tasks.flatMap((task) => task.file ? [task.file] : [])
   ])];
-  const fileEntries = await Promise.all(neededPaths.map(async (path) => [path, await client.getFile(path, head)] as const));
+  const fileEntries = await Promise.all(neededPaths.map(async (path) => [path, await fileAtHead(client, path, head)] as const));
   const files: Record<string, string> = {
     ...manifestFiles,
     ...Object.fromEntries(fileEntries.flatMap(([path, content]) => content === null ? [] : [[path, content]]))
