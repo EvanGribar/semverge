@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.7] - 2026-08-04
+
+### Bug Fixes
+
+- [release explicitly included private roots in single mode](https://github.com/EvanGribar/semverge/pull/37) (#37)
+
 ## [0.1.6] - 2026-08-04
 
 ### Bug Fixes

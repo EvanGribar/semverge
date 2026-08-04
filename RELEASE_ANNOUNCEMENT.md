@@ -1,5 +1,5 @@
-# SemVerge release announcement: 0.1.6
+# SemVerge release announcement: 0.1.7
 
-SemVerge 0.1.6 includes:
+SemVerge 0.1.7 includes:
 
-- preserve release tags during finalization
+- release explicitly included private roots in single mode

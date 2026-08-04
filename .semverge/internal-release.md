@@ -1,3 +1,3 @@
-# Internal release summary for 0.1.6
+# Internal release summary for 0.1.7
 
 No internal-only changes were recorded.

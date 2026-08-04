@@ -1,7 +1,7 @@
-# What's new in 0.1.6
+# What's new in 0.1.7
 
 A clear summary of the changes included in this release.
 
 ### Improvements and Fixes
 
-- [preserve release tags during finalization](https://github.com/EvanGribar/semverge/pull/35) (#35)
+- [release explicitly included private roots in single mode](https://github.com/EvanGribar/semverge/pull/37) (#37)
