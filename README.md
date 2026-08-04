@@ -113,17 +113,17 @@ health:
       purpose: package
     - name: Deploy production
       purpose: deployment
-    - name: Rollback production
-      purpose: rollback
 ```
 
 Readiness checks are reported in the release PR. A missing required label or file blocks publication but does not hide the proposed version or generated communication.
+
+The `health` configuration namespace is retained for compatibility, but the `release.published` check is currently limited to immediate post-release verification: configured assets, documentation links, and workflow results visible at that moment. A workflow that has not started or completed is reported as a warning so the check can be rerun after it finishes. SemVerge does not infer rollback or hotfix signals from a single event; delayed monitoring is planned separately.
 
 Configured commands and artifact commands run in the runner workspace. The zero-configuration API path does not need a checkout; add `actions/checkout` before SemVerge when a command needs the repository files.
 
 ## Current scope
 
-The current foundation supports Node.js single-package repositories, fixed and independent npm workspaces with bounded workspace-dependency propagation, Python `pyproject.toml`, Rust `Cargo.toml`, conventional commits, PR label overrides, version and lockfile updates, changelog/release notes, release PRs, tags, GitHub releases, readiness rules, npm publishing commands, configurable artifacts, release-health checks, and a JSON release manifest. Richer ecosystem-specific publishing remains deliberately bounded follow-on work.
+The current foundation supports Node.js single-package repositories, fixed and independent npm workspaces with bounded workspace-dependency propagation, Python `pyproject.toml`, Rust `Cargo.toml`, conventional commits, PR label overrides, version and lockfile updates, changelog/release notes, release PRs, tags, GitHub releases, readiness rules, npm publishing commands, configurable artifacts, immediate post-release verification, and a JSON release manifest. Delayed monitoring and richer ecosystem-specific publishing remain deliberately bounded follow-on work.
 
 ## Development
 

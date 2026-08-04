@@ -8,7 +8,7 @@ import { readinessMarkdown } from "./readiness.js";
 import { releaseTagName, GitHubClient, type GitHubCommitSummary, type GitHubPullRequest, type GitHubRelease } from "./github.js";
 import { discoverPackages } from "./packages.js";
 import { buildWorkspaceReleasePlan, type WorkspaceReleasePlan } from "./workspace-release.js";
-import { detectRapidHotfix, evaluateReleaseHealth, healthMarkdown, versionFromReleaseTag, type ReleaseHealthObservation } from "./health.js";
+import { evaluatePostReleaseVerification, postReleaseVerificationMarkdown, type PostReleaseVerificationObservation } from "./health.js";
 import { compareVersions, parseVersion } from "./semver.js";
 import type { SemVergeConfig } from "./types.js";
 
@@ -200,41 +200,33 @@ async function checkLink(url: string): Promise<number | null> {
   }
 }
 
-async function runReleaseHealth(client: GitHubClient, releaseEvent: NonNullable<ReleaseEvent["release"]>, config: SemVergeConfig): Promise<void> {
+async function runPostReleaseVerification(client: GitHubClient, releaseEvent: NonNullable<ReleaseEvent["release"]>, config: SemVergeConfig): Promise<void> {
   if (!config.health.enabled) {
-    log("Release health checks are disabled.");
+    log("Post-release verification is disabled.");
     return;
   }
   const releaseDetails = await client.getReleaseByTag(releaseEvent.tag_name);
   const targetCommit = releaseDetails?.target_commitish || releaseEvent.target_commitish || process.env.GITHUB_SHA || "";
   const workflowRuns = targetCommit ? await client.listWorkflowRuns(targetCommit) : [];
   const workflowObservations = workflowRuns.map((run) => ({ name: run.name, status: run.status, conclusion: run.conclusion, url: run.html_url }));
-  const rollbackNames = new Set(config.health.workflows.filter((workflow) => workflow.purpose === "rollback").map((workflow) => workflow.name.toLowerCase()));
-  const rollbackDetected = workflowRuns.some((run) => rollbackNames.has(run.name.toLowerCase()) && run.conclusion === "success");
   const links = await Promise.all(config.health.requiredLinks.map(async (url) => ({ url, status: await checkLink(url) })));
-  const laterReleases = (await client.listReleases())
-    .filter((release) => release.tag_name !== releaseEvent.tag_name)
-    .map((release) => ({ tag: release.tag_name, publishedAt: release.published_at }));
-  const versionValue = versionFromReleaseTag(releaseEvent.tag_name, config.release.tagPrefix);
-  const observation: ReleaseHealthObservation = {
+  const observation: PostReleaseVerificationObservation = {
     tag: releaseEvent.tag_name,
-    ...(versionValue ? { version: versionValue } : {}),
     assets: (releaseDetails?.assets ?? releaseEvent.assets ?? []).map((asset) => asset.name),
     workflows: workflowObservations,
-    links,
-    rollbackDetected,
-    hotfixDetected: detectRapidHotfix(versionValue, releaseDetails?.published_at ?? releaseEvent.published_at ?? undefined, laterReleases, config.release.tagPrefix, config.health.hotfixWindowHours)
+    links
   };
-  const report = evaluateReleaseHealth(config.health, observation);
-  const markdown = healthMarkdown(report);
+  const report = evaluatePostReleaseVerification(config.health, observation);
+  const markdown = postReleaseVerificationMarkdown(report);
   log(markdown.trim());
+  setOutput("post-release-verification", JSON.stringify(report));
   setOutput("health", JSON.stringify(report));
   const summaryFile = process.env.GITHUB_STEP_SUMMARY;
   if (summaryFile) {
     appendFileSync(summaryFile, `${markdown}\n`, "utf8");
   }
   if (report.status === "failed") {
-    throw new Error(`Release health checks failed for ${releaseEvent.tag_name}.`);
+    throw new Error(`Post-release verification failed for ${releaseEvent.tag_name}.`);
   }
 }
 
@@ -655,7 +647,7 @@ export async function run(): Promise<void> {
   });
 
   if (eventName === "release" && "release" in event && event.release && event.action === "published") {
-    await runReleaseHealth(client, event.release, config);
+    await runPostReleaseVerification(client, event.release, config);
     return;
   }
   if (eventName === "pull_request" && "pull_request" in event && event.pull_request && event.action === "closed" && event.pull_request.merged && isSemVergeReleasePullRequest(event.pull_request, config)) {

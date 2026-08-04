@@ -21,4 +21,10 @@ describe("configuration and version files", () => {
     expect(JSON.parse(changes[1]?.content ?? "{}").packages[""].version).toBe("1.1.0");
     expect(readPackageVersion(changes[0]?.content ?? "{}")).toBe("1.1.0");
   });
+
+  it("maps legacy rollback workflow configuration to a neutral custom check", () => {
+    const config = parseConfig("health:\n  workflows:\n    - name: Rollback production\n      purpose: rollback\n");
+    expect(config.health.workflows).toEqual([{ name: "Rollback production", purpose: "custom", required: true }]);
+    expect("hotfixWindowHours" in config.health).toBe(false);
+  });
 });

@@ -9616,8 +9616,7 @@ var DEFAULT_CONFIG = {
     enabled: true,
     workflows: [],
     expectedArtifacts: [],
-    requiredLinks: [],
-    hotfixWindowHours: 48
+    requiredLinks: []
   },
   publishing: {
     npm: {
@@ -9677,15 +9676,12 @@ function healthWorkflows(value) {
     if (typeof record.name !== "string" || !record.name.trim()) {
       return [];
     }
-    const purpose = record.purpose === "package" || record.purpose === "deployment" || record.purpose === "rollback" || record.purpose === "custom" ? record.purpose : "custom";
+    const purpose = record.purpose === "package" || record.purpose === "deployment" || record.purpose === "custom" ? record.purpose : "custom";
     return [{ name: record.name.trim(), purpose, required: record.required !== false }];
   });
 }
 function booleanValue(value, fallback) {
   return typeof value === "boolean" ? value : fallback;
-}
-function positiveNumber(value, fallback) {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 function mergeConfig(raw) {
   if (!raw || typeof raw !== "object") {
@@ -9733,8 +9729,7 @@ function mergeConfig(raw) {
       enabled: booleanValue(health.enabled, DEFAULT_CONFIG.health.enabled),
       workflows: healthWorkflows(health.workflows),
       expectedArtifacts: strings(health.expectedArtifacts),
-      requiredLinks: strings(health.requiredLinks),
-      hotfixWindowHours: positiveNumber(health.hotfixWindowHours, DEFAULT_CONFIG.health.hotfixWindowHours)
+      requiredLinks: strings(health.requiredLinks)
     },
     publishing: {
       npm: {
@@ -10867,31 +10862,24 @@ function buildWorkspaceReleasePlan(input2) {
 }
 
 // src/health.ts
-function versionFromReleaseTag(tag, tagPrefix) {
-  const direct = tag.startsWith(tagPrefix) ? tag.slice(tagPrefix.length) : tag;
-  if (parseVersion(direct)) {
-    return direct;
-  }
-  const suffix = /@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(tag)?.[1];
-  return suffix && parseVersion(suffix) ? suffix : void 0;
-}
 function workflowCheck(config, observation) {
   return config.workflows.map((expected) => {
     const matches = observation.workflows.filter((run2) => run2.name.toLowerCase() === expected.name.toLowerCase());
+    const workflowName = `${expected.purpose} workflow: ${expected.name}`;
     if (matches.length === 0) {
-      return { name: `${expected.purpose} workflow: ${expected.name}`, status: expected.required ? "fail" : "warn", detail: "No workflow run was found for the released commit." };
+      return { name: workflowName, status: "warn", detail: "No workflow run was found yet; rerun post-release verification after it completes." };
     }
     const latest = matches[0];
     if (latest?.conclusion === "success") {
-      return { name: `${expected.purpose} workflow: ${expected.name}`, status: "pass", detail: "Workflow completed successfully." };
+      return { name: workflowName, status: "pass", detail: "Workflow completed successfully." };
     }
     if (latest?.status !== "completed") {
-      return { name: `${expected.purpose} workflow: ${expected.name}`, status: "warn", detail: `Workflow is ${latest?.status ?? "pending"}.` };
+      return { name: workflowName, status: "warn", detail: `Workflow is ${latest?.status ?? "pending"}.` };
     }
-    return { name: `${expected.purpose} workflow: ${expected.name}`, status: expected.required ? "fail" : "warn", detail: `Workflow concluded ${latest?.conclusion ?? "without a conclusion"}.` };
+    return { name: workflowName, status: expected.required ? "fail" : "warn", detail: `Workflow concluded ${latest?.conclusion ?? "without a conclusion"}.` };
   });
 }
-function evaluateReleaseHealth(config, observation) {
+function evaluatePostReleaseVerification(config, observation) {
   if (!config.enabled) {
     return { schemaVersion: 1, status: "disabled", tag: observation.tag, checks: [], generatedAt: (/* @__PURE__ */ new Date()).toISOString() };
   }
@@ -10911,44 +10899,16 @@ function evaluateReleaseHealth(config, observation) {
     });
   }
   checks.push(...workflowCheck(config, observation));
-  if (observation.rollbackDetected) {
-    checks.push({ name: "rollback signal", status: "fail", detail: "A configured rollback workflow completed for this release." });
-  }
-  if (observation.hotfixDetected) {
-    checks.push({ name: "rapid hotfix signal", status: "warn", detail: `A patch release followed this release within ${config.hotfixWindowHours} hours.` });
-  }
   if (checks.length === 0) {
-    checks.push({ name: "configured health checks", status: "pass", detail: "No additional health checks were configured." });
+    checks.push({ name: "configured post-release verification", status: "pass", detail: "No additional verification checks were configured." });
   }
   const status = checks.some((check) => check.status === "fail") ? "failed" : checks.some((check) => check.status === "warn") ? "degraded" : "healthy";
   return { schemaVersion: 1, status, tag: observation.tag, checks, generatedAt: (/* @__PURE__ */ new Date()).toISOString() };
 }
-function detectRapidHotfix(releaseVersion, publishedAt, laterReleases, tagPrefix, windowHours) {
-  if (!releaseVersion || !publishedAt) {
-    return false;
-  }
-  const current = parseVersion(releaseVersion);
-  const releasedAt = Date.parse(publishedAt);
-  if (!current || !Number.isFinite(releasedAt)) {
-    return false;
-  }
-  return laterReleases.some((release) => {
-    if (!release.publishedAt) {
-      return false;
-    }
-    const laterAt = Date.parse(release.publishedAt);
-    const laterVersion = versionFromReleaseTag(release.tag, tagPrefix);
-    const parsedLater = laterVersion ? parseVersion(laterVersion) : null;
-    if (!parsedLater || laterAt <= releasedAt || laterAt - releasedAt > windowHours * 60 * 60 * 1e3) {
-      return false;
-    }
-    return parsedLater.major === current.major && parsedLater.minor === current.minor && parsedLater.patch > current.patch && compareVersions(parsedLater, current) > 0;
-  });
-}
-function healthMarkdown(report) {
+function postReleaseVerificationMarkdown(report) {
   const icon = report.status === "healthy" ? "\u2705" : report.status === "degraded" ? "\u26A0\uFE0F" : report.status === "failed" ? "\u274C" : "\u2139\uFE0F";
   return [
-    `## SemVerge release health: ${icon} ${report.status}`,
+    `## SemVerge post-release verification: ${icon} ${report.status}`,
     "",
     ...report.checks.map((check) => `${check.status === "pass" ? "\u2705" : check.status === "warn" ? "\u26A0\uFE0F" : "\u274C"} **${check.name}** \u2014 ${check.detail}`),
     ""
@@ -11113,32 +11073,26 @@ async function checkLink(url) {
     clearTimeout(timeout);
   }
 }
-async function runReleaseHealth(client, releaseEvent, config) {
+async function runPostReleaseVerification(client, releaseEvent, config) {
   if (!config.health.enabled) {
-    log("Release health checks are disabled.");
+    log("Post-release verification is disabled.");
     return;
   }
   const releaseDetails = await client.getReleaseByTag(releaseEvent.tag_name);
   const targetCommit = releaseDetails?.target_commitish || releaseEvent.target_commitish || process.env.GITHUB_SHA || "";
   const workflowRuns = targetCommit ? await client.listWorkflowRuns(targetCommit) : [];
   const workflowObservations = workflowRuns.map((run2) => ({ name: run2.name, status: run2.status, conclusion: run2.conclusion, url: run2.html_url }));
-  const rollbackNames = new Set(config.health.workflows.filter((workflow) => workflow.purpose === "rollback").map((workflow) => workflow.name.toLowerCase()));
-  const rollbackDetected = workflowRuns.some((run2) => rollbackNames.has(run2.name.toLowerCase()) && run2.conclusion === "success");
   const links = await Promise.all(config.health.requiredLinks.map(async (url) => ({ url, status: await checkLink(url) })));
-  const laterReleases = (await client.listReleases()).filter((release) => release.tag_name !== releaseEvent.tag_name).map((release) => ({ tag: release.tag_name, publishedAt: release.published_at }));
-  const versionValue = versionFromReleaseTag(releaseEvent.tag_name, config.release.tagPrefix);
   const observation = {
     tag: releaseEvent.tag_name,
-    ...versionValue ? { version: versionValue } : {},
     assets: (releaseDetails?.assets ?? releaseEvent.assets ?? []).map((asset) => asset.name),
     workflows: workflowObservations,
-    links,
-    rollbackDetected,
-    hotfixDetected: detectRapidHotfix(versionValue, releaseDetails?.published_at ?? releaseEvent.published_at ?? void 0, laterReleases, config.release.tagPrefix, config.health.hotfixWindowHours)
+    links
   };
-  const report = evaluateReleaseHealth(config.health, observation);
-  const markdown = healthMarkdown(report);
+  const report = evaluatePostReleaseVerification(config.health, observation);
+  const markdown = postReleaseVerificationMarkdown(report);
   log(markdown.trim());
+  setOutput("post-release-verification", JSON.stringify(report));
   setOutput("health", JSON.stringify(report));
   const summaryFile = process.env.GITHUB_STEP_SUMMARY;
   if (summaryFile) {
@@ -11146,7 +11100,7 @@ async function runReleaseHealth(client, releaseEvent, config) {
 `, "utf8");
   }
   if (report.status === "failed") {
-    throw new Error(`Release health checks failed for ${releaseEvent.tag_name}.`);
+    throw new Error(`Post-release verification failed for ${releaseEvent.tag_name}.`);
   }
 }
 async function prepareRelease(client, head, config) {
@@ -11499,7 +11453,7 @@ async function run() {
     artifactCommand: input("artifact-command")
   });
   if (eventName === "release" && "release" in event && event.release && event.action === "published") {
-    await runReleaseHealth(client, event.release, config);
+    await runPostReleaseVerification(client, event.release, config);
     return;
   }
   if (eventName === "pull_request" && "pull_request" in event && event.pull_request && event.action === "closed" && event.pull_request.merged && isSemVergeReleasePullRequest(event.pull_request, config)) {
