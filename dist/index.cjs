@@ -11093,6 +11093,25 @@ function readEvent() {
 function isDryRun() {
   return input("dry-run").toLowerCase() === "true";
 }
+function localWorkspaceFile(path, ref) {
+  const workspace = process.env.GITHUB_WORKSPACE;
+  if (!workspace || ref !== void 0 && !/^[0-9a-f]{7,40}$/i.test(ref)) {
+    return void 0;
+  }
+  const absolute = (0, import_node_path3.resolve)(workspace, path);
+  const workspaceRelative = (0, import_node_path3.relative)(workspace, absolute);
+  if (workspaceRelative === ".." || workspaceRelative.startsWith(`..${import_node_path3.sep}`) || !(0, import_node_fs.existsSync)(absolute)) {
+    return void 0;
+  }
+  try {
+    return (0, import_node_fs.statSync)(absolute).isFile() ? (0, import_node_fs.readFileSync)(absolute, "utf8") : void 0;
+  } catch {
+    return void 0;
+  }
+}
+async function fileAtHead(client, path, ref) {
+  return localWorkspaceFile(path, ref) ?? await client.getFile(path, ref);
+}
 async function localCommitFiles(sha) {
   const workspace = process.env.GITHUB_WORKSPACE;
   if (!workspace || !sha || !/^[0-9a-f]{7,40}$/i.test(sha) || !(0, import_node_fs.existsSync)((0, import_node_path3.join)(workspace, ".git"))) {
@@ -11119,7 +11138,7 @@ async function pullRequestChange(client, pr) {
     files: localFiles ?? await client.listPullRequestFiles(pr.number)
   });
 }
-function commitChange(commit) {
+function commitChange(commit, files) {
   return parseChange({
     title: commit.commit.message.split(/\r?\n/, 1)[0] ?? commit.commit.message,
     body: commit.commit.message,
@@ -11127,7 +11146,8 @@ function commitChange(commit) {
     sha: commit.sha,
     url: commit.html_url,
     author: commit.commit.author?.name,
-    mergedAt: commit.commit.author?.date
+    mergedAt: commit.commit.author?.date,
+    files
   });
 }
 async function limitedMap(values, limit, mapper) {
@@ -11144,7 +11164,7 @@ async function changesSinceTag(client, head, tag) {
   const associations = await limitedMap(commits, 8, async (commit) => ({ commit, pullRequests: await client.commitPullRequests(commit.sha) }));
   for (const { commit, pullRequests: associated } of associations) {
     if (associated.length === 0) {
-      changes.push(commitChange(commit));
+      changes.push(commitChange(commit, await localCommitFiles(commit.sha)));
       continue;
     }
     for (const pr of associated) {
@@ -11170,7 +11190,7 @@ async function latestReleaseTag(client, config) {
   return selected?.name ?? null;
 }
 async function loadConfig(client, path, ref) {
-  const content = await client.getFile(path, ref);
+  const content = await fileAtHead(client, path, ref);
   return content ? parseConfig(content, path) : parseConfig("");
 }
 function releasePrBody(plan, config) {
@@ -11269,7 +11289,7 @@ async function prepareRelease(client, head, config) {
   const repositoryTree = await client.getTree(baseCommit.tree.sha);
   const allPaths = repositoryTree.filter((entry) => entry.type === "blob").map((entry) => entry.path);
   const manifestPaths = allPaths.filter((path) => path === "package.json" || path.endsWith("/package.json") || path === "pyproject.toml" || path.endsWith("/pyproject.toml") || path === "Cargo.toml" || path.endsWith("/Cargo.toml") || path === "pnpm-workspace.yaml");
-  const manifestEntries = await Promise.all(manifestPaths.map(async (path) => [path, await client.getFile(path, head)]));
+  const manifestEntries = await Promise.all(manifestPaths.map(async (path) => [path, await fileAtHead(client, path, head)]));
   const manifestFiles = Object.fromEntries(manifestEntries.flatMap(([path, content]) => content === null ? [] : [[path, content]]));
   const discovered = discoverPackages(manifestFiles, allPaths, config);
   const changes = await changesSinceTag(client, head, await latestReleaseTag(client, config));
@@ -11290,7 +11310,7 @@ async function prepareRelease(client, head, config) {
     ...effectiveConfig.readiness.requiredFiles,
     ...effectiveConfig.readiness.tasks.flatMap((task) => task.file ? [task.file] : [])
   ])];
-  const fileEntries = await Promise.all(neededPaths.map(async (path) => [path, await client.getFile(path, head)]));
+  const fileEntries = await Promise.all(neededPaths.map(async (path) => [path, await fileAtHead(client, path, head)]));
   const files = {
     ...manifestFiles,
     ...Object.fromEntries(fileEntries.flatMap(([path, content]) => content === null ? [] : [[path, content]]))
