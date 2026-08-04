@@ -1,14 +1,14 @@
-import { bumpForChange } from "./changes.js";
+﻿import { bumpForChange } from "./changes.js";
 import { DEFAULT_CONFIG } from "./config.js";
 import { evaluateReadiness } from "./readiness.js";
 import { bumpVersion, highestBump } from "./semver.js";
 import { renderAnnouncement, renderChangelogSection, renderCustomerNotes, renderInternalSummary, renderMigrationGuide, prependChangelog } from "./notes.js";
-import type { ReadinessContext, ReleaseChange, ReleasePlan, ReleaseRailConfig } from "./types.js";
+import type { ReadinessContext, ReleaseChange, ReleasePlan, SemVergeConfig } from "./types.js";
 
 export interface BuildReleasePlanInput {
   currentVersion: string;
   changes: ReleaseChange[];
-  config?: ReleaseRailConfig;
+  config?: SemVergeConfig;
   existingChangelog?: string;
   date?: string;
   readinessContext?: ReadinessContext;

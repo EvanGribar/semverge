@@ -1,9 +1,9 @@
-import { parse as parseYaml } from "yaml";
-import type { ArtifactConfig, HealthWorkflow, OutputConfig, ReadinessCommand, ReadinessTask, ReleaseRailConfig } from "./types.js";
+﻿import { parse as parseYaml } from "yaml";
+import type { ArtifactConfig, HealthWorkflow, OutputConfig, ReadinessCommand, ReadinessTask, SemVergeConfig } from "./types.js";
 
-export const DEFAULT_CONFIG: ReleaseRailConfig = {
+export const DEFAULT_CONFIG: SemVergeConfig = {
   release: {
-    branch: "releaserail/release",
+    branch: "semverge/release",
     tagPrefix: "v",
     independentTagPrefix: "pkg-"
   },
@@ -17,7 +17,7 @@ export const DEFAULT_CONFIG: ReleaseRailConfig = {
     changelog: "CHANGELOG.md",
     customerNotes: "RELEASE_NOTES.md",
     migrationGuide: "MIGRATION.md",
-    internalSummary: ".releaserail/internal-release.md",
+    internalSummary: ".semverge/internal-release.md",
     manifest: "release-manifest.json",
     announcement: "RELEASE_ANNOUNCEMENT.md"
   },
@@ -112,7 +112,7 @@ function positiveNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
 }
 
-function mergeConfig(raw: unknown): ReleaseRailConfig {
+function mergeConfig(raw: unknown): SemVergeConfig {
   if (!raw || typeof raw !== "object") {
     return DEFAULT_CONFIG;
   }
@@ -126,7 +126,7 @@ function mergeConfig(raw: unknown): ReleaseRailConfig {
   const publishing = object.publishing && typeof object.publishing === "object" ? object.publishing as Record<string, unknown> : {};
   const npm = publishing.npm && typeof publishing.npm === "object" ? publishing.npm as Record<string, unknown> : {};
 
-  const result: ReleaseRailConfig = {
+  const result: SemVergeConfig = {
     release: {
       branch: typeof release.branch === "string" && release.branch.trim() ? release.branch.trim() : DEFAULT_CONFIG.release.branch,
       tagPrefix: typeof release.tagPrefix === "string" ? release.tagPrefix : DEFAULT_CONFIG.release.tagPrefix,
@@ -179,7 +179,7 @@ function mergeConfig(raw: unknown): ReleaseRailConfig {
   return result;
 }
 
-export function parseConfig(content: string, fileName = ".releaserail.yml"): ReleaseRailConfig {
+export function parseConfig(content: string, fileName = ".semverge.yml"): SemVergeConfig {
   if (!content.trim()) {
     return DEFAULT_CONFIG;
   }
@@ -192,8 +192,8 @@ export function parseConfig(content: string, fileName = ".releaserail.yml"): Rel
   return mergeConfig(raw);
 }
 
-export function withOverrides(config: ReleaseRailConfig, overrides: { prerelease?: string; artifactCommand?: string }): ReleaseRailConfig {
-  const result: ReleaseRailConfig = {
+export function withOverrides(config: SemVergeConfig, overrides: { prerelease?: string; artifactCommand?: string }): SemVergeConfig {
+  const result: SemVergeConfig = {
     release: { ...config.release },
     readiness: { ...config.readiness, requiredLabels: [...config.readiness.requiredLabels], requiredFiles: [...config.readiness.requiredFiles], commands: [...config.readiness.commands], tasks: [...config.readiness.tasks] },
     outputs: { ...config.outputs },

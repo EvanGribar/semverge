@@ -1,4 +1,4 @@
-name: ReleaseRail
+﻿name: SemVerge
 description: Version, prepare, and publish GitHub releases with zero configuration.
 author: Evan Gribar
 branding:
@@ -10,9 +10,9 @@ inputs:
     required: false
     default: ${{ github.token }}
   config:
-    description: Optional ReleaseRail configuration file. Defaults to .releaserail.yml when present.
+    description: Optional SemVerge configuration file. Defaults to .semverge.yml when present.
     required: false
-    default: .releaserail.yml
+    default: .semverge.yml
   prerelease:
     description: Optional prerelease channel, such as beta or rc.
     required: false
@@ -25,7 +25,7 @@ inputs:
     default: 'false'
 outputs:
   version:
-    description: The version calculated or published by ReleaseRail.
+    description: The version calculated or published by SemVerge.
   release-pr:
     description: URL of the maintained release pull request, when one is created.
   release-url:

@@ -1,4 +1,4 @@
-import { compareVersions, parseVersion } from "./semver.js";
+﻿import { compareVersions, parseVersion } from "./semver.js";
 import type { HealthConfig } from "./types.js";
 
 export type HealthCheckStatus = "pass" | "warn" | "fail";
@@ -122,11 +122,11 @@ export function detectRapidHotfix(releaseVersion: string | undefined, publishedA
 }
 
 export function healthMarkdown(report: ReleaseHealthReport): string {
-  const icon = report.status === "healthy" ? "✅" : report.status === "degraded" ? "⚠️" : report.status === "failed" ? "❌" : "ℹ️";
+  const icon = report.status === "healthy" ? "âœ…" : report.status === "degraded" ? "âš ï¸" : report.status === "failed" ? "âŒ" : "â„¹ï¸";
   return [
-    `## ReleaseRail release health: ${icon} ${report.status}`,
+    `## SemVerge release health: ${icon} ${report.status}`,
     "",
-    ...report.checks.map((check) => `${check.status === "pass" ? "✅" : check.status === "warn" ? "⚠️" : "❌"} **${check.name}** — ${check.detail}`),
+    ...report.checks.map((check) => `${check.status === "pass" ? "âœ…" : check.status === "warn" ? "âš ï¸" : "âŒ"} **${check.name}** â€” ${check.detail}`),
     ""
   ].join("\n");
 }

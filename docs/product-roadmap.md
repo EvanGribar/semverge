@@ -1,8 +1,8 @@
-# ReleaseRail product roadmap
+﻿# SemVerge product roadmap
 
 ## Positioning
 
-ReleaseRail is the easiest way to version, prepare, and publish a software release on GitHub. It is a release path, not a launch-management workspace.
+SemVerge is the easiest way to version, prepare, and publish a software release on GitHub. It is a release path, not a launch-management workspace.
 
 ## Delivered foundation
 

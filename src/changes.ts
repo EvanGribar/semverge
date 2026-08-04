@@ -1,4 +1,4 @@
-import { parseReleaseRailMetadata } from "./metadata.js";
+﻿import { parseSemVergeMetadata } from "./metadata.js";
 import type { BumpLevel, ChangeInput, ReleaseChange, ReleaseKind } from "./types.js";
 
 const HEADER_PATTERN = /^(?<type>[a-z]+)(?:\((?<scope>[^)]+)\))?(?<breaking>!)?:\s*(?<description>.+)$/i;
@@ -89,7 +89,7 @@ export function parseChange(input: ChangeInput): ReleaseChange {
   const body = input.body ?? "";
   const labels = normalizeLabels(input.labels);
   const parsed = parseTitle(input.title);
-  const metadata = parseReleaseRailMetadata(body);
+  const metadata = parseSemVergeMetadata(body);
   const overriddenKind = labelKind(labels);
   const kind = metadata.type ?? overriddenKind ?? parsed.kind;
   const breaking = metadata.breaking ?? (labels.includes("ship:breaking") || parsed.breaking || hasBreakingFooter(body) || kind === "breaking");

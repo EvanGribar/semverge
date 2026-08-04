@@ -1,4 +1,4 @@
-export type ReleaseKind = "feature" | "fix" | "breaking" | "docs" | "internal" | "other";
+﻿export type ReleaseKind = "feature" | "fix" | "breaking" | "docs" | "internal" | "other";
 
 export type BumpLevel = "none" | "patch" | "minor" | "major";
 
@@ -6,7 +6,7 @@ export type Ecosystem = "node" | "python" | "rust";
 
 export type MonorepoMode = "auto" | "single" | "fixed" | "independent";
 
-export interface ReleaseRailMetadata {
+export interface SemVergeMetadata {
   type?: ReleaseKind;
   customer?: string;
   migration?: string;
@@ -125,7 +125,7 @@ export interface PublishingConfig {
   npm: NpmPublishConfig;
 }
 
-export interface ReleaseRailConfig {
+export interface SemVergeConfig {
   release: ReleaseConfig;
   readiness: ReadinessConfig;
   outputs: OutputConfig;
