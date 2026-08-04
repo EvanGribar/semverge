@@ -154,7 +154,7 @@ async function recover(cwd: string, id: string, statePath: string | undefined, i
 
   const repository = process.env.GITHUB_REPOSITORY;
   const token = process.env.GITHUB_TOKEN ?? process.env.INPUT_GITHUB_TOKEN ?? "";
-  if (repository) {
+  if (repository && !statePath) {
     const client = new GitHubClient(token, repository);
     const releases = await client.listReleases();
     for (const release of releases) {

@@ -11451,18 +11451,34 @@ function parseReleaseTransaction(value) {
     updatedAt: record.updatedAt
   };
 }
-function parseReleaseTransactionBody(body) {
-  const match = body?.match(/<!-- semverge-progress ([\s\S]*?) -->/);
-  if (!match) {
+function findTransactionMarker(body) {
+  const start = body.indexOf(RELEASE_TRANSACTION_MARKER);
+  if (start < 0) {
     return null;
   }
-  let value;
-  try {
-    value = JSON.parse(match[1] ?? "");
-  } catch (error) {
-    throw new Error(`SemVerge found an invalid release transaction marker: ${error instanceof Error ? error.message : String(error)}`);
+  const payloadStart = start + RELEASE_TRANSACTION_MARKER.length;
+  let delimiter = body.indexOf(" -->", payloadStart);
+  let lastError;
+  while (delimiter >= 0) {
+    const payload = body.slice(payloadStart, delimiter);
+    try {
+      return { start, end: delimiter + " -->".length, value: JSON.parse(payload) };
+    } catch (error) {
+      lastError = error;
+      delimiter = body.indexOf(" -->", delimiter + " -->".length);
+    }
   }
-  return parseReleaseTransaction(value);
+  throw new Error(`SemVerge found an invalid release transaction marker: ${lastError instanceof Error ? lastError.message : "missing marker terminator"}`);
+}
+function parseReleaseTransactionBody(body) {
+  if (body === void 0 || body === null) {
+    return null;
+  }
+  const marker = findTransactionMarker(body);
+  if (!marker) {
+    return null;
+  }
+  return parseReleaseTransaction(marker.value);
 }
 function releaseTransactionMarker(state) {
   return `${RELEASE_TRANSACTION_MARKER}${JSON.stringify(state)} -->`;
@@ -11477,8 +11493,8 @@ ${releaseTransactionSummaryMarkdown(state)}
 }
 function updateReleaseTransactionBody(body, state) {
   const marker = releaseTransactionMarker(state);
-  const markerMatch = body.match(/<!-- semverge-progress [\s\S]*? -->/);
-  if (!markerMatch || markerMatch.index === void 0) {
+  const existingMarker = findTransactionMarker(body);
+  if (!existingMarker) {
     return `${marker}
 
 ${body.trim()}
@@ -11486,8 +11502,10 @@ ${body.trim()}
 ${releaseTransactionSummaryMarkdown(state)}
 `;
   }
-  const afterMarker = body.slice(markerMatch.index + markerMatch[0].length).replace(/\n*### SemVerge transaction[\s\S]*$/, "").trimEnd();
-  return `${body.slice(0, markerMatch.index)}${marker}${afterMarker}
+  const afterMarker = body.slice(existingMarker.end);
+  const summaryStart = afterMarker.lastIndexOf("\n### SemVerge transaction");
+  const customerNotes = (summaryStart >= 0 ? afterMarker.slice(0, summaryStart) : afterMarker).trimEnd();
+  return `${body.slice(0, existingMarker.start)}${marker}${customerNotes}
 
 ${releaseTransactionSummaryMarkdown(state)}
 `;

@@ -79,10 +79,16 @@ describe("SemVerge CLI", () => {
       const statePath = join(directory, "state.json");
       writeFileSync(statePath, JSON.stringify(state));
       const output = capture();
+      const previousRepository = process.env.GITHUB_REPOSITORY;
+      process.env.GITHUB_REPOSITORY = "demo/repo";
 
-      expect(await runCli(["recover", state.id, "--state", "state.json"], directory, output.io)).toBe(0);
-      expect(output.stdout.join("\n")).toContain("State: **planned**");
-      expect(output.stdout.join("\n")).toContain("Safe next action:");
+      try {
+        expect(await runCli(["recover", state.id, "--state", "state.json"], directory, output.io)).toBe(0);
+        expect(output.stdout.join("\n")).toContain("State: **planned**");
+        expect(output.stdout.join("\n")).toContain("Safe next action:");
+      } finally {
+        if (previousRepository === undefined) delete process.env.GITHUB_REPOSITORY; else process.env.GITHUB_REPOSITORY = previousRepository;
+      }
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
