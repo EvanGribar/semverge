@@ -1,5 +1,5 @@
-# SemVerge release announcement: 0.1.9
+# SemVerge release announcement: 0.1.10
 
-SemVerge 0.1.9 includes:
+SemVerge 0.1.10 includes:
 
-- verify releases after transactional publication
+- require the release workspace commit
