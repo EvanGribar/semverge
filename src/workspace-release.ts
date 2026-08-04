@@ -70,7 +70,10 @@ function affectsPackage(change: ReleaseChange, packageItem: PackageDescriptor, c
   if (files.length === 0) {
     return config.monorepo.unscopedChanges === "all";
   }
-  return files.some((file) => packageOwner(file, workspaceDirectories) === (packageItem.directory || undefined));
+  return files.some((file) => {
+    const owner = packageOwner(file, workspaceDirectories);
+    return owner === (packageItem.directory || undefined) || (!owner && config.monorepo.unscopedChanges === "all");
+  });
 }
 
 function packageConfig(config: SemVergeConfig, packageItem: PackageDescriptor, mode: "single" | "fixed" | "independent"): SemVergeConfig {
