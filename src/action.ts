@@ -37,7 +37,8 @@ interface ReleaseEvent {
 }
 
 function input(name: string): string {
-  return process.env[`INPUT_${name.toUpperCase().replace(/[\s-]+/g, "_")}`]?.trim() ?? "";
+  const normalized = name.toUpperCase().replace(/\s+/g, "_");
+  return process.env[`INPUT_${normalized}`]?.trim() ?? process.env[`INPUT_${normalized.replace(/-/g, "_")}`]?.trim() ?? "";
 }
 
 function setOutput(name: string, value: string): void {
@@ -667,7 +668,6 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
 
 export async function run(): Promise<void> {
   const token = input("github-token") || process.env.GITHUB_TOKEN || "";
-  log(`GitHub token configured: ${token.length > 0}`);
   const repository = process.env.GITHUB_REPOSITORY;
   if (!repository) {
     throw new Error("GITHUB_REPOSITORY is required.");

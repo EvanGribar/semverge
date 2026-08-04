@@ -73,7 +73,7 @@ describe("GitHub Action orchestration", () => {
     }));
 
     const previous = new Map<string, string | undefined>();
-    for (const [key, value] of Object.entries({ GITHUB_API_URL: "https://api.github.test", GITHUB_REPOSITORY: "demo/repo", GITHUB_EVENT_NAME: "push", GITHUB_SHA: "head-sha", GITHUB_EVENT_PATH: eventPath, GITHUB_OUTPUT: outputPath, INPUT_GITHUB_TOKEN: "test-token", INPUT_CONFIG: ".semverge.yml" })) {
+    for (const [key, value] of Object.entries({ GITHUB_API_URL: "https://api.github.test", GITHUB_REPOSITORY: "demo/repo", GITHUB_EVENT_NAME: "push", GITHUB_SHA: "head-sha", GITHUB_EVENT_PATH: eventPath, GITHUB_OUTPUT: outputPath, "INPUT_GITHUB-TOKEN": "test-token", INPUT_CONFIG: ".semverge.yml" })) {
       previous.set(key, process.env[key]);
       process.env[key] = value;
     }
