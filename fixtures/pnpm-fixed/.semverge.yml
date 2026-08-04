@@ -1,0 +1,7 @@
+monorepo:
+  mode: fixed
+  packages: [packages/*]
+  includeRoot: true
+  unscopedChanges: all
+release:
+  branch: semverge/release

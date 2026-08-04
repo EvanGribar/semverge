@@ -1,0 +1,4 @@
+monorepo:
+  mode: single
+release:
+  branch: semverge/release

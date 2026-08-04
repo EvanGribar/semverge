@@ -1,0 +1,6 @@
+{
+  "name": "@semverge-fixture/fixed-root",
+  "version": "2.3.0",
+  "private": true,
+  "packageManager": "pnpm@10.32.1"
+}

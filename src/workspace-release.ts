@@ -1,4 +1,5 @@
 import { basename, dirname, posix } from "node:path";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { buildReleasePlan } from "./release.js";
 import { type PackageDescriptor } from "./packages.js";
 import { targetFromDescriptor, updateTargetVersion } from "./version-adapters.js";
@@ -136,9 +137,139 @@ function mergeReadiness(reports: ReadinessReport[]): ReadinessReport {
   };
 }
 
+function objectValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function updateDependencyRange(range: string, version: string): string {
+  const protocol = range.startsWith("workspace:") ? "workspace:" : "";
+  const value = protocol ? range.slice(protocol.length) : range;
+  if (value === "*" || value === "^" || value === "~") {
+    return range;
+  }
+  const updated = value.replace(/\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?/, version);
+  return protocol ? `${protocol}${updated}` : updated;
+}
+
+function updateInternalDependencyRanges(files: Record<string, string>, packages: PackageDescriptor[], versions: Map<string, string>): VersionFileChange[] {
+  const byName = new Map(packages.filter((item) => item.ecosystem === "node").map((item) => [item.name, item]));
+  const changes: VersionFileChange[] = [];
+  for (const packageItem of packages.filter((item) => item.ecosystem === "node")) {
+    const content = files[packageItem.manifestPath];
+    if (content === undefined) {
+      continue;
+    }
+    let manifest: Record<string, unknown>;
+    try {
+      const parsed: unknown = JSON.parse(content);
+      const object = objectValue(parsed);
+      if (!object) {
+        continue;
+      }
+      manifest = object;
+    } catch {
+      continue;
+    }
+    let changed = false;
+    for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+      const dependencies = objectValue(manifest[field]);
+      if (!dependencies) {
+        continue;
+      }
+      for (const [name, range] of Object.entries(dependencies)) {
+        const dependency = byName.get(name);
+        const version = dependency ? versions.get(dependency.manifestPath) : undefined;
+        if (!version || typeof range !== "string") {
+          continue;
+        }
+        const updated = updateDependencyRange(range, version);
+        if (updated !== range) {
+          dependencies[name] = updated;
+          changed = true;
+        }
+      }
+    }
+    if (changed) {
+      changes.push({ path: packageItem.manifestPath, content: `${JSON.stringify(manifest, null, 2)}\n` });
+    }
+  }
+  return changes;
+}
+
+function updatePnpmLock(content: string, packages: PackageDescriptor[], versions: Map<string, string>): string | null {
+  let parsed: unknown;
+  try {
+    parsed = parseYaml(content);
+  } catch {
+    return null;
+  }
+  const lock = objectValue(parsed);
+  const importers = objectValue(lock?.importers);
+  if (!lock || !importers) {
+    return null;
+  }
+  const byName = new Map(packages.filter((item) => item.ecosystem === "node").map((item) => [item.name, item]));
+  const byDirectory = new Map(packages.filter((item) => item.ecosystem === "node").map((item) => [item.directory || ".", item]));
+  let changed = false;
+  for (const [directory, importerValue] of Object.entries(importers)) {
+    const importer = objectValue(importerValue);
+    if (!importer) {
+      continue;
+    }
+    const packageItem = byDirectory.get(directory);
+    if (packageItem) {
+      const version = versions.get(packageItem.manifestPath);
+      if (version && typeof importer.version === "string") {
+        const updated = updateDependencyRange(importer.version, version);
+        if (updated !== importer.version) {
+          importer.version = updated;
+          changed = true;
+        }
+      }
+    }
+    for (const field of ["specifiers", "dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
+      const dependencies = objectValue(importer[field]);
+      if (!dependencies) {
+        continue;
+      }
+      for (const [name, value] of Object.entries(dependencies)) {
+        const dependency = byName.get(name);
+        const version = dependency ? versions.get(dependency.manifestPath) : undefined;
+        if (!version) {
+          continue;
+        }
+        if (typeof value === "string") {
+          const updated = updateDependencyRange(value, version);
+          if (updated !== value) {
+            dependencies[name] = updated;
+            changed = true;
+          }
+          continue;
+        }
+        const dependencyRecord = objectValue(value);
+        if (!dependencyRecord) {
+          continue;
+        }
+        for (const key of ["specifier", "version"]) {
+          const current = dependencyRecord[key];
+          if (typeof current !== "string") {
+            continue;
+          }
+          const updated = updateDependencyRange(current, version);
+          if (updated !== current) {
+            dependencyRecord[key] = updated;
+            changed = true;
+          }
+        }
+      }
+    }
+  }
+  return changed ? stringifyYaml(lock) : null;
+}
+
 function updateNodeLocks(files: Record<string, string>, packages: PackageDescriptor[], versions: Map<string, string>): VersionFileChange[] {
   const changes: VersionFileChange[] = [];
-  const lockPaths = new Set(["package-lock.json", "npm-shrinkwrap.json"]);
+  const lockPaths = new Set(["package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml"]);
   for (const packageItem of packages.filter((item) => item.ecosystem === "node" && item.directory)) {
     lockPaths.add(`${packageItem.directory}/package-lock.json`);
     lockPaths.add(`${packageItem.directory}/npm-shrinkwrap.json`);
@@ -146,6 +277,13 @@ function updateNodeLocks(files: Record<string, string>, packages: PackageDescrip
   for (const path of lockPaths) {
     const content = files[path];
     if (content === undefined) {
+      continue;
+    }
+    if (path === "pnpm-lock.yaml") {
+      const updated = updatePnpmLock(content, packages, versions);
+      if (updated && updated !== content) {
+        changes.push({ path, content: updated });
+      }
       continue;
     }
     let lock: Record<string, unknown>;
@@ -307,6 +445,13 @@ export function buildWorkspaceReleasePlan(input: BuildWorkspaceReleasePlanInput)
         }
       }
     }
+  }
+  const dependencyFiles: Record<string, string> = { ...input.files };
+  for (const [path, change] of versionChangeMap) {
+    dependencyFiles[path] = change.content;
+  }
+  for (const change of updateInternalDependencyRanges(dependencyFiles, input.packages, versionMap)) {
+    versionChangeMap.set(change.path, change);
   }
   for (const change of updateNodeLocks(input.files, input.packages, versionMap)) {
     versionChangeMap.set(change.path, change);

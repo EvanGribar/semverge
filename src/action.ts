@@ -249,6 +249,7 @@ async function prepareRelease(client: GitHubClient, head: string, config: SemVer
     ...Object.keys(manifestFiles),
     "package-lock.json",
     "npm-shrinkwrap.json",
+    "pnpm-lock.yaml",
     ...discovered.packages.filter((packageItem) => packageItem.ecosystem === "node" && packageItem.directory).flatMap((packageItem) => [`${packageItem.directory}/package-lock.json`, `${packageItem.directory}/npm-shrinkwrap.json`]),
     ...Object.values(effectiveConfig.outputs),
     ...packageOutputPaths,

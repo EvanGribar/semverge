@@ -1,0 +1,8 @@
+release:
+  branch: release/bot
+health:
+  enabled: false
+publishing:
+  npm:
+    enabled: true
+    command: node scripts/publish-fixture.cjs
