@@ -10404,6 +10404,7 @@ function discoverPackages(files, allPaths, config) {
 
 // src/workspace-release.ts
 var import_node_path2 = require("node:path");
+var import_yaml3 = __toESM(require_dist(), 1);
 
 // src/notes.ts
 function section(title, changes) {
@@ -10662,9 +10663,136 @@ function mergeReadiness(reports) {
     requestedTasks: [...new Set(reports.flatMap((report) => report.requestedTasks))]
   };
 }
+function objectValue(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function updateDependencyRange(range, version) {
+  const protocol = range.startsWith("workspace:") ? "workspace:" : "";
+  const value = protocol ? range.slice(protocol.length) : range;
+  if (value === "*" || value === "^" || value === "~") {
+    return range;
+  }
+  const updated = value.replace(/\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?/, version);
+  return protocol ? `${protocol}${updated}` : updated;
+}
+function updateInternalDependencyRanges(files, packages, versions) {
+  const byName = new Map(packages.filter((item) => item.ecosystem === "node").map((item) => [item.name, item]));
+  const changes = [];
+  for (const packageItem of packages.filter((item) => item.ecosystem === "node")) {
+    const content = files[packageItem.manifestPath];
+    if (content === void 0) {
+      continue;
+    }
+    let manifest;
+    try {
+      const parsed = JSON.parse(content);
+      const object = objectValue(parsed);
+      if (!object) {
+        continue;
+      }
+      manifest = object;
+    } catch {
+      continue;
+    }
+    let changed = false;
+    for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+      const dependencies = objectValue(manifest[field]);
+      if (!dependencies) {
+        continue;
+      }
+      for (const [name, range] of Object.entries(dependencies)) {
+        const dependency = byName.get(name);
+        const version = dependency ? versions.get(dependency.manifestPath) : void 0;
+        if (!version || typeof range !== "string") {
+          continue;
+        }
+        const updated = updateDependencyRange(range, version);
+        if (updated !== range) {
+          dependencies[name] = updated;
+          changed = true;
+        }
+      }
+    }
+    if (changed) {
+      changes.push({ path: packageItem.manifestPath, content: `${JSON.stringify(manifest, null, 2)}
+` });
+    }
+  }
+  return changes;
+}
+function updatePnpmLock(content, packages, versions) {
+  let parsed;
+  try {
+    parsed = (0, import_yaml3.parse)(content);
+  } catch {
+    return null;
+  }
+  const lock = objectValue(parsed);
+  const importers = objectValue(lock?.importers);
+  if (!lock || !importers) {
+    return null;
+  }
+  const byName = new Map(packages.filter((item) => item.ecosystem === "node").map((item) => [item.name, item]));
+  const byDirectory = new Map(packages.filter((item) => item.ecosystem === "node").map((item) => [item.directory || ".", item]));
+  let changed = false;
+  for (const [directory, importerValue] of Object.entries(importers)) {
+    const importer = objectValue(importerValue);
+    if (!importer) {
+      continue;
+    }
+    const packageItem = byDirectory.get(directory);
+    if (packageItem) {
+      const version = versions.get(packageItem.manifestPath);
+      if (version && typeof importer.version === "string") {
+        const updated = updateDependencyRange(importer.version, version);
+        if (updated !== importer.version) {
+          importer.version = updated;
+          changed = true;
+        }
+      }
+    }
+    for (const field of ["specifiers", "dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
+      const dependencies = objectValue(importer[field]);
+      if (!dependencies) {
+        continue;
+      }
+      for (const [name, value] of Object.entries(dependencies)) {
+        const dependency = byName.get(name);
+        const version = dependency ? versions.get(dependency.manifestPath) : void 0;
+        if (!version) {
+          continue;
+        }
+        if (typeof value === "string") {
+          const updated = updateDependencyRange(value, version);
+          if (updated !== value) {
+            dependencies[name] = updated;
+            changed = true;
+          }
+          continue;
+        }
+        const dependencyRecord = objectValue(value);
+        if (!dependencyRecord) {
+          continue;
+        }
+        for (const key of ["specifier", "version"]) {
+          const current = dependencyRecord[key];
+          if (typeof current !== "string") {
+            continue;
+          }
+          const updated = updateDependencyRange(current, version);
+          if (updated !== current) {
+            dependencyRecord[key] = updated;
+            changed = true;
+          }
+        }
+      }
+    }
+  }
+  return changed ? (0, import_yaml3.stringify)(lock) : null;
+}
 function updateNodeLocks(files, packages, versions) {
   const changes = [];
-  const lockPaths = /* @__PURE__ */ new Set(["package-lock.json", "npm-shrinkwrap.json"]);
+  const lockPaths = /* @__PURE__ */ new Set(["package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml"]);
   for (const packageItem of packages.filter((item) => item.ecosystem === "node" && item.directory)) {
     lockPaths.add(`${packageItem.directory}/package-lock.json`);
     lockPaths.add(`${packageItem.directory}/npm-shrinkwrap.json`);
@@ -10672,6 +10800,13 @@ function updateNodeLocks(files, packages, versions) {
   for (const path of lockPaths) {
     const content = files[path];
     if (content === void 0) {
+      continue;
+    }
+    if (path === "pnpm-lock.yaml") {
+      const updated = updatePnpmLock(content, packages, versions);
+      if (updated && updated !== content) {
+        changes.push({ path, content: updated });
+      }
       continue;
     }
     let lock;
@@ -10830,6 +10965,13 @@ function buildWorkspaceReleasePlan(input2) {
         }
       }
     }
+  }
+  const dependencyFiles = { ...input2.files };
+  for (const [path, change] of versionChangeMap) {
+    dependencyFiles[path] = change.content;
+  }
+  for (const change of updateInternalDependencyRanges(dependencyFiles, input2.packages, versionMap)) {
+    versionChangeMap.set(change.path, change);
   }
   for (const change of updateNodeLocks(input2.files, input2.packages, versionMap)) {
     versionChangeMap.set(change.path, change);
@@ -11128,6 +11270,7 @@ async function prepareRelease(client, head, config) {
     ...Object.keys(manifestFiles),
     "package-lock.json",
     "npm-shrinkwrap.json",
+    "pnpm-lock.yaml",
     ...discovered.packages.filter((packageItem) => packageItem.ecosystem === "node" && packageItem.directory).flatMap((packageItem) => [`${packageItem.directory}/package-lock.json`, `${packageItem.directory}/npm-shrinkwrap.json`]),
     ...Object.values(effectiveConfig.outputs),
     ...packageOutputPaths,

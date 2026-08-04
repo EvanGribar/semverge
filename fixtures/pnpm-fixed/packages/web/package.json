@@ -1,0 +1,7 @@
+{
+  "name": "@semverge-fixture/fixed-web",
+  "version": "2.3.0",
+  "dependencies": {
+    "@semverge-fixture/fixed-core": "workspace:*"
+  }
+}

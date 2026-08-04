@@ -118,7 +118,8 @@ describe("package discovery and workspace releases", () => {
     const files = {
       "package.json": JSON.stringify({ name: "demo", version: "1.0.0", private: true, workspaces: ["packages/*"] }),
       "packages/one/package.json": JSON.stringify({ name: "@demo/one", version: "1.0.0" }),
-      "packages/two/package.json": JSON.stringify({ name: "@demo/two", version: "1.0.0", dependencies: { "@demo/one": "^1.0.0" } })
+      "packages/two/package.json": JSON.stringify({ name: "@demo/two", version: "1.0.0", dependencies: { "@demo/one": "^1.0.0" } }),
+      "pnpm-lock.yaml": "lockfileVersion: '9.0'\nimporters:\n  .: {}\n  packages/one: {}\n  packages/two:\n    dependencies:\n      '@demo/one':\n        specifier: ^1.0.0\n        version: 1.0.0\n"
     };
     const config = { ...DEFAULT_CONFIG, monorepo: { ...DEFAULT_CONFIG.monorepo, mode: "independent" as const } };
     const discovered = discoverPackages(files, Object.keys(files), config);
@@ -133,6 +134,8 @@ describe("package discovery and workspace releases", () => {
     const two = plan.packages.find((item) => item.package.name === "@demo/two");
     expect(two?.plan.version).toBe("1.0.1");
     expect(two?.plan.releaseChanges.some((change) => change.dependencyUpdate)).toBe(true);
+    expect(plan.versionChanges.some((change) => change.path === "packages/two/package.json" && change.content.includes('"@demo/one": "^1.0.1"'))).toBe(true);
+    expect(plan.versionChanges.some((change) => change.path === "pnpm-lock.yaml" && change.content.includes("version: 1.0.1"))).toBe(true);
   });
 });
 

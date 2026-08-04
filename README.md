@@ -1,10 +1,10 @@
 # SemVerge
 
-SemVerge is the easiest way to version, prepare, and publish a software release on GitHub.
+SemVerge is release automation that understands whether a release is ready and what customers need to know.
 
-It owns the complete release path:
+Its release PR is the control center for versioning, customer communication, migration requirements, and release readiness:
 
-`detect changes → choose version → prepare release → verify readiness → generate communication → publish`
+`detect changes -> choose version -> prepare release -> verify readiness -> communicate -> publish`
 
 ## Quick start
 
@@ -37,7 +37,7 @@ jobs:
       - uses: EvanGribar/semverge@v0.1.4
 ```
 
-On pushes to `main`, SemVerge reads conventional commits and merged pull requests, calculates the next semantic version, and maintains a release pull request. When that pull request merges, SemVerge builds artifacts, prepares a draft release, publishes configured packages, uploads assets, and only then publishes the GitHub release. A durable progress marker in the draft release lets retries resume completed steps.
+On pushes to `main`, SemVerge reads conventional commits and merged pull requests, calculates the next semantic version, and maintains a release pull request. When that pull request merges, SemVerge builds artifacts, prepares a draft release, publishes configured npm packages, uploads assets, and only then publishes the GitHub release. A durable progress marker in the draft release lets retries resume completed steps.
 
 The default repository needs no configuration. SemVerge also understands product-oriented labels:
 
@@ -135,7 +135,9 @@ Configured commands and artifact commands run in the runner workspace. The zero-
 
 ## Current scope
 
-The current foundation supports Node.js single-package repositories, fixed and independent npm workspaces with bounded workspace-dependency propagation, Python `pyproject.toml`, Rust `Cargo.toml`, conventional commits, PR label overrides, version and lockfile updates, changelog/release notes, release PRs, tags, GitHub releases, readiness rules, npm publishing commands, configurable artifacts, immediate post-release verification, and a JSON release manifest. Delayed monitoring and richer ecosystem-specific publishing remain deliberately bounded follow-on work.
+SemVerge is intentionally Node.js and GitHub first. The dependable path covers single packages, fixed and independent npm/pnpm workspaces, conventional commits, PR label overrides, version and lockfile updates, changelog and release notes, readiness rules, npm publishing commands, artifacts, GitHub releases, and immediate post-release verification.
+
+Python `pyproject.toml` and Rust `Cargo.toml` version adapters are available, but registry-specific publishing and delayed release monitoring are not claimed as finished product capabilities. This keeps the headline aligned with what the repository currently proves.
 
 ## Development
 

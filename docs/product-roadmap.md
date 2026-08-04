@@ -2,7 +2,7 @@
 
 ## Positioning
 
-SemVerge is the easiest way to version, prepare, and publish a software release on GitHub. It is a release path, not a launch-management workspace.
+SemVerge is release automation that understands whether a release is ready and what customers need to know. Its release PR is the control center for versioning, communication, migration requirements, and readiness; it is not a launch-management workspace.
 
 ## Delivered foundation
 
@@ -11,14 +11,14 @@ SemVerge is the easiest way to version, prepare, and publish a software release 
 - Product-aware PR label overrides
 - Optional structured PR metadata
 - Semantic version selection
-- `package.json` and npm lockfile version updates
+- `package.json`, npm lockfile, and pnpm workspace version handling
 - Release PR maintenance
 - `CHANGELOG.md`, customer-facing notes, internal notes, migration notes, and a JSON manifest
 - Required-label and required-file readiness checks
 - Git tag and GitHub release publication
-- Prerelease channels, fixed/independent npm workspaces, Python and Rust version adapters
+- Prerelease channels, fixed/independent npm and pnpm workspaces, Python and Rust version adapters
 - Configurable npm publishing, release artifacts, immediate post-release verification, and a local CLI (`init`, `plan`, `doctor`)
-- Checked-in single-package and independent-workspace fixture repositories for deterministic end-to-end proof
+- Checked-in single-package, fixed-pnpm, independent-workspace, retry, and large-repository fixtures for deterministic end-to-end proof
 
 ## Follow-on slices
 

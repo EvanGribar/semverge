@@ -1,8 +1,12 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { run } from "../src/action.js";
+
+const retryFixtureDirectory = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "node-retry");
+const retryFixtureConfig = join(retryFixtureDirectory, ".semverge.yml");
 
 function encoded(content: string): string {
   return Buffer.from(content, "utf8").toString("base64");
@@ -29,7 +33,7 @@ function publishEvent(directory: string): string {
   return eventPath;
 }
 
-function setPublishEnvironment(directory: string, eventPath: string, outputPath: string): Map<string, string | undefined> {
+function setPublishEnvironment(directory: string, eventPath: string, outputPath: string, workspace = directory): Map<string, string | undefined> {
   const previous = new Map<string, string | undefined>();
   for (const [key, value] of Object.entries({
     GITHUB_API_URL: "https://api.github.test",
@@ -38,7 +42,7 @@ function setPublishEnvironment(directory: string, eventPath: string, outputPath:
     GITHUB_SHA: "merge-sha",
     GITHUB_EVENT_PATH: eventPath,
     GITHUB_OUTPUT: outputPath,
-    GITHUB_WORKSPACE: directory,
+    GITHUB_WORKSPACE: workspace,
     INPUT_GITHUB_TOKEN: "test-token",
     INPUT_CONFIG: ".semverge.yml"
   })) {
@@ -162,8 +166,7 @@ describe("merged release publication", () => {
       const body = init?.body && typeof init.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : undefined;
       requests.push({ method: init?.method ?? "GET", path: `${url.pathname}${url.search}`, body });
       if (url.pathname.endsWith("/contents/.semverge.yml")) {
-        const config = JSON.stringify({ release: { branch: "release/bot" }, health: { enabled: false }, publishing: { npm: { enabled: true, command: "node -e \"if (process.env.SEMVERGE_RETRY !== 'true') process.exit(1)\"" } } });
-        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded(config) }), { status: 200 });
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded(readFileSync(retryFixtureConfig, "utf8")) }), { status: 200 });
       }
       if (url.pathname.endsWith("/contents/release-manifest.json")) {
         return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded(manifest()) }), { status: 200 });
@@ -188,7 +191,7 @@ describe("merged release publication", () => {
       return new Response(JSON.stringify({ message: `Unhandled ${init?.method ?? "GET"} ${url.pathname}` }), { status: 500 });
     }));
 
-    const previous = setPublishEnvironment(directory, eventPath, outputPath);
+    const previous = setPublishEnvironment(directory, eventPath, outputPath, retryFixtureDirectory);
     const previousRetry = process.env.SEMVERGE_RETRY;
     delete process.env.SEMVERGE_RETRY;
     try {
