@@ -11066,7 +11066,8 @@ function postReleaseVerificationMarkdown(report) {
 // src/action.ts
 var exec = (0, import_node_util.promisify)(import_node_child_process.exec);
 function input(name) {
-  return process.env[`INPUT_${name.toUpperCase().replace(/[\s-]+/g, "_")}`]?.trim() ?? "";
+  const normalized = name.toUpperCase().replace(/\s+/g, "_");
+  return process.env[`INPUT_${normalized}`]?.trim() ?? process.env[`INPUT_${normalized.replace(/-/g, "_")}`]?.trim() ?? "";
 }
 function setOutput(name, value) {
   const outputFile = process.env.GITHUB_OUTPUT;
@@ -11619,7 +11620,6 @@ async function publishRelease(client, pr, config) {
 }
 async function run() {
   const token = input("github-token") || process.env.GITHUB_TOKEN || "";
-  log(`GitHub token configured: ${token.length > 0}`);
   const repository = process.env.GITHUB_REPOSITORY;
   if (!repository) {
     throw new Error("GITHUB_REPOSITORY is required.");
