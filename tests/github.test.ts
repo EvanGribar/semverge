@@ -1,0 +1,99 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { GitHubClient } from "../src/github.js";
+
+async function runPaginated<T>(pages: unknown[], operation: (client: GitHubClient) => Promise<T>): Promise<{ result: T; requests: URL[] }> {
+  const requests: URL[] = [];
+  vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+    const url = new URL(String(input));
+    requests.push(url);
+    const page = Number(url.searchParams.get("page") ?? "1");
+    const nextUrl = page < pages.length ? new URL(url) : null;
+    if (nextUrl) {
+      nextUrl.searchParams.set("page", String(page + 1));
+    }
+    return new Response(JSON.stringify(pages[page - 1] ?? []), {
+      status: 200,
+      headers: nextUrl ? { link: `<${nextUrl.toString()}>; rel="next"` } : undefined
+    });
+  }));
+
+  const result = await operation(new GitHubClient("", "demo/repo", "https://api.github.test"));
+  return { result, requests };
+}
+
+describe("GitHub API pagination", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("paginates tags and releases", async () => {
+    const tags = await runPaginated([
+      [{ name: "v2.0.0", commit: { sha: "tag-2" } }],
+      [{ name: "v1.0.0", commit: { sha: "tag-1" } }]
+    ], (client) => client.listTags());
+    expect(tags.result.map((tag) => tag.name)).toEqual(["v2.0.0", "v1.0.0"]);
+    expect(tags.requests).toHaveLength(2);
+    expect(tags.requests[1]?.searchParams.get("page")).toBe("2");
+
+    vi.unstubAllGlobals();
+    const releases = await runPaginated([
+      [{ tag_name: "v2.0.0", html_url: "release-2", upload_url: "upload-2" }],
+      [{ tag_name: "v1.0.0", html_url: "release-1", upload_url: "upload-1" }]
+    ], (client) => client.listReleases());
+    expect(releases.result.map((release) => release.tag_name)).toEqual(["v2.0.0", "v1.0.0"]);
+    expect(releases.requests).toHaveLength(2);
+    expect(releases.requests[1]?.searchParams.get("page")).toBe("2");
+  });
+
+  it("paginates commit history and compare results", async () => {
+    const commits = await runPaginated([
+      [{ sha: "commit-2", commit: { message: "fix: second" } }],
+      [{ sha: "commit-1", commit: { message: "feat: first" } }]
+    ], (client) => client.listCommits("head-sha"));
+    expect(commits.result.map((commit) => commit.sha)).toEqual(["commit-2", "commit-1"]);
+    expect(commits.requests).toHaveLength(2);
+
+    vi.unstubAllGlobals();
+    const comparison = await runPaginated([
+      { commits: [{ sha: "compare-2", commit: { message: "fix: second" } }] },
+      { commits: [{ sha: "compare-1", commit: { message: "feat: first" } }] }
+    ], (client) => client.compare("v1.0.0", "head-sha"));
+    expect(comparison.result.commits.map((commit) => commit.sha)).toEqual(["compare-2", "compare-1"]);
+    expect(comparison.requests).toHaveLength(2);
+    expect(comparison.requests[1]?.searchParams.get("page")).toBe("2");
+  });
+
+  it("paginates pull-request associations, changed files, and release PR discovery", async () => {
+    const associations = await runPaginated([
+      [{ number: 2, title: "second", labels: [] }],
+      [{ number: 1, title: "first", labels: [] }]
+    ], (client) => client.commitPullRequests("commit-sha"));
+    expect(associations.result.map((pullRequest) => pullRequest.number)).toEqual([2, 1]);
+
+    vi.unstubAllGlobals();
+    const files = await runPaginated([
+      [{ filename: "src/second.ts" }],
+      [{ filename: "src/first.ts" }]
+    ], (client) => client.listPullRequestFiles(7));
+    expect(files.result).toEqual(["src/second.ts", "src/first.ts"]);
+
+    vi.unstubAllGlobals();
+    const pullRequests = await runPaginated([
+      [{ number: 2, title: "second", labels: [] }],
+      [{ number: 1, title: "first", labels: [] }]
+    ], (client) => client.listPullRequests({ state: "open", head: "demo:semverge/release", base: "main" }));
+    expect(pullRequests.result.map((pullRequest) => pullRequest.number)).toEqual([2, 1]);
+    expect(pullRequests.requests[0]?.searchParams.get("page")).toBe("1");
+    expect(pullRequests.requests[1]?.searchParams.get("page")).toBe("2");
+  });
+
+  it("paginates workflow runs returned in the API envelope", async () => {
+    const workflows = await runPaginated([
+      { workflow_runs: [{ id: 2, name: "deploy", status: "completed", conclusion: "success", head_sha: "sha", html_url: "run-2", created_at: "", updated_at: "" }] },
+      { workflow_runs: [{ id: 1, name: "publish", status: "completed", conclusion: "success", head_sha: "sha", html_url: "run-1", created_at: "", updated_at: "" }] }
+    ], (client) => client.listWorkflowRuns("sha"));
+    expect(workflows.result.map((run) => run.id)).toEqual([2, 1]);
+    expect(workflows.requests).toHaveLength(2);
+    expect(workflows.requests[1]?.searchParams.get("page")).toBe("2");
+  });
+});

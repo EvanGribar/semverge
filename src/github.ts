@@ -83,6 +83,11 @@ interface RequestOptions {
   headers?: Record<string, string>;
 }
 
+interface RequestPage<T> {
+  data: T | null;
+  next: string | null;
+}
+
 interface CompareResult {
   commits: GitHubCommitSummary[];
 }
@@ -114,7 +119,20 @@ export class GitHubClient {
     this.apiBase = apiBase.replace(/\/$/, "");
   }
 
-  private async request<T>(path: string, options: RequestOptions = {}, allowNotFound = false): Promise<T | null> {
+  private buildUrl(path: string): string {
+    return /^https?:\/\//i.test(path) ? path : `${this.apiBase}/repos/${this.repository}${path}`;
+  }
+
+  private nextPage(linkHeader: string | null): string | null {
+    if (!linkHeader) {
+      return null;
+    }
+    const link = linkHeader.split(",").find((part) => /;\s*rel=["']?next["']?(?:\s|$)/i.test(part));
+    const match = link?.match(/<([^>]+)>/);
+    return match?.[1] ?? null;
+  }
+
+  private async requestPage<T>(path: string, options: RequestOptions = {}, allowNotFound = false): Promise<RequestPage<T>> {
     const headers = new Headers(options.headers);
     headers.set("accept", "application/vnd.github+json");
     headers.set("x-github-api-version", "2022-11-28");
@@ -129,15 +147,39 @@ export class GitHubClient {
       headers.set("content-type", "application/json");
       init.body = JSON.stringify(options.body);
     }
-    const response = await fetch(`${this.apiBase}/repos/${this.repository}${path}`, init);
+    const response = await fetch(this.buildUrl(path), init);
     if (allowNotFound && response.status === 404) {
-      return null;
+      return { data: null, next: null };
     }
     const text = await response.text();
     if (!response.ok) {
       throw new Error(`GitHub API ${options.method ?? "GET"} ${path} failed (${response.status}): ${text.slice(0, 500)}`);
     }
-    return text ? JSON.parse(text) as T : null;
+    return { data: text ? JSON.parse(text) as T : null, next: this.nextPage(response.headers.get("link")) };
+  }
+
+  private async request<T>(path: string, options: RequestOptions = {}, allowNotFound = false): Promise<T | null> {
+    return (await this.requestPage<T>(path, options, allowNotFound)).data;
+  }
+
+  private async paginate<T>(path: string, extract: (payload: unknown) => T[]): Promise<T[]> {
+    const items: T[] = [];
+    const visited = new Set<string>();
+    let next: string | null = path;
+    while (next) {
+      const url = this.buildUrl(next);
+      if (visited.has(url)) {
+        throw new Error(`GitHub API pagination repeated the same page: ${url}`);
+      }
+      visited.add(url);
+      const page = await this.requestPage<unknown>(url);
+      if (page.data === null) {
+        break;
+      }
+      items.push(...extract(page.data));
+      next = page.next;
+    }
+    return items;
   }
 
   async repositoryInfo(): Promise<GitHubRepository> {
@@ -171,23 +213,30 @@ export class GitHubClient {
   }
 
   async listTags(): Promise<GitHubTag[]> {
-    return (await this.request<GitHubTag[]>("/tags?per_page=100")) ?? [];
+    return this.paginate<GitHubTag>("/tags?per_page=100&page=1", (payload) => Array.isArray(payload) ? payload as GitHubTag[] : []);
   }
 
   async compare(base: string, head: string): Promise<CompareResult> {
-    return (await this.request<CompareResult>(`/compare/${encodeURIComponent(`${base}...${head}`)}`)) as CompareResult;
+    const commits = await this.paginate<GitHubCommitSummary>(`/compare/${encodeURIComponent(`${base}...${head}`)}?per_page=100&page=1`, (payload) => {
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        return [];
+      }
+      const value = (payload as Record<string, unknown>).commits;
+      return Array.isArray(value) ? value as GitHubCommitSummary[] : [];
+    });
+    return { commits };
   }
 
   async listCommits(sha: string): Promise<GitHubCommitSummary[]> {
-    return (await this.request<GitHubCommitSummary[]>(`/commits?sha=${encodeURIComponent(sha)}&per_page=100`)) ?? [];
+    return this.paginate<GitHubCommitSummary>(`/commits?sha=${encodeURIComponent(sha)}&per_page=100&page=1`, (payload) => Array.isArray(payload) ? payload as GitHubCommitSummary[] : []);
   }
 
   async commitPullRequests(sha: string): Promise<GitHubPullRequest[]> {
-    return (await this.request<GitHubPullRequest[]>(`/commits/${encodeURIComponent(sha)}/pulls`)) ?? [];
+    return this.paginate<GitHubPullRequest>(`/commits/${encodeURIComponent(sha)}/pulls?per_page=100&page=1`, (payload) => Array.isArray(payload) ? payload as GitHubPullRequest[] : []);
   }
 
   async listPullRequestFiles(number: number): Promise<string[]> {
-    const files = (await this.request<Array<{ filename?: string }>>(`/pulls/${number}/files?per_page=100`)) ?? [];
+    const files = await this.paginate<{ filename?: string }>(`/pulls/${number}/files?per_page=100&page=1`, (payload) => Array.isArray(payload) ? payload as Array<{ filename?: string }> : []);
     return files.flatMap((file) => typeof file.filename === "string" ? [file.filename] : []);
   }
 
@@ -195,16 +244,22 @@ export class GitHubClient {
     const query = new URLSearchParams({ state: params.state, per_page: "100" });
     if (params.head) query.set("head", params.head);
     if (params.base) query.set("base", params.base);
-    return (await this.request<GitHubPullRequest[]>(`/pulls?${query.toString()}`)) ?? [];
+    query.set("page", "1");
+    return this.paginate<GitHubPullRequest>(`/pulls?${query.toString()}`, (payload) => Array.isArray(payload) ? payload as GitHubPullRequest[] : []);
   }
 
   async listWorkflowRuns(headSha: string): Promise<GitHubWorkflowRun[]> {
-    const result = (await this.request<WorkflowRunsResult>(`/actions/runs?head_sha=${encodeURIComponent(headSha)}&per_page=100`)) as WorkflowRunsResult;
-    return result.workflow_runs ?? [];
+    return this.paginate<GitHubWorkflowRun>(`/actions/runs?head_sha=${encodeURIComponent(headSha)}&per_page=100&page=1`, (payload) => {
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        return [];
+      }
+      const value = (payload as WorkflowRunsResult).workflow_runs;
+      return Array.isArray(value) ? value : [];
+    });
   }
 
   async listReleases(): Promise<GitHubRelease[]> {
-    return (await this.request<GitHubRelease[]>("/releases?per_page=100")) ?? [];
+    return this.paginate<GitHubRelease>("/releases?per_page=100&page=1", (payload) => Array.isArray(payload) ? payload as GitHubRelease[] : []);
   }
 
   async createTree(baseTree: string, entries: GitTreeEntry[]): Promise<{ sha: string }> {

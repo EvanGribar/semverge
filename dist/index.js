@@ -7847,7 +7847,18 @@ var GitHubClient = class {
     this.apiBase = apiBase.replace(/\/$/, "");
   }
   apiBase;
-  async request(path, options = {}, allowNotFound = false) {
+  buildUrl(path) {
+    return /^https?:\/\//i.test(path) ? path : `${this.apiBase}/repos/${this.repository}${path}`;
+  }
+  nextPage(linkHeader) {
+    if (!linkHeader) {
+      return null;
+    }
+    const link = linkHeader.split(",").find((part) => /;\s*rel=["']?next["']?(?:\s|$)/i.test(part));
+    const match = link?.match(/<([^>]+)>/);
+    return match?.[1] ?? null;
+  }
+  async requestPage(path, options = {}, allowNotFound = false) {
     const headers = new Headers(options.headers);
     headers.set("accept", "application/vnd.github+json");
     headers.set("x-github-api-version", "2022-11-28");
@@ -7862,15 +7873,37 @@ var GitHubClient = class {
       headers.set("content-type", "application/json");
       init.body = JSON.stringify(options.body);
     }
-    const response = await fetch(`${this.apiBase}/repos/${this.repository}${path}`, init);
+    const response = await fetch(this.buildUrl(path), init);
     if (allowNotFound && response.status === 404) {
-      return null;
+      return { data: null, next: null };
     }
     const text = await response.text();
     if (!response.ok) {
       throw new Error(`GitHub API ${options.method ?? "GET"} ${path} failed (${response.status}): ${text.slice(0, 500)}`);
     }
-    return text ? JSON.parse(text) : null;
+    return { data: text ? JSON.parse(text) : null, next: this.nextPage(response.headers.get("link")) };
+  }
+  async request(path, options = {}, allowNotFound = false) {
+    return (await this.requestPage(path, options, allowNotFound)).data;
+  }
+  async paginate(path, extract) {
+    const items = [];
+    const visited = /* @__PURE__ */ new Set();
+    let next = path;
+    while (next) {
+      const url = this.buildUrl(next);
+      if (visited.has(url)) {
+        throw new Error(`GitHub API pagination repeated the same page: ${url}`);
+      }
+      visited.add(url);
+      const page = await this.requestPage(url);
+      if (page.data === null) {
+        break;
+      }
+      items.push(...extract(page.data));
+      next = page.next;
+    }
+    return items;
   }
   async repositoryInfo() {
     return await this.request("");
@@ -7898,33 +7931,46 @@ var GitHubClient = class {
     return result.tree;
   }
   async listTags() {
-    return await this.request("/tags?per_page=100") ?? [];
+    return this.paginate("/tags?per_page=100&page=1", (payload) => Array.isArray(payload) ? payload : []);
   }
   async compare(base, head) {
-    return await this.request(`/compare/${encodeURIComponent(`${base}...${head}`)}`);
+    const commits = await this.paginate(`/compare/${encodeURIComponent(`${base}...${head}`)}?per_page=100&page=1`, (payload) => {
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        return [];
+      }
+      const value = payload.commits;
+      return Array.isArray(value) ? value : [];
+    });
+    return { commits };
   }
   async listCommits(sha) {
-    return await this.request(`/commits?sha=${encodeURIComponent(sha)}&per_page=100`) ?? [];
+    return this.paginate(`/commits?sha=${encodeURIComponent(sha)}&per_page=100&page=1`, (payload) => Array.isArray(payload) ? payload : []);
   }
   async commitPullRequests(sha) {
-    return await this.request(`/commits/${encodeURIComponent(sha)}/pulls`) ?? [];
+    return this.paginate(`/commits/${encodeURIComponent(sha)}/pulls?per_page=100&page=1`, (payload) => Array.isArray(payload) ? payload : []);
   }
   async listPullRequestFiles(number) {
-    const files = await this.request(`/pulls/${number}/files?per_page=100`) ?? [];
+    const files = await this.paginate(`/pulls/${number}/files?per_page=100&page=1`, (payload) => Array.isArray(payload) ? payload : []);
     return files.flatMap((file) => typeof file.filename === "string" ? [file.filename] : []);
   }
   async listPullRequests(params) {
     const query = new URLSearchParams({ state: params.state, per_page: "100" });
     if (params.head) query.set("head", params.head);
     if (params.base) query.set("base", params.base);
-    return await this.request(`/pulls?${query.toString()}`) ?? [];
+    query.set("page", "1");
+    return this.paginate(`/pulls?${query.toString()}`, (payload) => Array.isArray(payload) ? payload : []);
   }
   async listWorkflowRuns(headSha) {
-    const result = await this.request(`/actions/runs?head_sha=${encodeURIComponent(headSha)}&per_page=100`);
-    return result.workflow_runs ?? [];
+    return this.paginate(`/actions/runs?head_sha=${encodeURIComponent(headSha)}&per_page=100&page=1`, (payload) => {
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        return [];
+      }
+      const value = payload.workflow_runs;
+      return Array.isArray(value) ? value : [];
+    });
   }
   async listReleases() {
-    return await this.request("/releases?per_page=100") ?? [];
+    return this.paginate("/releases?per_page=100&page=1", (payload) => Array.isArray(payload) ? payload : []);
   }
   async createTree(baseTree, entries) {
     return await this.request("/git/trees", {
