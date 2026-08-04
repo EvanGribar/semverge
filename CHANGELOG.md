@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.6] - 2026-08-04
+
+### Bug Fixes
+
+- [preserve release tags during finalization](https://github.com/EvanGribar/semverge/pull/35) (#35)
+
 ## [0.1.5] - 2026-08-04
 
 ### Bug Fixes

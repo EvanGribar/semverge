@@ -1,6 +1,6 @@
 {
   "name": "semverge",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "The easiest way to version, prepare, and publish a software release on GitHub.",
   "type": "module",
   "license": "MIT",
