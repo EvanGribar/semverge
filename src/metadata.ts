@@ -1,6 +1,6 @@
-import type { ReleaseKind, ShipkitMetadata } from "./types.js";
+import type { ReleaseKind, ReleaseRailMetadata } from "./types.js";
 
-const METADATA_BLOCK = /<!--\s*shipkit(?:\s+release)?\s*([\s\S]*?)-->/i;
+const METADATA_BLOCK = /<!--\s*releaserail(?:\s+release)?\s*([\s\S]*?)-->/i;
 const ALLOWED_TYPES = new Set<ReleaseKind>(["feature", "fix", "breaking", "docs", "internal", "other"]);
 
 function parseBoolean(value: string): boolean | undefined {
@@ -30,14 +30,14 @@ function parseValue(value: string): string | string[] | boolean | undefined {
   return trimmed || undefined;
 }
 
-function parseJsonMetadata(value: string): ShipkitMetadata | null {
+function parseJsonMetadata(value: string): ReleaseRailMetadata | null {
   try {
     const parsed: unknown = JSON.parse(value);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return null;
     }
     const object = parsed as Record<string, unknown>;
-    const result: ShipkitMetadata = {};
+    const result: ReleaseRailMetadata = {};
     if (typeof object.type === "string" && ALLOWED_TYPES.has(object.type as ReleaseKind)) {
       result.type = object.type as ReleaseKind;
     }
@@ -61,7 +61,7 @@ function parseJsonMetadata(value: string): ShipkitMetadata | null {
   }
 }
 
-export function parseShipkitMetadata(body = ""): ShipkitMetadata {
+export function parseReleaseRailMetadata(body = ""): ReleaseRailMetadata {
   const match = METADATA_BLOCK.exec(body);
   if (!match) {
     return {};
@@ -76,14 +76,14 @@ export function parseShipkitMetadata(body = ""): ShipkitMetadata {
     return json;
   }
 
-  const result: ShipkitMetadata = {};
+  const result: ReleaseRailMetadata = {};
   for (const rawLine of payload.split(/\r?\n/)) {
     const line = rawLine.trim().replace(/^[-*]\s+/, "");
     const separator = line.indexOf(":");
     if (separator < 1) {
       continue;
     }
-    const key = line.slice(0, separator).trim().toLowerCase() as keyof ShipkitMetadata;
+    const key = line.slice(0, separator).trim().toLowerCase() as keyof ReleaseRailMetadata;
     const parsed = parseValue(line.slice(separator + 1));
     if (parsed === undefined) {
       continue;

@@ -25,7 +25,7 @@ describe("release planning", () => {
       "CHANGELOG.md",
       "RELEASE_NOTES.md",
       "MIGRATION.md",
-      ".shipkit/internal-release.md",
+      ".releaserail/internal-release.md",
       "RELEASE_ANNOUNCEMENT.md",
       "release-manifest.json"
     ]);
@@ -67,7 +67,7 @@ describe("release planning", () => {
         ...DEFAULT_CONFIG,
         readiness: { ...DEFAULT_CONFIG.readiness, tasks: [{ name: "docs", file: "docs/migration.md" }] }
       },
-      changes: [parseChange({ title: "feat: add import", source: "pull_request", body: "<!-- shipkit\nreadiness: [docs]\n-->" })],
+      changes: [parseChange({ title: "feat: add import", source: "pull_request", body: "<!-- releaserail\nreadiness: [docs]\n-->" })],
       readinessContext: { availableFiles: [] }
     });
     expect(plan.readiness.passed).toBe(false);
