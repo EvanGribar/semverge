@@ -110,6 +110,7 @@ export function parseChange(input: ChangeInput): ReleaseChange {
     url: input.url,
     author: input.author,
     mergedAt: input.mergedAt,
+    files: input.files,
     scope: parsed.scope,
     internalSummary: metadata.internal,
     migration: metadata.migration,

@@ -1,0 +1,281 @@
+import { basename, dirname, posix } from "node:path";
+import { bumpForKind } from "./changes.js";
+import { buildReleasePlan } from "./release.js";
+import { highestBump } from "./semver.js";
+import { packagePath, type PackageDescriptor } from "./packages.js";
+import { targetFromDescriptor, updateTargetVersion } from "./version-adapters.js";
+import type { ReadinessReport, ReleaseChange, ReleaseOutput, ShipkitConfig } from "./types.js";
+import type { VersionFileChange } from "./version-files.js";
+
+export interface PackageRelease {
+  package: PackageDescriptor;
+  plan: ReturnType<typeof buildReleasePlan>;
+}
+
+export interface WorkspaceReleasePlan {
+  mode: "single" | "fixed" | "independent";
+  hasRelease: boolean;
+  version: string;
+  packages: PackageRelease[];
+  changes: ReleaseChange[];
+  releaseChanges: ReleaseChange[];
+  skippedChanges: ReleaseChange[];
+  readiness: ReadinessReport;
+  outputs: ReleaseOutput[];
+  versionChanges: VersionFileChange[];
+  manifest: string;
+}
+
+export interface BuildWorkspaceReleasePlanInput {
+  packages: PackageDescriptor[];
+  mode: "single" | "fixed" | "independent";
+  changes: ReleaseChange[];
+  config: ShipkitConfig;
+  files: Record<string, string>;
+  date?: string;
+  readinessContext?: Parameters<typeof buildReleasePlan>[0]["readinessContext"];
+}
+
+function normalize(path: string): string {
+  return path.replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+function outputPath(packageItem: PackageDescriptor, relativePath: string, mode: "single" | "fixed" | "independent"): string {
+  const clean = normalize(relativePath);
+  return mode === "independent" && packageItem.directory ? posix.join(packageItem.directory, clean) : clean;
+}
+
+function packageNameMatches(packageItem: PackageDescriptor, scope: string | undefined): boolean {
+  if (!scope) {
+    return false;
+  }
+  const cleanScope = scope.trim().toLowerCase();
+  return [packageItem.id, packageItem.name, basename(packageItem.directory)].some((candidate) => candidate.toLowerCase() === cleanScope);
+}
+
+function affectsPackage(change: ReleaseChange, packageItem: PackageDescriptor, config: ShipkitConfig): boolean {
+  if (packageNameMatches(packageItem, change.scope)) {
+    return true;
+  }
+  const files = (change.files ?? []).map(normalize);
+  if (files.length === 0) {
+    return config.monorepo.unscopedChanges === "all";
+  }
+  const directoryPrefix = packageItem.directory ? `${packageItem.directory}/` : "";
+  return files.some((file) => {
+    if (!packageItem.directory) {
+      return !file.startsWith("packages/") && !file.includes("/package.json");
+    }
+    return file === packageItem.manifestPath || file.startsWith(directoryPrefix) || file === "package.json";
+  });
+}
+
+function mergeReadiness(reports: ReadinessReport[]): ReadinessReport {
+  return {
+    passed: reports.every((report) => report.passed),
+    missingLabels: [...new Set(reports.flatMap((report) => report.missingLabels))],
+    missingFiles: [...new Set(reports.flatMap((report) => report.missingFiles))],
+    failedCommands: [...new Set(reports.flatMap((report) => report.failedCommands))],
+    missingTasks: [...new Set(reports.flatMap((report) => report.missingTasks))],
+    requestedTasks: [...new Set(reports.flatMap((report) => report.requestedTasks))]
+  };
+}
+
+function updateNodeLocks(files: Record<string, string>, packages: PackageDescriptor[], versions: Map<string, string>): VersionFileChange[] {
+  const changes: VersionFileChange[] = [];
+  const lockPaths = new Set(["package-lock.json", "npm-shrinkwrap.json"]);
+  for (const packageItem of packages.filter((item) => item.ecosystem === "node" && item.directory)) {
+    lockPaths.add(`${packageItem.directory}/package-lock.json`);
+    lockPaths.add(`${packageItem.directory}/npm-shrinkwrap.json`);
+  }
+  for (const path of lockPaths) {
+    const content = files[path];
+    if (content === undefined) {
+      continue;
+    }
+    let lock: Record<string, unknown>;
+    try {
+      const value: unknown = JSON.parse(content);
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        continue;
+      }
+      lock = value as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    const lockDirectory = path.includes("/") ? dirname(path).replace(/\\/g, "/") : "";
+    const root = packages.find((item) => item.directory === lockDirectory) ?? packages.find((item) => item.directory === "");
+    if (root && versions.has(root.manifestPath)) {
+      lock.version = versions.get(root.manifestPath);
+    }
+    const entries = lock.packages;
+    if (entries && typeof entries === "object" && !Array.isArray(entries)) {
+      const packageEntries = entries as Record<string, unknown>;
+      const rootEntry = packageEntries[""];
+      const rootVersion = root ? versions.get(root.manifestPath) : undefined;
+      if (rootVersion && rootEntry && typeof rootEntry === "object" && !Array.isArray(rootEntry)) {
+        (rootEntry as Record<string, unknown>).version = rootVersion;
+      }
+      for (const packageItem of lockDirectory ? [] : packages) {
+        const version = versions.get(packageItem.manifestPath);
+        if (!version) {
+          continue;
+        }
+        const keys = [packageItem.directory, packageItem.directory ? `node_modules/${packageItem.name}` : "", `node_modules/${packageItem.name}`];
+        for (const key of keys) {
+          const entry = packageEntries[key];
+          if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+            (entry as Record<string, unknown>).version = version;
+          }
+        }
+      }
+    }
+    changes.push({ path, content: `${JSON.stringify(lock, null, 2)}\n` });
+  }
+  return changes;
+}
+
+function manifestContent(plan: WorkspaceReleasePlan): string {
+  return `${JSON.stringify({
+    schemaVersion: 2,
+    mode: plan.mode,
+    version: plan.version,
+    generatedAt: new Date().toISOString(),
+    packages: plan.packages.map(({ package: packageItem, plan: packagePlan }) => ({
+      id: packageItem.id,
+      name: packageItem.name,
+      directory: packageItem.directory,
+      ecosystem: packageItem.ecosystem,
+      previousVersion: packageItem.version,
+      version: packagePlan.version,
+      bump: packagePlan.bump,
+      changelog: packagePlan.outputs.find((output) => output.path.toLowerCase().endsWith("changelog.md"))?.path,
+      customerNotes: packagePlan.outputs.find((output) => output.path.toLowerCase().endsWith("release_notes.md") || output.path.toLowerCase().endsWith("release-notes.md"))?.path,
+      private: packageItem.private,
+      releaseable: packageItem.releaseable
+    })),
+    readiness: plan.readiness
+  }, null, 2)}\n`;
+}
+
+export function buildWorkspaceReleasePlan(input: BuildWorkspaceReleasePlanInput): WorkspaceReleasePlan {
+  const releaseable = input.packages.filter((packageItem) => packageItem.releaseable || input.mode === "fixed");
+  const skippedChanges = input.changes.filter((change) => change.skipped);
+  const plans: PackageRelease[] = [];
+
+  if (input.mode === "fixed" || input.mode === "single") {
+    const packageItem = releaseable[0] ?? input.packages[0];
+    if (!packageItem) {
+      throw new Error("Shipkit found no releaseable package.");
+    }
+    const packageConfig: ShipkitConfig = {
+      ...input.config,
+      outputs: { ...input.config.outputs },
+      readiness: { ...input.config.readiness, requiredLabels: [...input.config.readiness.requiredLabels], requiredFiles: [...input.config.readiness.requiredFiles], commands: [...input.config.readiness.commands], tasks: [...input.config.readiness.tasks] }
+    };
+    const plan = buildReleasePlan({
+      currentVersion: packageItem.version,
+      changes: input.changes,
+      config: packageConfig,
+      existingChangelog: input.files[input.config.outputs.changelog] ?? "",
+      date: input.date,
+      readinessContext: input.readinessContext
+    });
+    plans.push(...releaseable.map((releasePackage) => ({ package: releasePackage, plan })));
+  } else {
+    for (const packageItem of releaseable) {
+      const packageChanges = input.changes.filter((change) => affectsPackage(change, packageItem, input.config));
+      const packageOutputs: ShipkitConfig["outputs"] = {
+        changelog: outputPath(packageItem, input.config.outputs.changelog, input.mode),
+        customerNotes: outputPath(packageItem, input.config.outputs.customerNotes, input.mode),
+        migrationGuide: outputPath(packageItem, input.config.outputs.migrationGuide, input.mode),
+        internalSummary: outputPath(packageItem, input.config.outputs.internalSummary, input.mode),
+        manifest: outputPath(packageItem, input.config.outputs.manifest, input.mode),
+        announcement: outputPath(packageItem, input.config.outputs.announcement, input.mode)
+      };
+      const packageConfig: ShipkitConfig = {
+        ...input.config,
+        outputs: packageOutputs,
+        readiness: { ...input.config.readiness, requiredLabels: [...input.config.readiness.requiredLabels], requiredFiles: [...input.config.readiness.requiredFiles], commands: [...input.config.readiness.commands], tasks: [...input.config.readiness.tasks] }
+      };
+      const plan = buildReleasePlan({
+        currentVersion: packageItem.version,
+        changes: packageChanges,
+        config: packageConfig,
+        existingChangelog: input.files[packageOutputs.changelog] ?? "",
+        date: input.date,
+        readinessContext: input.readinessContext
+      });
+      if (plan.hasRelease) {
+        plans.push({ package: packageItem, plan });
+      }
+    }
+  }
+
+  const hasRelease = plans.some((item) => item.plan.hasRelease);
+  const releaseChanges = input.mode === "independent" ? [...new Map(plans.flatMap((item) => item.plan.releaseChanges.map((change) => [change.title, change] as const))).values()] : input.changes.filter((change) => !change.skipped);
+  const readiness = mergeReadiness(plans.length > 0 ? plans.map((item) => item.plan.readiness) : [input.readinessContext ? { passed: true, missingLabels: [], missingFiles: [], failedCommands: [], missingTasks: [], requestedTasks: [] } : { passed: true, missingLabels: [], missingFiles: [], failedCommands: [], missingTasks: [], requestedTasks: [] }]);
+  const version = input.mode === "independent" ? plans.map((item) => `${item.package.name}@${item.plan.version}`).join(", ") : plans[0]?.plan.version ?? input.packages[0]?.version ?? "0.0.0";
+  const versionChangeMap = new Map<string, VersionFileChange>();
+  const versionMap = new Map<string, string>();
+  for (const item of plans) {
+    const nextVersion = item.plan.version;
+    versionMap.set(item.package.manifestPath, nextVersion);
+    const manifest = input.files[item.package.manifestPath];
+    if (manifest !== undefined) {
+      const change = updateTargetVersion(targetFromDescriptor(item.package), manifest, nextVersion);
+      versionChangeMap.set(change.path, change);
+    }
+  }
+  if (input.mode === "fixed" || input.mode === "single") {
+    const fixedPlan = plans[0];
+    if (fixedPlan?.plan.hasRelease) {
+      for (const packageItem of input.packages) {
+        if (packageItem.manifestPath === fixedPlan.package.manifestPath) {
+          continue;
+        }
+        const manifest = input.files[packageItem.manifestPath];
+        if (manifest !== undefined) {
+          versionMap.set(packageItem.manifestPath, fixedPlan.plan.version);
+          const change = updateTargetVersion(targetFromDescriptor(packageItem), manifest, fixedPlan.plan.version);
+          versionChangeMap.set(change.path, change);
+        }
+      }
+    }
+  }
+  for (const change of updateNodeLocks(input.files, input.packages, versionMap)) {
+    versionChangeMap.set(change.path, change);
+  }
+  const versionChanges = [...versionChangeMap.values()];
+
+  const outputMap = new Map<string, string>();
+  for (const item of plans) {
+    for (const output of item.plan.outputs) {
+      if (output.path !== (input.mode === "independent" ? outputPath(item.package, input.config.outputs.manifest, input.mode) : input.config.outputs.manifest)) {
+        outputMap.set(output.path, output.content);
+      }
+    }
+  }
+  const provisional: WorkspaceReleasePlan = {
+    mode: input.mode,
+    hasRelease,
+    version,
+    packages: plans,
+    changes: input.changes,
+    releaseChanges,
+    skippedChanges,
+    readiness,
+    outputs: [...outputMap].map(([path, content]) => ({ path, content })),
+    versionChanges,
+    manifest: ""
+  };
+  const manifest = manifestContent(provisional);
+  provisional.manifest = manifest;
+  if (hasRelease) {
+    provisional.outputs.push({ path: input.config.outputs.manifest, content: manifest });
+  } else {
+    provisional.outputs = [];
+    provisional.versionChanges = [];
+  }
+  return provisional;
+}

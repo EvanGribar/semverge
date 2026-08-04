@@ -59,4 +59,26 @@ describe("release planning", () => {
     expect(plan.readiness.missingLabels).toEqual(["ship:ready"]);
     expect(plan.readiness.missingFiles).toEqual(["docs/migration.md"]);
   });
+
+  it("turns structured readiness metadata into blocking product tasks", () => {
+    const plan = buildReleasePlan({
+      currentVersion: "1.0.0",
+      config: {
+        ...DEFAULT_CONFIG,
+        readiness: { ...DEFAULT_CONFIG.readiness, tasks: [{ name: "docs", file: "docs/migration.md" }] }
+      },
+      changes: [parseChange({ title: "feat: add import", source: "pull_request", body: "<!-- shipkit\nreadiness: [docs]\n-->" })],
+      readinessContext: { availableFiles: [] }
+    });
+    expect(plan.readiness.passed).toBe(false);
+    expect(plan.readiness.missingTasks).toEqual(["docs"]);
+  });
+
+  it("uses ship:beta as a prerelease channel override", () => {
+    const plan = buildReleasePlan({
+      currentVersion: "1.0.0",
+      changes: [parseChange({ title: "feat: preview imports", source: "pull_request", labels: ["ship:beta"] })]
+    });
+    expect(plan.version).toBe("1.1.0-beta.0");
+  });
 });

@@ -39,7 +39,8 @@ export function buildReleasePlan(input: BuildReleasePlanInput): ReleasePlan {
   const skippedChanges = input.changes.filter((change) => change.skipped);
   const bump = highestBump(releaseChanges.map((change) => bumpForKind(change.kind, change.breaking)));
   const hasRelease = bump !== "none";
-  const version = hasRelease ? bumpVersion(input.currentVersion, bump, config.release.prerelease) : input.currentVersion;
+  const labelPrerelease = releaseChanges.some((change) => change.labels.includes("ship:beta")) ? "beta" : undefined;
+  const version = hasRelease ? bumpVersion(input.currentVersion, bump, config.release.prerelease ?? labelPrerelease) : input.currentVersion;
   const readiness = evaluateReadiness(config.readiness, releaseChanges, input.readinessContext);
   if (!hasRelease) {
     return {
