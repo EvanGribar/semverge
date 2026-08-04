@@ -1,3 +1,3 @@
-# Internal release summary for 0.1.5
+# Internal release summary for 0.1.6
 
-- dogfood SemVerge releases
+No internal-only changes were recorded.
