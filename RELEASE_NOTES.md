@@ -1,7 +1,7 @@
-# What's new in 0.1.10
+# What's new in 0.1.11
 
 A clear summary of the changes included in this release.
 
 ### Improvements and Fixes
 
-- [require the release workspace commit](https://github.com/EvanGribar/semverge/pull/43) (#43)
+- [make npm publication retries idempotent](https://github.com/EvanGribar/semverge/pull/45) (#45)

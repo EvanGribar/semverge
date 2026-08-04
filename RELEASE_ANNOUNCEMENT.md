@@ -1,5 +1,5 @@
-# SemVerge release announcement: 0.1.10
+# SemVerge release announcement: 0.1.11
 
-SemVerge 0.1.10 includes:
+SemVerge 0.1.11 includes:
 
-- require the release workspace commit
+- make npm publication retries idempotent
