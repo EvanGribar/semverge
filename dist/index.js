@@ -7534,6 +7534,9 @@ function bumpForKind(kind, breaking) {
   }
   return "none";
 }
+function bumpForChange(change) {
+  return change.forcedBump ?? bumpForKind(change.kind, change.breaking);
+}
 function parseChange(input2) {
   const body = input2.body ?? "";
   const labels = normalizeLabels(input2.labels);
@@ -8313,6 +8316,7 @@ function descriptor(path, content, releaseable) {
   }
   const root = target.directory === "";
   const privateValue = target.ecosystem === "node" ? Boolean(jsonObject2(content)?.private) : false;
+  const workspaceDependencies = target.ecosystem === "node" ? nodeWorkspaceDependencies(content) : [];
   return {
     id: target.directory || name,
     name,
@@ -8320,8 +8324,28 @@ function descriptor(path, content, releaseable) {
     version,
     private: privateValue,
     releaseable: releaseable && !privateValue,
+    workspaceDependencies,
     ...target
   };
+}
+function nodeWorkspaceDependencies(content) {
+  const value = jsonObject2(content);
+  if (!value) {
+    return [];
+  }
+  const names = /* @__PURE__ */ new Set();
+  for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+    const dependencies = value[field];
+    if (!dependencies || typeof dependencies !== "object" || Array.isArray(dependencies)) {
+      continue;
+    }
+    for (const [name, version] of Object.entries(dependencies)) {
+      if (typeof version === "string" && version.startsWith("workspace:")) {
+        names.add(name);
+      }
+    }
+  }
+  return [...names];
 }
 function selectedMode(config, packages) {
   if (config.monorepo.mode !== "auto") {
@@ -8479,7 +8503,7 @@ function buildReleasePlan(input2) {
   const config = input2.config ?? DEFAULT_CONFIG;
   const releaseChanges = input2.changes.filter((change) => !change.skipped);
   const skippedChanges = input2.changes.filter((change) => change.skipped);
-  const bump = highestBump(releaseChanges.map((change) => bumpForKind(change.kind, change.breaking)));
+  const bump = highestBump(releaseChanges.map((change) => bumpForChange(change)));
   const hasRelease = bump !== "none";
   const labelPrerelease = releaseChanges.some((change) => change.labels.includes("ship:beta")) ? "beta" : void 0;
   const version = hasRelease ? bumpVersion(input2.currentVersion, bump, config.release.prerelease ?? labelPrerelease) : input2.currentVersion;
@@ -8565,6 +8589,56 @@ function affectsPackage(change, packageItem, config) {
     return file === packageItem.manifestPath || file.startsWith(directoryPrefix) || file === "package.json";
   });
 }
+function packageConfig(config, packageItem, mode) {
+  const packageOutputs = {
+    changelog: outputPath(packageItem, config.outputs.changelog, mode),
+    customerNotes: outputPath(packageItem, config.outputs.customerNotes, mode),
+    migrationGuide: outputPath(packageItem, config.outputs.migrationGuide, mode),
+    internalSummary: outputPath(packageItem, config.outputs.internalSummary, mode),
+    manifest: outputPath(packageItem, config.outputs.manifest, mode),
+    announcement: outputPath(packageItem, config.outputs.announcement, mode)
+  };
+  return {
+    ...config,
+    outputs: packageOutputs,
+    readiness: {
+      ...config.readiness,
+      requiredLabels: [...config.readiness.requiredLabels],
+      requiredFiles: [...config.readiness.requiredFiles],
+      commands: [...config.readiness.commands],
+      tasks: [...config.readiness.tasks]
+    }
+  };
+}
+function buildPackagePlan(input2, packageItem, changes) {
+  const config = packageConfig(input2.config, packageItem, input2.mode);
+  return buildReleasePlan({
+    currentVersion: packageItem.version,
+    changes,
+    config,
+    existingChangelog: input2.files[config.outputs.changelog] ?? "",
+    date: input2.date,
+    readinessContext: input2.readinessContext
+  });
+}
+function workspaceDependencyChange(packageItem, dependencyNames) {
+  const dependencies = dependencyNames.join(", ");
+  return {
+    title: `chore(${packageItem.name}): refresh workspace dependencies`,
+    description: `Refresh workspace dependency metadata after ${dependencies} release.`,
+    source: "commit",
+    labels: ["ship:internal"],
+    kind: "internal",
+    scope: packageItem.name,
+    breaking: false,
+    skipped: false,
+    forcedBump: "patch",
+    dependencyUpdate: true,
+    customerSummary: `Refresh ${packageItem.name} for the ${dependencies} release.`,
+    internalSummary: `Refresh ${packageItem.name} after ${dependencies} released.`,
+    readiness: []
+  };
+}
 function mergeReadiness(reports) {
   return {
     passed: reports.every((report) => report.passed),
@@ -8646,7 +8720,8 @@ function manifestContent(plan) {
       changelog: packagePlan.outputs.find((output) => output.path.toLowerCase().endsWith("changelog.md"))?.path,
       customerNotes: packagePlan.outputs.find((output) => output.path.toLowerCase().endsWith("release_notes.md") || output.path.toLowerCase().endsWith("release-notes.md"))?.path,
       private: packageItem.private,
-      releaseable: packageItem.releaseable
+      releaseable: packageItem.releaseable,
+      dependencyUpdate: packagePlan.releaseChanges.some((change) => change.dependencyUpdate)
     })),
     readiness: plan.readiness
   }, null, 2)}
@@ -8661,7 +8736,7 @@ function buildWorkspaceReleasePlan(input2) {
     if (!packageItem) {
       throw new Error("Shipkit found no releaseable package.");
     }
-    const packageConfig = {
+    const packageConfig2 = {
       ...input2.config,
       outputs: { ...input2.config.outputs },
       readiness: { ...input2.config.readiness, requiredLabels: [...input2.config.readiness.requiredLabels], requiredFiles: [...input2.config.readiness.requiredFiles], commands: [...input2.config.readiness.commands], tasks: [...input2.config.readiness.tasks] }
@@ -8669,38 +8744,45 @@ function buildWorkspaceReleasePlan(input2) {
     const plan = buildReleasePlan({
       currentVersion: packageItem.version,
       changes: input2.changes,
-      config: packageConfig,
+      config: packageConfig2,
       existingChangelog: input2.files[input2.config.outputs.changelog] ?? "",
       date: input2.date,
       readinessContext: input2.readinessContext
     });
     plans.push(...releaseable.map((releasePackage) => ({ package: releasePackage, plan })));
   } else {
+    const packagePlans = /* @__PURE__ */ new Map();
     for (const packageItem of releaseable) {
       const packageChanges = input2.changes.filter((change) => affectsPackage(change, packageItem, input2.config));
-      const packageOutputs = {
-        changelog: outputPath(packageItem, input2.config.outputs.changelog, input2.mode),
-        customerNotes: outputPath(packageItem, input2.config.outputs.customerNotes, input2.mode),
-        migrationGuide: outputPath(packageItem, input2.config.outputs.migrationGuide, input2.mode),
-        internalSummary: outputPath(packageItem, input2.config.outputs.internalSummary, input2.mode),
-        manifest: outputPath(packageItem, input2.config.outputs.manifest, input2.mode),
-        announcement: outputPath(packageItem, input2.config.outputs.announcement, input2.mode)
-      };
-      const packageConfig = {
-        ...input2.config,
-        outputs: packageOutputs,
-        readiness: { ...input2.config.readiness, requiredLabels: [...input2.config.readiness.requiredLabels], requiredFiles: [...input2.config.readiness.requiredFiles], commands: [...input2.config.readiness.commands], tasks: [...input2.config.readiness.tasks] }
-      };
-      const plan = buildReleasePlan({
-        currentVersion: packageItem.version,
-        changes: packageChanges,
-        config: packageConfig,
-        existingChangelog: input2.files[packageOutputs.changelog] ?? "",
-        date: input2.date,
-        readinessContext: input2.readinessContext
-      });
+      const plan = buildPackagePlan(input2, packageItem, packageChanges);
       if (plan.hasRelease) {
-        plans.push({ package: packageItem, plan });
+        packagePlans.set(packageItem.id, { package: packageItem, plan });
+      }
+    }
+    let addedDependencyRelease = true;
+    while (addedDependencyRelease) {
+      addedDependencyRelease = false;
+      const releasedNames = new Set([...packagePlans.values()].flatMap(({ package: packageItem }) => [packageItem.id, packageItem.name]));
+      for (const packageItem of releaseable) {
+        if (packagePlans.has(packageItem.id)) {
+          continue;
+        }
+        const dependencyNames = packageItem.workspaceDependencies.filter((dependency) => releasedNames.has(dependency));
+        if (dependencyNames.length === 0) {
+          continue;
+        }
+        const packageChanges = input2.changes.filter((change) => affectsPackage(change, packageItem, input2.config));
+        const plan = buildPackagePlan(input2, packageItem, [...packageChanges, workspaceDependencyChange(packageItem, dependencyNames)]);
+        if (plan.hasRelease) {
+          packagePlans.set(packageItem.id, { package: packageItem, plan });
+          addedDependencyRelease = true;
+        }
+      }
+    }
+    for (const packageItem of releaseable) {
+      const packagePlan = packagePlans.get(packageItem.id);
+      if (packagePlan) {
+        plans.push(packagePlan);
       }
     }
   }

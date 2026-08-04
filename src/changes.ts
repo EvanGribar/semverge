@@ -81,6 +81,10 @@ export function bumpForKind(kind: ReleaseKind, breaking: boolean): BumpLevel {
   return "none";
 }
 
+export function bumpForChange(change: Pick<ReleaseChange, "kind" | "breaking" | "forcedBump">): BumpLevel {
+  return change.forcedBump ?? bumpForKind(change.kind, change.breaking);
+}
+
 export function parseChange(input: ChangeInput): ReleaseChange {
   const body = input.body ?? "";
   const labels = normalizeLabels(input.labels);

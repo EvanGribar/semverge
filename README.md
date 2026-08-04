@@ -30,7 +30,7 @@ jobs:
   shipkit:
     runs-on: ubuntu-latest
     steps:
-      - uses: EvanGribar/ShipKit@main
+      - uses: EvanGribar/ShipKit@v0.1.0
 ```
 
 On pushes to `main`, Shipkit reads conventional commits and merged pull requests, calculates the next semantic version, and maintains a release pull request. When that pull request merges, Shipkit creates the tag and GitHub release.
@@ -119,7 +119,7 @@ Configured commands and artifact commands run in the runner workspace. The zero-
 
 ## Current scope
 
-The current foundation supports Node.js single-package repositories, fixed and independent npm workspaces, Python `pyproject.toml`, Rust `Cargo.toml`, conventional commits, PR label overrides, version and lockfile updates, changelog/release notes, release PRs, tags, GitHub releases, readiness rules, npm publishing commands, configurable artifacts, release-health checks, and a JSON release manifest. Advanced monorepo dependency propagation and richer ecosystem-specific publishing remain deliberately bounded follow-on work.
+The current foundation supports Node.js single-package repositories, fixed and independent npm workspaces with bounded workspace-dependency propagation, Python `pyproject.toml`, Rust `Cargo.toml`, conventional commits, PR label overrides, version and lockfile updates, changelog/release notes, release PRs, tags, GitHub releases, readiness rules, npm publishing commands, configurable artifacts, release-health checks, and a JSON release manifest. Richer ecosystem-specific publishing remains deliberately bounded follow-on work.
 
 ## Development
 

@@ -69,6 +69,31 @@ describe("package discovery and workspace releases", () => {
     expect(plan.versionChanges.some((change) => change.path === "packages/one/package-lock.json" && change.content.includes('"version": "1.0.1"'))).toBe(true);
     expect(plan.outputs.some((output) => output.path === "packages/one/CHANGELOG.md")).toBe(true);
   });
+
+  it("propagates independent releases to workspace dependents", () => {
+    const files = {
+      "package.json": JSON.stringify({ name: "demo", version: "1.0.0", private: true, workspaces: ["packages/*"] }),
+      "packages/one/package.json": JSON.stringify({ name: "@demo/one", version: "1.0.0" }),
+      "packages/two/package.json": JSON.stringify({ name: "@demo/two", version: "1.0.0", dependencies: { "@demo/one": "workspace:*" } })
+    };
+    const config = { ...DEFAULT_CONFIG, monorepo: { ...DEFAULT_CONFIG.monorepo, mode: "independent" as const } };
+    const discovered = discoverPackages(files, Object.keys(files), config);
+    const plan = buildWorkspaceReleasePlan({
+      packages: discovered.packages,
+      mode: "independent",
+      files,
+      config,
+      changes: [parseChange({ title: "fix: repair shared export", source: "pull_request", files: ["packages/one/src/index.ts"] })],
+      date: "2026-08-04"
+    });
+    const one = plan.packages.find((item) => item.package.name === "@demo/one");
+    const two = plan.packages.find((item) => item.package.name === "@demo/two");
+    expect(one?.plan.version).toBe("1.0.1");
+    expect(two?.plan.version).toBe("1.0.1");
+    expect(two?.plan.releaseChanges.some((change) => change.dependencyUpdate)).toBe(true);
+    expect(two?.plan.customerNotes).toContain("No customer-facing changes");
+    expect(plan.manifest).toContain('"dependencyUpdate": true');
+  });
 });
 
 describe("ecosystem version adapters", () => {

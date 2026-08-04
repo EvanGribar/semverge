@@ -1,8 +1,6 @@
 import { basename, dirname, posix } from "node:path";
-import { bumpForKind } from "./changes.js";
 import { buildReleasePlan } from "./release.js";
-import { highestBump } from "./semver.js";
-import { packagePath, type PackageDescriptor } from "./packages.js";
+import { type PackageDescriptor } from "./packages.js";
 import { targetFromDescriptor, updateTargetVersion } from "./version-adapters.js";
 import type { ReadinessReport, ReleaseChange, ReleaseOutput, ShipkitConfig } from "./types.js";
 import type { VersionFileChange } from "./version-files.js";
@@ -68,6 +66,59 @@ function affectsPackage(change: ReleaseChange, packageItem: PackageDescriptor, c
     }
     return file === packageItem.manifestPath || file.startsWith(directoryPrefix) || file === "package.json";
   });
+}
+
+function packageConfig(config: ShipkitConfig, packageItem: PackageDescriptor, mode: "single" | "fixed" | "independent"): ShipkitConfig {
+  const packageOutputs: ShipkitConfig["outputs"] = {
+    changelog: outputPath(packageItem, config.outputs.changelog, mode),
+    customerNotes: outputPath(packageItem, config.outputs.customerNotes, mode),
+    migrationGuide: outputPath(packageItem, config.outputs.migrationGuide, mode),
+    internalSummary: outputPath(packageItem, config.outputs.internalSummary, mode),
+    manifest: outputPath(packageItem, config.outputs.manifest, mode),
+    announcement: outputPath(packageItem, config.outputs.announcement, mode)
+  };
+  return {
+    ...config,
+    outputs: packageOutputs,
+    readiness: {
+      ...config.readiness,
+      requiredLabels: [...config.readiness.requiredLabels],
+      requiredFiles: [...config.readiness.requiredFiles],
+      commands: [...config.readiness.commands],
+      tasks: [...config.readiness.tasks]
+    }
+  };
+}
+
+function buildPackagePlan(input: BuildWorkspaceReleasePlanInput, packageItem: PackageDescriptor, changes: ReleaseChange[]): ReturnType<typeof buildReleasePlan> {
+  const config = packageConfig(input.config, packageItem, input.mode);
+  return buildReleasePlan({
+    currentVersion: packageItem.version,
+    changes,
+    config,
+    existingChangelog: input.files[config.outputs.changelog] ?? "",
+    date: input.date,
+    readinessContext: input.readinessContext
+  });
+}
+
+function workspaceDependencyChange(packageItem: PackageDescriptor, dependencyNames: string[]): ReleaseChange {
+  const dependencies = dependencyNames.join(", ");
+  return {
+    title: `chore(${packageItem.name}): refresh workspace dependencies`,
+    description: `Refresh workspace dependency metadata after ${dependencies} release.`,
+    source: "commit",
+    labels: ["ship:internal"],
+    kind: "internal",
+    scope: packageItem.name,
+    breaking: false,
+    skipped: false,
+    forcedBump: "patch",
+    dependencyUpdate: true,
+    customerSummary: `Refresh ${packageItem.name} for the ${dependencies} release.`,
+    internalSummary: `Refresh ${packageItem.name} after ${dependencies} released.`,
+    readiness: []
+  };
 }
 
 function mergeReadiness(reports: ReadinessReport[]): ReadinessReport {
@@ -152,7 +203,8 @@ function manifestContent(plan: WorkspaceReleasePlan): string {
       changelog: packagePlan.outputs.find((output) => output.path.toLowerCase().endsWith("changelog.md"))?.path,
       customerNotes: packagePlan.outputs.find((output) => output.path.toLowerCase().endsWith("release_notes.md") || output.path.toLowerCase().endsWith("release-notes.md"))?.path,
       private: packageItem.private,
-      releaseable: packageItem.releaseable
+      releaseable: packageItem.releaseable,
+      dependencyUpdate: packagePlan.releaseChanges.some((change) => change.dependencyUpdate)
     })),
     readiness: plan.readiness
   }, null, 2)}\n`;
@@ -183,31 +235,39 @@ export function buildWorkspaceReleasePlan(input: BuildWorkspaceReleasePlanInput)
     });
     plans.push(...releaseable.map((releasePackage) => ({ package: releasePackage, plan })));
   } else {
+    const packagePlans = new Map<string, PackageRelease>();
     for (const packageItem of releaseable) {
       const packageChanges = input.changes.filter((change) => affectsPackage(change, packageItem, input.config));
-      const packageOutputs: ShipkitConfig["outputs"] = {
-        changelog: outputPath(packageItem, input.config.outputs.changelog, input.mode),
-        customerNotes: outputPath(packageItem, input.config.outputs.customerNotes, input.mode),
-        migrationGuide: outputPath(packageItem, input.config.outputs.migrationGuide, input.mode),
-        internalSummary: outputPath(packageItem, input.config.outputs.internalSummary, input.mode),
-        manifest: outputPath(packageItem, input.config.outputs.manifest, input.mode),
-        announcement: outputPath(packageItem, input.config.outputs.announcement, input.mode)
-      };
-      const packageConfig: ShipkitConfig = {
-        ...input.config,
-        outputs: packageOutputs,
-        readiness: { ...input.config.readiness, requiredLabels: [...input.config.readiness.requiredLabels], requiredFiles: [...input.config.readiness.requiredFiles], commands: [...input.config.readiness.commands], tasks: [...input.config.readiness.tasks] }
-      };
-      const plan = buildReleasePlan({
-        currentVersion: packageItem.version,
-        changes: packageChanges,
-        config: packageConfig,
-        existingChangelog: input.files[packageOutputs.changelog] ?? "",
-        date: input.date,
-        readinessContext: input.readinessContext
-      });
+      const plan = buildPackagePlan(input, packageItem, packageChanges);
       if (plan.hasRelease) {
-        plans.push({ package: packageItem, plan });
+        packagePlans.set(packageItem.id, { package: packageItem, plan });
+      }
+    }
+
+    let addedDependencyRelease = true;
+    while (addedDependencyRelease) {
+      addedDependencyRelease = false;
+      const releasedNames = new Set([...packagePlans.values()].flatMap(({ package: packageItem }) => [packageItem.id, packageItem.name]));
+      for (const packageItem of releaseable) {
+        if (packagePlans.has(packageItem.id)) {
+          continue;
+        }
+        const dependencyNames = packageItem.workspaceDependencies.filter((dependency) => releasedNames.has(dependency));
+        if (dependencyNames.length === 0) {
+          continue;
+        }
+        const packageChanges = input.changes.filter((change) => affectsPackage(change, packageItem, input.config));
+        const plan = buildPackagePlan(input, packageItem, [...packageChanges, workspaceDependencyChange(packageItem, dependencyNames)]);
+        if (plan.hasRelease) {
+          packagePlans.set(packageItem.id, { package: packageItem, plan });
+          addedDependencyRelease = true;
+        }
+      }
+    }
+    for (const packageItem of releaseable) {
+      const packagePlan = packagePlans.get(packageItem.id);
+      if (packagePlan) {
+        plans.push(packagePlan);
       }
     }
   }

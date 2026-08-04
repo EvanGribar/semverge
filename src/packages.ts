@@ -10,6 +10,7 @@ export interface PackageDescriptor extends VersionTarget {
   version: string;
   private: boolean;
   releaseable: boolean;
+  workspaceDependencies: string[];
 }
 
 export interface PackageDiscoveryResult {
@@ -113,6 +114,7 @@ function descriptor(path: string, content: string, releaseable: boolean): Packag
   }
   const root = target.directory === "";
   const privateValue = target.ecosystem === "node" ? Boolean(jsonObject(content)?.private) : false;
+  const workspaceDependencies = target.ecosystem === "node" ? nodeWorkspaceDependencies(content) : [];
   return {
     id: target.directory || name,
     name,
@@ -120,8 +122,29 @@ function descriptor(path: string, content: string, releaseable: boolean): Packag
     version,
     private: privateValue,
     releaseable: releaseable && !privateValue,
+    workspaceDependencies,
     ...target
   };
+}
+
+function nodeWorkspaceDependencies(content: string): string[] {
+  const value = jsonObject(content);
+  if (!value) {
+    return [];
+  }
+  const names = new Set<string>();
+  for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+    const dependencies = value[field];
+    if (!dependencies || typeof dependencies !== "object" || Array.isArray(dependencies)) {
+      continue;
+    }
+    for (const [name, version] of Object.entries(dependencies)) {
+      if (typeof version === "string" && version.startsWith("workspace:")) {
+        names.add(name);
+      }
+    }
+  }
+  return [...names];
 }
 
 function selectedMode(config: ShipkitConfig, packages: PackageDescriptor[]): Exclude<MonorepoMode, "auto"> {

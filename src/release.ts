@@ -1,4 +1,4 @@
-import { bumpForKind } from "./changes.js";
+import { bumpForChange } from "./changes.js";
 import { DEFAULT_CONFIG } from "./config.js";
 import { evaluateReadiness } from "./readiness.js";
 import { bumpVersion, highestBump } from "./semver.js";
@@ -37,7 +37,7 @@ export function buildReleasePlan(input: BuildReleasePlanInput): ReleasePlan {
   const config = input.config ?? DEFAULT_CONFIG;
   const releaseChanges = input.changes.filter((change) => !change.skipped);
   const skippedChanges = input.changes.filter((change) => change.skipped);
-  const bump = highestBump(releaseChanges.map((change) => bumpForKind(change.kind, change.breaking)));
+  const bump = highestBump(releaseChanges.map((change) => bumpForChange(change)));
   const hasRelease = bump !== "none";
   const labelPrerelease = releaseChanges.some((change) => change.labels.includes("ship:beta")) ? "beta" : undefined;
   const version = hasRelease ? bumpVersion(input.currentVersion, bump, config.release.prerelease ?? labelPrerelease) : input.currentVersion;

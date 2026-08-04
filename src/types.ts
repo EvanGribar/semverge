@@ -45,6 +45,8 @@ export interface ReleaseChange {
   scope?: string;
   breaking: boolean;
   skipped: boolean;
+  forcedBump?: BumpLevel;
+  dependencyUpdate?: boolean;
   customerSummary: string;
   internalSummary?: string;
   migration?: string;
