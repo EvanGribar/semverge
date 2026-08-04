@@ -1,5 +1,6 @@
 export * from "./changes.js";
 export * from "./config.js";
+export * from "./explain.js";
 export * from "./health.js";
 export * from "./metadata.js";
 export * from "./npm.js";
