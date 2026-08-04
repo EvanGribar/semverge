@@ -46,6 +46,25 @@ describe("package discovery and workspace releases", () => {
     expect(plan.manifest).toContain('"mode": "fixed"');
   });
 
+  it("releases an explicitly included private root in single mode", () => {
+    const files = {
+      "package.json": JSON.stringify({ name: "demo", version: "1.0.0", private: true }),
+    };
+    const config = { ...DEFAULT_CONFIG, monorepo: { ...DEFAULT_CONFIG.monorepo, mode: "single" as const, includeRoot: true } };
+    const discovered = discoverPackages(files, Object.keys(files), config);
+    const plan = buildWorkspaceReleasePlan({
+      packages: discovered.packages,
+      mode: "single",
+      files,
+      config,
+      changes: [parseChange({ title: "feat: release the private root", source: "pull_request", files: ["src/index.ts"] })],
+      date: "2026-08-04"
+    });
+    expect(plan.hasRelease).toBe(true);
+    expect(plan.packages[0]?.package.name).toBe("demo");
+    expect(plan.packages[0]?.plan.version).toBe("1.1.0");
+  });
+
   it("assigns independent changes to the package whose files changed", () => {
     const files = {
       "package.json": JSON.stringify({ name: "demo", version: "1.0.0", workspaces: ["packages/*"] }),

@@ -353,7 +353,7 @@ function manifestContent(plan: WorkspaceReleasePlan): string {
 }
 
 export function buildWorkspaceReleasePlan(input: BuildWorkspaceReleasePlanInput): WorkspaceReleasePlan {
-  const releaseable = input.packages.filter((packageItem) => packageItem.releaseable || input.mode === "fixed");
+  const releaseable = input.packages.filter((packageItem) => packageItem.releaseable || input.mode === "fixed" || input.mode === "single");
   const skippedChanges = input.changes.filter((change) => change.skipped);
   const plans: PackageRelease[] = [];
 
