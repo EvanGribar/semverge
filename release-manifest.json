@@ -1,16 +1,16 @@
 {
   "schemaVersion": 2,
   "mode": "single",
-  "version": "0.1.6",
-  "generatedAt": "2026-08-04T20:57:16.403Z",
+  "version": "0.1.7",
+  "generatedAt": "2026-08-04T21:16:41.544Z",
   "packages": [
     {
       "id": "semverge",
       "name": "semverge",
       "directory": "",
       "ecosystem": "node",
-      "previousVersion": "0.1.5",
-      "version": "0.1.6",
+      "previousVersion": "0.1.6",
+      "version": "0.1.7",
       "bump": "patch",
       "changelog": "CHANGELOG.md",
       "customerNotes": "RELEASE_NOTES.md",
