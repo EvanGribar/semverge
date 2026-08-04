@@ -41,4 +41,11 @@ jobs:
       - uses: EvanGribar/semverge@main
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Maintain v0 tag
+        if: "github.event_name == 'pull_request' && github.event.pull_request.merged == true && startsWith(github.event.pull_request.title, 'chore(release): v0.')"
+        env:
+          RELEASE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: |
+          git tag --force v0 "$RELEASE_SHA"
+          git push origin "refs/tags/v0" --force
 

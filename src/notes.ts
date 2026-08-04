@@ -12,6 +12,58 @@ function uniqueLines(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
+function listWithAnd(values: string[]): string {
+  if (values.length <= 1) {
+    return values[0] ?? "";
+  }
+  if (values.length === 2) {
+    return `${values[0]} and ${values[1]}`;
+  }
+  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
+}
+
+function countLabel(count: number, singular: string): string {
+  return `${count} ${singular}${count === 1 ? "" : "s"}`;
+}
+
+function sentence(value: string): string {
+  const trimmed = value.trim();
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+
+function highestImpactChange(changes: ReleaseChange[]): ReleaseChange | undefined {
+  return changes
+    .map((change, index) => ({ change, index }))
+    .sort((left, right) => {
+      const impact = (change: ReleaseChange): number => change.breaking || change.kind === "breaking" ? 3 : change.kind === "feature" ? 2 : 1;
+      return impact(right.change) - impact(left.change) || left.index - right.index;
+    })
+    .at(0)?.change;
+}
+
+function customerReleaseSummary(customerChanges: ReleaseChange[], breaking: ReleaseChange[], features: ReleaseChange[], fixes: ReleaseChange[]): string {
+  if (customerChanges.length === 0) {
+    return "No customer-facing changes were marked for this release.";
+  }
+  const counts = [
+    features.length > 0 ? countLabel(features.length, "feature") : undefined,
+    fixes.length > 0 ? countLabel(fixes.length, "fix") : undefined,
+    breaking.length > 0 ? countLabel(breaking.length, "breaking change") : undefined
+  ].filter((value): value is string => Boolean(value));
+  const lead = highestImpactChange(customerChanges);
+  const lines = [`This release includes ${listWithAnd(counts)}.`];
+  if (lead) {
+    lines.push(`Highest-impact change: ${sentence(lead.customerSummary)}`);
+  }
+  if (breaking.length > 0) {
+    lines.push("Breaking changes require review before upgrading.");
+  }
+  if (customerChanges.some((change) => change.migration)) {
+    lines.push("Migration guidance is included with this release.");
+  }
+  return lines.join(" ");
+}
+
 export function renderChangelogSection(version: string, date: string, changes: ReleaseChange[]): string {
   const breaking = changes.filter((change) => change.breaking || change.kind === "breaking");
   const features = changes.filter((change) => !breaking.includes(change) && change.kind === "feature");
@@ -39,7 +91,7 @@ export function renderCustomerNotes(version: string, changes: ReleaseChange[]): 
   const breaking = customerChanges.filter((change) => change.breaking || change.kind === "breaking");
   const features = customerChanges.filter((change) => !breaking.includes(change) && change.kind === "feature");
   const fixes = customerChanges.filter((change) => !breaking.includes(change) && change.kind === "fix");
-  const lines = [`# What's new in ${version}`, "", "A clear summary of the changes included in this release.", ""];
+  const lines = [`# What's new in ${version}`, "", customerReleaseSummary(customerChanges, breaking, features, fixes), ""];
   lines.push(...section("Highlights", features));
   lines.push(...section("Improvements and Fixes", fixes));
   lines.push(...section("Breaking Changes", breaking));

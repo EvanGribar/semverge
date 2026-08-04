@@ -31,7 +31,32 @@ describe("release planning", () => {
     ]);
     expect(plan.outputs[0]?.content).toContain("## [2.5.0] - 2026-08-04");
     expect(plan.customerNotes).toContain("add bulk export");
+    expect(plan.customerNotes).toContain("This release includes 1 feature and 1 fix.");
+    expect(plan.customerNotes).toContain("Highest-impact change: add bulk export.");
+    expect(plan.customerNotes).not.toContain("A clear summary of the changes included in this release.");
     expect(plan.internalSummary).toContain("update tooling");
+  });
+
+  it("uses breaking, migration, and announcement metadata in deterministic release communication", () => {
+    const plan = buildReleasePlan({
+      currentVersion: "1.0.0",
+      changes: [
+        parseChange({ title: "fix: handle empty exports", source: "commit" }),
+        parseChange({ title: "feat: add bulk export", source: "pull_request" }),
+        parseChange({
+          title: "feat!: normalize export responses",
+          source: "pull_request",
+          body: "<!-- semverge\nmigration: Update clients to read data.items.\nannouncement: Export responses now use the normalized shape.\n-->"
+        })
+      ]
+    });
+
+    expect(plan.customerNotes).toContain("This release includes 1 feature, 1 fix, and 1 breaking change.");
+    expect(plan.customerNotes).toContain("Highest-impact change: normalize export responses.");
+    expect(plan.customerNotes).toContain("Breaking changes require review before upgrading.");
+    expect(plan.customerNotes).toContain("Migration guidance is included with this release.");
+    expect(plan.migrationGuide).toContain("Update clients to read data.items.");
+    expect(plan.announcement).toContain("Export responses now use the normalized shape.");
   });
 
   it("keeps a docs-only change out of the release path", () => {

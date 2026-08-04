@@ -10420,6 +10420,50 @@ function section(title, changes) {
 function uniqueLines(values) {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
+function listWithAnd(values) {
+  if (values.length <= 1) {
+    return values[0] ?? "";
+  }
+  if (values.length === 2) {
+    return `${values[0]} and ${values[1]}`;
+  }
+  return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
+}
+function countLabel(count, singular) {
+  return `${count} ${singular}${count === 1 ? "" : "s"}`;
+}
+function sentence(value) {
+  const trimmed = value.trim();
+  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+}
+function highestImpactChange(changes) {
+  return changes.map((change, index) => ({ change, index })).sort((left, right) => {
+    const impact = (change) => change.breaking || change.kind === "breaking" ? 3 : change.kind === "feature" ? 2 : 1;
+    return impact(right.change) - impact(left.change) || left.index - right.index;
+  }).at(0)?.change;
+}
+function customerReleaseSummary(customerChanges, breaking, features, fixes) {
+  if (customerChanges.length === 0) {
+    return "No customer-facing changes were marked for this release.";
+  }
+  const counts = [
+    features.length > 0 ? countLabel(features.length, "feature") : void 0,
+    fixes.length > 0 ? countLabel(fixes.length, "fix") : void 0,
+    breaking.length > 0 ? countLabel(breaking.length, "breaking change") : void 0
+  ].filter((value) => Boolean(value));
+  const lead = highestImpactChange(customerChanges);
+  const lines = [`This release includes ${listWithAnd(counts)}.`];
+  if (lead) {
+    lines.push(`Highest-impact change: ${sentence(lead.customerSummary)}`);
+  }
+  if (breaking.length > 0) {
+    lines.push("Breaking changes require review before upgrading.");
+  }
+  if (customerChanges.some((change) => change.migration)) {
+    lines.push("Migration guidance is included with this release.");
+  }
+  return lines.join(" ");
+}
 function renderChangelogSection(version, date, changes) {
   const breaking = changes.filter((change) => change.breaking || change.kind === "breaking");
   const features = changes.filter((change) => !breaking.includes(change) && change.kind === "feature");
@@ -10453,7 +10497,7 @@ function renderCustomerNotes(version, changes) {
   const breaking = customerChanges.filter((change) => change.breaking || change.kind === "breaking");
   const features = customerChanges.filter((change) => !breaking.includes(change) && change.kind === "feature");
   const fixes = customerChanges.filter((change) => !breaking.includes(change) && change.kind === "fix");
-  const lines = [`# What's new in ${version}`, "", "A clear summary of the changes included in this release.", ""];
+  const lines = [`# What's new in ${version}`, "", customerReleaseSummary(customerChanges, breaking, features, fixes), ""];
   lines.push(...section("Highlights", features));
   lines.push(...section("Improvements and Fixes", fixes));
   lines.push(...section("Breaking Changes", breaking));
