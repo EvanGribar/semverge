@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, readFileSync, statSync, readdirSync } from 
 import { exec as execCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve, relative, join, basename, sep } from "node:path";
-import { parseChange } from "./changes.js";
+import { formatChangeReference, parseChange } from "./changes.js";
 import { parseConfig, withOverrides } from "./config.js";
 import { readinessMarkdown } from "./readiness.js";
 import { releaseTagName, GitHubClient, type GitHubCommitSummary, type GitHubPullRequest, type GitHubRelease } from "./github.js";
@@ -180,6 +180,31 @@ async function loadConfig(client: GitHubClient, path: string, ref: string): Prom
   return content ? parseConfig(content, path) : parseConfig("");
 }
 
+function releaseGraphMarkdown(plan: WorkspaceReleasePlan): string[] {
+  const lines = ["## Release graph", ""];
+  for (const { package: packageItem, plan: packagePlan, explanation } of plan.packages) {
+    const directChanges = packagePlan.releaseChanges.filter((change) => !change.dependencyUpdate);
+    const reasons: string[] = [];
+    if (directChanges.length > 0) {
+      reasons.push(`direct change: ${directChanges.map(formatChangeReference).join(", ")}`);
+    }
+    if (explanation.dependencies.length > 0) {
+      reasons.push(`dependency update after ${explanation.dependencies.map((dependency) => `**${dependency}**`).join(", ")}`);
+    }
+    if (explanation.reasons.includes("fixed-workspace")) {
+      reasons.push("fixed workspace: follows the shared version");
+    }
+    lines.push(`- **${packageItem.name}** ${packageItem.version} -> **${packagePlan.version}** — ${reasons.join("; ") || "release required by the configured strategy"}`);
+  }
+  if (plan.unchangedPackages.length > 0) {
+    lines.push("", "## Unreleased packages", "", ...plan.unchangedPackages.map((packageItem) => {
+      const reason = packageItem.private && !packageItem.releaseable ? "private package is not published in this release" : "no affected release is planned by the current strategy";
+      return `- **${packageItem.name}** ${packageItem.version} — ${reason}`;
+    }));
+  }
+  return lines;
+}
+
 function releasePrBody(plan: WorkspaceReleasePlan, config: SemVergeConfig): string {
   const marker = JSON.stringify({ version: plan.version, manifest: config.outputs.manifest, mode: plan.mode });
   const packageLines = plan.packages.map(({ package: packageItem, plan: packagePlan }) => `- **${packageItem.name}**: ${packageItem.version} -> **${packagePlan.version}** (${packagePlan.bump})`);
@@ -195,6 +220,8 @@ function releasePrBody(plan: WorkspaceReleasePlan, config: SemVergeConfig): stri
     ...packageLines,
     "",
     readinessMarkdown(plan.readiness).trim(),
+    "",
+    ...releaseGraphMarkdown(plan),
     "",
     "## Customer-facing notes",
     "",

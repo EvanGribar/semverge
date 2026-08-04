@@ -19,13 +19,14 @@ SemVerge is release automation that understands whether a release is ready and w
 - Prerelease channels, fixed/independent npm and pnpm workspaces, Python and Rust version adapters
 - Configurable npm publishing, release artifacts, immediate post-release verification, and a local CLI (`init`, `plan`, `doctor`)
 - Explicit durable release transactions with monotonic phases, idempotent side-effect events, failure recording, legacy-marker upgrades, release-body summaries, and `recover` inspection
+- Explainable per-package release graphs in release PRs and manifests, including direct changes, dependency propagation, and unreleased packages
 - Checked-in single-package, fixed-pnpm, independent-workspace, retry, and large-repository fixtures for deterministic end-to-end proof
 
 ## Follow-on slices
 
 1. Explicit promotion from prerelease to stable and richer channel policies.
 2. Python and Rust workspace discovery and publishing integrations.
-3. Independent-package dependency propagation based on workspace metadata.
+3. Richer independent-package dependency policies, including peer and optional dependency semantics.
 4. More artifact transports and registry-specific publishing adapters.
 5. Delayed release monitoring and history comments/check runs without growing into an analytics dashboard.
 

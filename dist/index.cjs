@@ -10704,6 +10704,21 @@ function workspaceDependencyChange(packageItem, dependencyNames) {
     readiness: []
   };
 }
+function packageExplanation(packageRelease, releasedNames, mode, releasedPackageCount) {
+  const directChanges = [...new Set(packageRelease.plan.releaseChanges.filter((change) => !change.dependencyUpdate).map((change) => change.title))];
+  const dependencies = mode === "independent" ? [...new Set(packageRelease.package.workspaceDependencies.filter((dependency) => releasedNames.has(dependency)))] : [];
+  const reasons = [];
+  if (directChanges.length > 0) {
+    reasons.push("direct-change");
+  }
+  if (dependencies.length > 0) {
+    reasons.push("dependency-update");
+  }
+  if (mode === "fixed" && releasedPackageCount > 1) {
+    reasons.push("fixed-workspace");
+  }
+  return { reasons, directChanges, dependencies };
+}
 function mergeReadiness(reports) {
   return {
     passed: reports.every((report) => report.passed),
@@ -10908,7 +10923,7 @@ function manifestContent(plan) {
     mode: plan.mode,
     version: plan.version,
     generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    packages: plan.packages.map(({ package: packageItem, plan: packagePlan }) => ({
+    packages: plan.packages.map(({ package: packageItem, plan: packagePlan, explanation }) => ({
       id: packageItem.id,
       name: packageItem.name,
       directory: packageItem.directory,
@@ -10920,7 +10935,19 @@ function manifestContent(plan) {
       customerNotes: packagePlan.outputs.find((output) => output.path.toLowerCase().endsWith("release_notes.md") || output.path.toLowerCase().endsWith("release-notes.md"))?.path,
       private: packageItem.private,
       releaseable: packageItem.releaseable,
-      dependencyUpdate: packagePlan.releaseChanges.some((change) => change.dependencyUpdate)
+      dependencyUpdate: packagePlan.releaseChanges.some((change) => change.dependencyUpdate),
+      reasons: explanation.reasons,
+      directChanges: explanation.directChanges,
+      dependencies: explanation.dependencies
+    })),
+    unchangedPackages: plan.unchangedPackages.map((packageItem) => ({
+      id: packageItem.id,
+      name: packageItem.name,
+      directory: packageItem.directory,
+      ecosystem: packageItem.ecosystem,
+      version: packageItem.version,
+      private: packageItem.private,
+      releaseable: packageItem.releaseable
     })),
     readiness: plan.readiness
   }, null, 2)}
@@ -10962,12 +10989,12 @@ function buildWorkspaceReleasePlan(input2) {
     let addedDependencyRelease = true;
     while (addedDependencyRelease) {
       addedDependencyRelease = false;
-      const releasedNames = new Set([...packagePlans.values()].flatMap(({ package: packageItem }) => [packageItem.id, packageItem.name]));
+      const releasedNames2 = new Set([...packagePlans.values()].flatMap(({ package: packageItem }) => [packageItem.id, packageItem.name]));
       for (const packageItem of releaseable) {
         if (packagePlans.has(packageItem.id)) {
           continue;
         }
-        const dependencyNames = packageItem.workspaceDependencies.filter((dependency) => releasedNames.has(dependency));
+        const dependencyNames = packageItem.workspaceDependencies.filter((dependency) => releasedNames2.has(dependency));
         if (dependencyNames.length === 0) {
           continue;
         }
@@ -10986,13 +11013,20 @@ function buildWorkspaceReleasePlan(input2) {
       }
     }
   }
-  const hasRelease = plans.some((item) => item.plan.hasRelease);
-  const releaseChanges = input2.mode === "independent" ? [...new Map(plans.flatMap((item) => item.plan.releaseChanges.map((change) => [change.title, change]))).values()] : input2.changes.filter((change) => !change.skipped);
-  const readiness = mergeReadiness(plans.length > 0 ? plans.map((item) => item.plan.readiness) : [input2.readinessContext ? { passed: true, missingLabels: [], missingFiles: [], failedCommands: [], missingTasks: [], requestedTasks: [] } : { passed: true, missingLabels: [], missingFiles: [], failedCommands: [], missingTasks: [], requestedTasks: [] }]);
-  const version = input2.mode === "independent" ? plans.map((item) => `${item.package.name}@${item.plan.version}`).join(", ") : plans[0]?.plan.version ?? input2.packages[0]?.version ?? "0.0.0";
+  const releasedPlans = plans.filter((item) => item.plan.hasRelease);
+  const releasedNames = new Set(releasedPlans.flatMap(({ package: packageItem }) => [packageItem.id, packageItem.name]));
+  const packageReleases = plans.map((packageRelease) => ({
+    ...packageRelease,
+    explanation: packageExplanation(packageRelease, releasedNames, input2.mode, releasedPlans.length)
+  }));
+  const unchangedPackages = input2.packages.filter((packageItem) => !releasedPlans.some((release) => release.package.manifestPath === packageItem.manifestPath));
+  const hasRelease = releasedPlans.length > 0;
+  const releaseChanges = input2.mode === "independent" ? [...new Map(packageReleases.flatMap((item) => item.plan.releaseChanges.map((change) => [change.title, change]))).values()] : input2.changes.filter((change) => !change.skipped);
+  const readiness = mergeReadiness(packageReleases.length > 0 ? packageReleases.map((item) => item.plan.readiness) : [input2.readinessContext ? { passed: true, missingLabels: [], missingFiles: [], failedCommands: [], missingTasks: [], requestedTasks: [] } : { passed: true, missingLabels: [], missingFiles: [], failedCommands: [], missingTasks: [], requestedTasks: [] }]);
+  const version = input2.mode === "independent" ? releasedPlans.map((item) => `${item.package.name}@${item.plan.version}`).join(", ") : plans[0]?.plan.version ?? input2.packages[0]?.version ?? "0.0.0";
   const versionChangeMap = /* @__PURE__ */ new Map();
   const versionMap = /* @__PURE__ */ new Map();
-  for (const item of plans) {
+  for (const item of packageReleases) {
     const nextVersion = item.plan.version;
     versionMap.set(item.package.manifestPath, nextVersion);
     const manifest2 = input2.files[item.package.manifestPath];
@@ -11002,7 +11036,7 @@ function buildWorkspaceReleasePlan(input2) {
     }
   }
   if (input2.mode === "fixed" || input2.mode === "single") {
-    const fixedPlan = plans[0];
+    const fixedPlan = packageReleases[0];
     if (fixedPlan?.plan.hasRelease) {
       for (const packageItem of input2.packages) {
         if (packageItem.manifestPath === fixedPlan.package.manifestPath) {
@@ -11029,7 +11063,7 @@ function buildWorkspaceReleasePlan(input2) {
   }
   const versionChanges = [...versionChangeMap.values()];
   const outputMap = /* @__PURE__ */ new Map();
-  for (const item of plans) {
+  for (const item of packageReleases) {
     for (const output of item.plan.outputs) {
       if (output.path !== (input2.mode === "independent" ? outputPath(item.package, input2.config.outputs.manifest, input2.mode) : input2.config.outputs.manifest)) {
         outputMap.set(output.path, output.content);
@@ -11040,13 +11074,14 @@ function buildWorkspaceReleasePlan(input2) {
     mode: input2.mode,
     hasRelease,
     version,
-    packages: plans,
+    packages: packageReleases,
     changes: input2.changes,
     releaseChanges,
     skippedChanges,
     readiness,
     outputs: [...outputMap].map(([path, content]) => ({ path, content })),
     versionChanges,
+    unchangedPackages,
     manifest: ""
   };
   const manifest = manifestContent(provisional);
@@ -11628,6 +11663,30 @@ async function loadConfig(client, path, ref) {
   const content = await fileAtHead(client, path, ref);
   return content ? parseConfig(content, path) : parseConfig("");
 }
+function releaseGraphMarkdown(plan) {
+  const lines = ["## Release graph", ""];
+  for (const { package: packageItem, plan: packagePlan, explanation } of plan.packages) {
+    const directChanges = packagePlan.releaseChanges.filter((change) => !change.dependencyUpdate);
+    const reasons = [];
+    if (directChanges.length > 0) {
+      reasons.push(`direct change: ${directChanges.map(formatChangeReference).join(", ")}`);
+    }
+    if (explanation.dependencies.length > 0) {
+      reasons.push(`dependency update after ${explanation.dependencies.map((dependency) => `**${dependency}**`).join(", ")}`);
+    }
+    if (explanation.reasons.includes("fixed-workspace")) {
+      reasons.push("fixed workspace: follows the shared version");
+    }
+    lines.push(`- **${packageItem.name}** ${packageItem.version} -> **${packagePlan.version}** \u2014 ${reasons.join("; ") || "release required by the configured strategy"}`);
+  }
+  if (plan.unchangedPackages.length > 0) {
+    lines.push("", "## Unreleased packages", "", ...plan.unchangedPackages.map((packageItem) => {
+      const reason = packageItem.private && !packageItem.releaseable ? "private package is not published in this release" : "no affected release is planned by the current strategy";
+      return `- **${packageItem.name}** ${packageItem.version} \u2014 ${reason}`;
+    }));
+  }
+  return lines;
+}
 function releasePrBody(plan, config) {
   const marker = JSON.stringify({ version: plan.version, manifest: config.outputs.manifest, mode: plan.mode });
   const packageLines = plan.packages.map(({ package: packageItem, plan: packagePlan }) => `- **${packageItem.name}**: ${packageItem.version} -> **${packagePlan.version}** (${packagePlan.bump})`);
@@ -11645,6 +11704,8 @@ ${packagePlan.customerNotes.trim()}`).join("\n\n");
     ...packageLines,
     "",
     readinessMarkdown(plan.readiness).trim(),
+    "",
+    ...releaseGraphMarkdown(plan),
     "",
     "## Customer-facing notes",
     "",

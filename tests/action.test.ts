@@ -97,6 +97,9 @@ describe("GitHub Action orchestration", () => {
     expect(JSON.parse(packageEntry?.content ?? "{}").version).toBe("0.2.0");
     expect(treeEntries.some((entry) => entry.path === "CHANGELOG.md")).toBe(true);
     expect(requests.some((request) => request.path.split("?")[0]?.endsWith("/commits/head-sha/pulls"))).toBe(true);
+    const releasePullRequest = requests.find((request) => request.method === "POST" && request.path.endsWith("/pulls"));
+    expect(String(releasePullRequest?.body?.body)).toContain("## Release graph");
+    expect(String(releasePullRequest?.body?.body)).toContain("direct change: add exports");
   });
 
   it("does not prepare a second release when the push already merged a SemVerge release PR", async () => {

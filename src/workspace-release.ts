@@ -3,12 +3,13 @@ import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { buildReleasePlan } from "./release.js";
 import { type PackageDescriptor } from "./packages.js";
 import { targetFromDescriptor, updateTargetVersion } from "./version-adapters.js";
-import type { ReadinessReport, ReleaseChange, ReleaseOutput, SemVergeConfig } from "./types.js";
+import type { PackageReleaseExplanation, PackageReleaseReason, ReadinessReport, ReleaseChange, ReleaseOutput, SemVergeConfig } from "./types.js";
 import type { VersionFileChange } from "./version-files.js";
 
 export interface PackageRelease {
   package: PackageDescriptor;
   plan: ReturnType<typeof buildReleasePlan>;
+  explanation: PackageReleaseExplanation;
 }
 
 export interface WorkspaceReleasePlan {
@@ -22,6 +23,7 @@ export interface WorkspaceReleasePlan {
   readiness: ReadinessReport;
   outputs: ReleaseOutput[];
   versionChanges: VersionFileChange[];
+  unchangedPackages: PackageDescriptor[];
   manifest: string;
 }
 
@@ -34,6 +36,8 @@ export interface BuildWorkspaceReleasePlanInput {
   date?: string;
   readinessContext?: Parameters<typeof buildReleasePlan>[0]["readinessContext"];
 }
+
+type PlannedPackageRelease = Omit<PackageRelease, "explanation">;
 
 function normalize(path: string): string {
   return path.replace(/\\/g, "/").replace(/^\.\//, "");
@@ -127,6 +131,24 @@ function workspaceDependencyChange(packageItem: PackageDescriptor, dependencyNam
     internalSummary: `Refresh ${packageItem.name} after ${dependencies} released.`,
     readiness: []
   };
+}
+
+function packageExplanation(packageRelease: Omit<PackageRelease, "explanation">, releasedNames: ReadonlySet<string>, mode: "single" | "fixed" | "independent", releasedPackageCount: number): PackageReleaseExplanation {
+  const directChanges = [...new Set(packageRelease.plan.releaseChanges.filter((change) => !change.dependencyUpdate).map((change) => change.title))];
+  const dependencies = mode === "independent"
+    ? [...new Set(packageRelease.package.workspaceDependencies.filter((dependency) => releasedNames.has(dependency)))]
+    : [];
+  const reasons: PackageReleaseReason[] = [];
+  if (directChanges.length > 0) {
+    reasons.push("direct-change");
+  }
+  if (dependencies.length > 0) {
+    reasons.push("dependency-update");
+  }
+  if (mode === "fixed" && releasedPackageCount > 1) {
+    reasons.push("fixed-workspace");
+  }
+  return { reasons, directChanges, dependencies };
 }
 
 function mergeReadiness(reports: ReadinessReport[]): ReadinessReport {
@@ -337,7 +359,7 @@ function manifestContent(plan: WorkspaceReleasePlan): string {
     mode: plan.mode,
     version: plan.version,
     generatedAt: new Date().toISOString(),
-    packages: plan.packages.map(({ package: packageItem, plan: packagePlan }) => ({
+    packages: plan.packages.map(({ package: packageItem, plan: packagePlan, explanation }) => ({
       id: packageItem.id,
       name: packageItem.name,
       directory: packageItem.directory,
@@ -349,7 +371,19 @@ function manifestContent(plan: WorkspaceReleasePlan): string {
       customerNotes: packagePlan.outputs.find((output) => output.path.toLowerCase().endsWith("release_notes.md") || output.path.toLowerCase().endsWith("release-notes.md"))?.path,
       private: packageItem.private,
       releaseable: packageItem.releaseable,
-      dependencyUpdate: packagePlan.releaseChanges.some((change) => change.dependencyUpdate)
+      dependencyUpdate: packagePlan.releaseChanges.some((change) => change.dependencyUpdate),
+      reasons: explanation.reasons,
+      directChanges: explanation.directChanges,
+      dependencies: explanation.dependencies
+    })),
+    unchangedPackages: plan.unchangedPackages.map((packageItem) => ({
+      id: packageItem.id,
+      name: packageItem.name,
+      directory: packageItem.directory,
+      ecosystem: packageItem.ecosystem,
+      version: packageItem.version,
+      private: packageItem.private,
+      releaseable: packageItem.releaseable
     })),
     readiness: plan.readiness
   }, null, 2)}\n`;
@@ -358,7 +392,7 @@ function manifestContent(plan: WorkspaceReleasePlan): string {
 export function buildWorkspaceReleasePlan(input: BuildWorkspaceReleasePlanInput): WorkspaceReleasePlan {
   const releaseable = input.packages.filter((packageItem) => packageItem.releaseable || input.mode === "fixed" || input.mode === "single");
   const skippedChanges = input.changes.filter((change) => change.skipped);
-  const plans: PackageRelease[] = [];
+  const plans: PlannedPackageRelease[] = [];
 
   if (input.mode === "fixed" || input.mode === "single") {
     const packageItem = releaseable[0] ?? input.packages[0];
@@ -380,7 +414,7 @@ export function buildWorkspaceReleasePlan(input: BuildWorkspaceReleasePlanInput)
     });
     plans.push(...releaseable.map((releasePackage) => ({ package: releasePackage, plan })));
   } else {
-    const packagePlans = new Map<string, PackageRelease>();
+    const packagePlans = new Map<string, PlannedPackageRelease>();
     const workspaceDirectories = input.packages.flatMap((packageItem) => packageItem.directory ? [packageItem.directory] : []);
     for (const packageItem of releaseable) {
       const packageChanges = input.changes.filter((change) => affectsPackage(change, packageItem, input.config, workspaceDirectories));
@@ -418,13 +452,20 @@ export function buildWorkspaceReleasePlan(input: BuildWorkspaceReleasePlanInput)
     }
   }
 
-  const hasRelease = plans.some((item) => item.plan.hasRelease);
-  const releaseChanges = input.mode === "independent" ? [...new Map(plans.flatMap((item) => item.plan.releaseChanges.map((change) => [change.title, change] as const))).values()] : input.changes.filter((change) => !change.skipped);
-  const readiness = mergeReadiness(plans.length > 0 ? plans.map((item) => item.plan.readiness) : [input.readinessContext ? { passed: true, missingLabels: [], missingFiles: [], failedCommands: [], missingTasks: [], requestedTasks: [] } : { passed: true, missingLabels: [], missingFiles: [], failedCommands: [], missingTasks: [], requestedTasks: [] }]);
-  const version = input.mode === "independent" ? plans.map((item) => `${item.package.name}@${item.plan.version}`).join(", ") : plans[0]?.plan.version ?? input.packages[0]?.version ?? "0.0.0";
+  const releasedPlans = plans.filter((item) => item.plan.hasRelease);
+  const releasedNames = new Set(releasedPlans.flatMap(({ package: packageItem }) => [packageItem.id, packageItem.name]));
+  const packageReleases = plans.map((packageRelease) => ({
+    ...packageRelease,
+    explanation: packageExplanation(packageRelease, releasedNames, input.mode, releasedPlans.length)
+  }));
+  const unchangedPackages = input.packages.filter((packageItem) => !releasedPlans.some((release) => release.package.manifestPath === packageItem.manifestPath));
+  const hasRelease = releasedPlans.length > 0;
+  const releaseChanges = input.mode === "independent" ? [...new Map(packageReleases.flatMap((item) => item.plan.releaseChanges.map((change) => [change.title, change] as const))).values()] : input.changes.filter((change) => !change.skipped);
+  const readiness = mergeReadiness(packageReleases.length > 0 ? packageReleases.map((item) => item.plan.readiness) : [input.readinessContext ? { passed: true, missingLabels: [], missingFiles: [], failedCommands: [], missingTasks: [], requestedTasks: [] } : { passed: true, missingLabels: [], missingFiles: [], failedCommands: [], missingTasks: [], requestedTasks: [] }]);
+  const version = input.mode === "independent" ? releasedPlans.map((item) => `${item.package.name}@${item.plan.version}`).join(", ") : plans[0]?.plan.version ?? input.packages[0]?.version ?? "0.0.0";
   const versionChangeMap = new Map<string, VersionFileChange>();
   const versionMap = new Map<string, string>();
-  for (const item of plans) {
+  for (const item of packageReleases) {
     const nextVersion = item.plan.version;
     versionMap.set(item.package.manifestPath, nextVersion);
     const manifest = input.files[item.package.manifestPath];
@@ -434,7 +475,7 @@ export function buildWorkspaceReleasePlan(input: BuildWorkspaceReleasePlanInput)
     }
   }
   if (input.mode === "fixed" || input.mode === "single") {
-    const fixedPlan = plans[0];
+    const fixedPlan = packageReleases[0];
     if (fixedPlan?.plan.hasRelease) {
       for (const packageItem of input.packages) {
         if (packageItem.manifestPath === fixedPlan.package.manifestPath) {
@@ -462,7 +503,7 @@ export function buildWorkspaceReleasePlan(input: BuildWorkspaceReleasePlanInput)
   const versionChanges = [...versionChangeMap.values()];
 
   const outputMap = new Map<string, string>();
-  for (const item of plans) {
+  for (const item of packageReleases) {
     for (const output of item.plan.outputs) {
       if (output.path !== (input.mode === "independent" ? outputPath(item.package, input.config.outputs.manifest, input.mode) : input.config.outputs.manifest)) {
         outputMap.set(output.path, output.content);
@@ -473,13 +514,14 @@ export function buildWorkspaceReleasePlan(input: BuildWorkspaceReleasePlanInput)
     mode: input.mode,
     hasRelease,
     version,
-    packages: plans,
+    packages: packageReleases,
     changes: input.changes,
     releaseChanges,
     skippedChanges,
     readiness,
     outputs: [...outputMap].map(([path, content]) => ({ path, content })),
     versionChanges,
+    unchangedPackages,
     manifest: ""
   };
   const manifest = manifestContent(provisional);
