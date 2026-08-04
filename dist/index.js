@@ -8933,11 +8933,11 @@ function detectRapidHotfix(releaseVersion, publishedAt, laterReleases, tagPrefix
   });
 }
 function healthMarkdown(report) {
-  const icon = report.status === "healthy" ? "\xE2\u0153\u2026" : report.status === "degraded" ? "\xE2\u0161\xA0\xEF\xB8\x8F" : report.status === "failed" ? "\xE2\x9D\u0152" : "\xE2\u201E\xB9\xEF\xB8\x8F";
+  const icon = report.status === "healthy" ? "\u2705" : report.status === "degraded" ? "\u26A0\uFE0F" : report.status === "failed" ? "\u274C" : "\u2139\uFE0F";
   return [
     `## SemVerge release health: ${icon} ${report.status}`,
     "",
-    ...report.checks.map((check) => `${check.status === "pass" ? "\xE2\u0153\u2026" : check.status === "warn" ? "\xE2\u0161\xA0\xEF\xB8\x8F" : "\xE2\x9D\u0152"} **${check.name}** \xE2\u20AC\u201D ${check.detail}`),
+    ...report.checks.map((check) => `${check.status === "pass" ? "\u2705" : check.status === "warn" ? "\u26A0\uFE0F" : "\u274C"} **${check.name}** \u2014 ${check.detail}`),
     ""
   ].join("\n");
 }

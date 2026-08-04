@@ -4,7 +4,7 @@ SemVerge is the easiest way to version, prepare, and publish a software release 
 
 It owns the complete release path:
 
-`detect changes â†’ choose version â†’ prepare release â†’ verify readiness â†’ generate communication â†’ publish`
+`detect changes → choose version → prepare release → verify readiness → generate communication → publish`
 
 ## Quick start
 
@@ -30,7 +30,7 @@ jobs:
   semverge:
     runs-on: ubuntu-latest
     steps:
-      - uses: EvanGribar/semverge@v0.1.3
+      - uses: EvanGribar/semverge@v0.1.4
 ```
 
 On pushes to `main`, SemVerge reads conventional commits and merged pull requests, calculates the next semantic version, and maintains a release pull request. When that pull request merges, SemVerge creates the tag and GitHub release.
