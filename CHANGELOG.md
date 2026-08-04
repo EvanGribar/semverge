@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.9] - 2026-08-04
+
+### Bug Fixes
+
+- [verify releases after transactional publication](https://github.com/EvanGribar/semverge/pull/41) (#41)
+
 ## [0.1.8] - 2026-08-04
 
 ### Bug Fixes
