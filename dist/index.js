@@ -5,9 +5,6 @@ var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
 var __getOwnPropNames = Object.getOwnPropertyNames;
 var __getProtoOf = Object.getPrototypeOf;
 var __hasOwnProp = Object.prototype.hasOwnProperty;
-var __esm = (fn, res) => function __init() {
-  return fn && (res = (0, fn[__getOwnPropNames(fn)[0]])(fn = 0)), res;
-};
 var __commonJS = (cb, mod) => function __require() {
   return mod || (0, cb[__getOwnPropNames(cb)[0]])((mod = { exports: {} }).exports, mod), mod.exports;
 };
@@ -7360,16 +7357,643 @@ var require_dist = __commonJS({
   }
 });
 
-// src/semver.ts
-var semver_exports = {};
-__export(semver_exports, {
-  bumpVersion: () => bumpVersion,
-  compareVersions: () => compareVersions,
-  formatVersion: () => formatVersion,
-  highestBump: () => highestBump,
-  isVersion: () => isVersion,
-  parseVersion: () => parseVersion
+// src/action.ts
+var action_exports = {};
+__export(action_exports, {
+  run: () => run
 });
+module.exports = __toCommonJS(action_exports);
+var import_node_fs = require("node:fs");
+var import_node_child_process = require("node:child_process");
+var import_node_util = require("node:util");
+var import_node_path3 = require("node:path");
+
+// src/metadata.ts
+var METADATA_BLOCK = /<!--\s*shipkit(?:\s+release)?\s*([\s\S]*?)-->/i;
+var ALLOWED_TYPES = /* @__PURE__ */ new Set(["feature", "fix", "breaking", "docs", "internal", "other"]);
+function parseBoolean(value) {
+  const normalized = value.trim().toLowerCase();
+  if (["true", "yes", "1"].includes(normalized)) {
+    return true;
+  }
+  if (["false", "no", "0"].includes(normalized)) {
+    return false;
+  }
+  return void 0;
+}
+function parseValue(value) {
+  const trimmed = value.trim().replace(/^['"]|['"]$/g, "");
+  const booleanValue2 = parseBoolean(trimmed);
+  if (booleanValue2 !== void 0) {
+    return booleanValue2;
+  }
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    return trimmed.slice(1, -1).split(",").map((item) => item.trim().replace(/^['"]|['"]$/g, "")).filter(Boolean);
+  }
+  return trimmed || void 0;
+}
+function parseJsonMetadata(value) {
+  try {
+    const parsed = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    const object = parsed;
+    const result = {};
+    if (typeof object.type === "string" && ALLOWED_TYPES.has(object.type)) {
+      result.type = object.type;
+    }
+    for (const key of ["customer", "migration", "internal", "announcement"]) {
+      if (typeof object[key] === "string" && object[key].trim()) {
+        result[key] = object[key].trim();
+      }
+    }
+    if (typeof object.breaking === "boolean") {
+      result.breaking = object.breaking;
+    }
+    if (typeof object.skip === "boolean") {
+      result.skip = object.skip;
+    }
+    if (Array.isArray(object.readiness)) {
+      result.readiness = object.readiness.filter((item) => typeof item === "string" && item.trim().length > 0).map((item) => item.trim());
+    }
+    return result;
+  } catch {
+    return null;
+  }
+}
+function parseShipkitMetadata(body = "") {
+  const match = METADATA_BLOCK.exec(body);
+  if (!match) {
+    return {};
+  }
+  const payload = match[1]?.trim() ?? "";
+  if (!payload) {
+    return {};
+  }
+  const json = parseJsonMetadata(payload);
+  if (json) {
+    return json;
+  }
+  const result = {};
+  for (const rawLine of payload.split(/\r?\n/)) {
+    const line = rawLine.trim().replace(/^[-*]\s+/, "");
+    const separator = line.indexOf(":");
+    if (separator < 1) {
+      continue;
+    }
+    const key = line.slice(0, separator).trim().toLowerCase();
+    const parsed = parseValue(line.slice(separator + 1));
+    if (parsed === void 0) {
+      continue;
+    }
+    if (key === "type" && typeof parsed === "string" && ALLOWED_TYPES.has(parsed)) {
+      result.type = parsed;
+    } else if (["customer", "migration", "internal", "announcement"].includes(key) && typeof parsed === "string") {
+      result[key] = parsed;
+    } else if ((key === "breaking" || key === "skip") && typeof parsed === "boolean") {
+      result[key] = parsed;
+    } else if (key === "readiness") {
+      result.readiness = Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string").map((item) => item.trim()).filter(Boolean) : typeof parsed === "string" ? parsed.split(",").map((item) => item.trim()).filter(Boolean) : [];
+    }
+  }
+  return result;
+}
+
+// src/changes.ts
+var HEADER_PATTERN = /^(?<type>[a-z]+)(?:\((?<scope>[^)]+)\))?(?<breaking>!)?:\s*(?<description>.+)$/i;
+var LABEL_KIND = {
+  "ship:feature": "feature",
+  "ship:fix": "fix",
+  "ship:breaking": "breaking",
+  "ship:internal": "internal",
+  "ship:docs": "docs"
+};
+function normalizeLabels(labels) {
+  return [...new Set((labels ?? []).map((label) => label.trim().toLowerCase()).filter(Boolean))];
+}
+function kindFromConventionalType(type) {
+  switch (type.toLowerCase()) {
+    case "feat":
+    case "feature":
+      return "feature";
+    case "fix":
+    case "bugfix":
+    case "perf":
+      return "fix";
+    case "docs":
+      return "docs";
+    case "chore":
+    case "ci":
+    case "build":
+    case "refactor":
+    case "revert":
+    case "style":
+    case "test":
+      return "internal";
+    default:
+      return "other";
+  }
+}
+function hasBreakingFooter(body) {
+  return /(?:^|\n)BREAKING(?:-|\s)CHANGE\s*:/im.test(body);
+}
+function parseTitle(title) {
+  const match = HEADER_PATTERN.exec(title.trim());
+  if (!match?.groups) {
+    return { kind: "other", description: title.trim(), breaking: false };
+  }
+  const result = {
+    kind: kindFromConventionalType(match.groups.type ?? ""),
+    description: (match.groups.description ?? title).trim(),
+    breaking: Boolean(match.groups.breaking)
+  };
+  if (match.groups.scope) {
+    result.scope = match.groups.scope.trim();
+  }
+  return result;
+}
+function labelKind(labels) {
+  for (const label of labels) {
+    const kind = LABEL_KIND[label];
+    if (kind) {
+      return kind;
+    }
+  }
+  return void 0;
+}
+function bumpForKind(kind, breaking) {
+  if (breaking || kind === "breaking") {
+    return "major";
+  }
+  if (kind === "feature") {
+    return "minor";
+  }
+  if (kind === "fix") {
+    return "patch";
+  }
+  return "none";
+}
+function bumpForChange(change) {
+  return change.forcedBump ?? bumpForKind(change.kind, change.breaking);
+}
+function parseChange(input2) {
+  const body = input2.body ?? "";
+  const labels = normalizeLabels(input2.labels);
+  const parsed = parseTitle(input2.title);
+  const metadata = parseShipkitMetadata(body);
+  const overriddenKind = labelKind(labels);
+  const kind = metadata.type ?? overriddenKind ?? parsed.kind;
+  const breaking = metadata.breaking ?? (labels.includes("ship:breaking") || parsed.breaking || hasBreakingFooter(body) || kind === "breaking");
+  const skipped = metadata.skip === true || labels.includes("ship:skip");
+  const description = parsed.description || input2.title.trim();
+  const customerSummary = metadata.customer ?? description;
+  const change = {
+    title: input2.title.trim(),
+    description,
+    source: input2.source,
+    labels,
+    kind,
+    breaking,
+    skipped,
+    customerSummary,
+    readiness: metadata.readiness ?? []
+  };
+  for (const [key, value] of Object.entries({
+    sha: input2.sha,
+    number: input2.number,
+    url: input2.url,
+    author: input2.author,
+    mergedAt: input2.mergedAt,
+    files: input2.files,
+    scope: parsed.scope,
+    internalSummary: metadata.internal,
+    migration: metadata.migration,
+    announcement: metadata.announcement
+  })) {
+    if (value !== void 0) {
+      change[key] = value;
+    }
+  }
+  return change;
+}
+function formatChangeReference(change) {
+  if (change.number !== void 0 && change.url) {
+    return `[${change.customerSummary}](${change.url}) (#${change.number})`;
+  }
+  if (change.number !== void 0) {
+    return `${change.customerSummary} (#${change.number})`;
+  }
+  return change.customerSummary;
+}
+
+// src/config.ts
+var import_yaml = __toESM(require_dist(), 1);
+var DEFAULT_CONFIG = {
+  release: {
+    branch: "shipkit/release",
+    tagPrefix: "v",
+    independentTagPrefix: "pkg-"
+  },
+  readiness: {
+    requiredLabels: [],
+    requiredFiles: [],
+    commands: [],
+    tasks: []
+  },
+  outputs: {
+    changelog: "CHANGELOG.md",
+    customerNotes: "RELEASE_NOTES.md",
+    migrationGuide: "MIGRATION.md",
+    internalSummary: ".shipkit/internal-release.md",
+    manifest: "release-manifest.json",
+    announcement: "RELEASE_ANNOUNCEMENT.md"
+  },
+  artifacts: {
+    paths: []
+  },
+  monorepo: {
+    mode: "auto",
+    packages: [],
+    includeRoot: true,
+    unscopedChanges: "all"
+  },
+  health: {
+    enabled: true,
+    workflows: [],
+    expectedArtifacts: [],
+    requiredLinks: [],
+    hotfixWindowHours: 48
+  },
+  publishing: {
+    npm: {
+      enabled: false,
+      command: "npm publish"
+    }
+  }
+};
+function strings(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.filter((item) => typeof item === "string").map((item) => item.trim()).filter(Boolean);
+}
+function commands(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") {
+      return [];
+    }
+    const record = item;
+    if (typeof record.name !== "string" || typeof record.run !== "string" || !record.name.trim() || !record.run.trim()) {
+      return [];
+    }
+    return [{ name: record.name.trim(), run: record.run.trim() }];
+  });
+}
+function readinessTasks(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") {
+      return [];
+    }
+    const record = item;
+    if (typeof record.name !== "string" || !record.name.trim()) {
+      return [];
+    }
+    const task = { name: record.name.trim() };
+    if (typeof record.label === "string" && record.label.trim()) task.label = record.label.trim();
+    if (typeof record.file === "string" && record.file.trim()) task.file = record.file.trim();
+    return [task];
+  });
+}
+function healthWorkflows(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") {
+      return [];
+    }
+    const record = item;
+    if (typeof record.name !== "string" || !record.name.trim()) {
+      return [];
+    }
+    const purpose = record.purpose === "package" || record.purpose === "deployment" || record.purpose === "rollback" || record.purpose === "custom" ? record.purpose : "custom";
+    return [{ name: record.name.trim(), purpose, required: record.required !== false }];
+  });
+}
+function booleanValue(value, fallback) {
+  return typeof value === "boolean" ? value : fallback;
+}
+function positiveNumber(value, fallback) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+function mergeConfig(raw) {
+  if (!raw || typeof raw !== "object") {
+    return DEFAULT_CONFIG;
+  }
+  const object = raw;
+  const release = object.release && typeof object.release === "object" ? object.release : {};
+  const readiness = object.readiness && typeof object.readiness === "object" ? object.readiness : {};
+  const outputs = object.outputs && typeof object.outputs === "object" ? object.outputs : {};
+  const artifacts = object.artifacts && typeof object.artifacts === "object" ? object.artifacts : {};
+  const monorepo = object.monorepo && typeof object.monorepo === "object" ? object.monorepo : {};
+  const health = object.health && typeof object.health === "object" ? object.health : {};
+  const publishing = object.publishing && typeof object.publishing === "object" ? object.publishing : {};
+  const npm = publishing.npm && typeof publishing.npm === "object" ? publishing.npm : {};
+  const result = {
+    release: {
+      branch: typeof release.branch === "string" && release.branch.trim() ? release.branch.trim() : DEFAULT_CONFIG.release.branch,
+      tagPrefix: typeof release.tagPrefix === "string" ? release.tagPrefix : DEFAULT_CONFIG.release.tagPrefix,
+      independentTagPrefix: typeof release.independentTagPrefix === "string" ? release.independentTagPrefix : DEFAULT_CONFIG.release.independentTagPrefix
+    },
+    readiness: {
+      requiredLabels: strings(readiness.requiredLabels),
+      requiredFiles: strings(readiness.requiredFiles),
+      commands: commands(readiness.commands),
+      tasks: readinessTasks(readiness.tasks)
+    },
+    outputs: {
+      changelog: typeof outputs.changelog === "string" && outputs.changelog.trim() ? outputs.changelog.trim() : DEFAULT_CONFIG.outputs.changelog,
+      customerNotes: typeof outputs.customerNotes === "string" && outputs.customerNotes.trim() ? outputs.customerNotes.trim() : DEFAULT_CONFIG.outputs.customerNotes,
+      migrationGuide: typeof outputs.migrationGuide === "string" && outputs.migrationGuide.trim() ? outputs.migrationGuide.trim() : DEFAULT_CONFIG.outputs.migrationGuide,
+      internalSummary: typeof outputs.internalSummary === "string" && outputs.internalSummary.trim() ? outputs.internalSummary.trim() : DEFAULT_CONFIG.outputs.internalSummary,
+      manifest: typeof outputs.manifest === "string" && outputs.manifest.trim() ? outputs.manifest.trim() : DEFAULT_CONFIG.outputs.manifest,
+      announcement: typeof outputs.announcement === "string" && outputs.announcement.trim() ? outputs.announcement.trim() : DEFAULT_CONFIG.outputs.announcement
+    },
+    artifacts: {
+      paths: strings(artifacts.paths)
+    },
+    monorepo: {
+      mode: monorepo.mode === "single" || monorepo.mode === "fixed" || monorepo.mode === "independent" ? monorepo.mode : "auto",
+      packages: strings(monorepo.packages),
+      includeRoot: booleanValue(monorepo.includeRoot, DEFAULT_CONFIG.monorepo.includeRoot),
+      unscopedChanges: monorepo.unscopedChanges === "root" ? "root" : "all"
+    },
+    health: {
+      enabled: booleanValue(health.enabled, DEFAULT_CONFIG.health.enabled),
+      workflows: healthWorkflows(health.workflows),
+      expectedArtifacts: strings(health.expectedArtifacts),
+      requiredLinks: strings(health.requiredLinks),
+      hotfixWindowHours: positiveNumber(health.hotfixWindowHours, DEFAULT_CONFIG.health.hotfixWindowHours)
+    },
+    publishing: {
+      npm: {
+        enabled: booleanValue(npm.enabled, DEFAULT_CONFIG.publishing.npm.enabled),
+        command: typeof npm.command === "string" && npm.command.trim() ? npm.command.trim() : DEFAULT_CONFIG.publishing.npm.command
+      }
+    }
+  };
+  if (typeof release.prerelease === "string" && release.prerelease.trim()) {
+    result.release.prerelease = release.prerelease.trim();
+  }
+  if (typeof artifacts.command === "string" && artifacts.command.trim()) {
+    result.artifacts.command = artifacts.command.trim();
+  }
+  return result;
+}
+function parseConfig(content, fileName = ".shipkit.yml") {
+  if (!content.trim()) {
+    return DEFAULT_CONFIG;
+  }
+  let raw;
+  try {
+    raw = fileName.toLowerCase().endsWith(".json") ? JSON.parse(content) : (0, import_yaml.parse)(content);
+  } catch (error) {
+    throw new Error(`Could not parse ${fileName}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return mergeConfig(raw);
+}
+function withOverrides(config, overrides) {
+  const result = {
+    release: { ...config.release },
+    readiness: { ...config.readiness, requiredLabels: [...config.readiness.requiredLabels], requiredFiles: [...config.readiness.requiredFiles], commands: [...config.readiness.commands], tasks: [...config.readiness.tasks] },
+    outputs: { ...config.outputs },
+    artifacts: { ...config.artifacts, paths: [...config.artifacts.paths] },
+    monorepo: { ...config.monorepo, packages: [...config.monorepo.packages] },
+    health: { ...config.health, workflows: [...config.health.workflows], expectedArtifacts: [...config.health.expectedArtifacts], requiredLinks: [...config.health.requiredLinks] },
+    publishing: { ...config.publishing, npm: { ...config.publishing.npm } }
+  };
+  const prerelease = overrides.prerelease?.trim();
+  if (prerelease) {
+    result.release.prerelease = prerelease;
+  }
+  const artifactCommand = overrides.artifactCommand?.trim();
+  if (artifactCommand) {
+    result.artifacts.command = artifactCommand;
+  }
+  return result;
+}
+
+// src/readiness.ts
+function evaluateReadiness(config, changes, context = {}) {
+  const availableLabels = new Set([...context.availableLabels ?? []].map((label) => label.toLowerCase()));
+  const availableFiles = new Set(context.availableFiles ?? []);
+  const missingLabels = config.requiredLabels.filter((label) => !availableLabels.has(label.toLowerCase()));
+  const missingFiles = config.requiredFiles.filter((file) => !availableFiles.has(file));
+  const commandResults = context.commandResults ?? {};
+  const failedCommands = config.commands.filter((command) => commandResults[command.name] === false).map((command) => command.name);
+  const requestedTasks = [...new Set(changes.flatMap((change) => change.readiness))];
+  const missingTasks = requestedTasks.flatMap((taskName) => {
+    const task = config.tasks.find((candidate) => candidate.name.toLowerCase() === taskName.toLowerCase());
+    if (!task) {
+      return [taskName];
+    }
+    const satisfiedByLabel = task.label ? availableLabels.has(task.label.toLowerCase()) : false;
+    const satisfiedByFile = task.file ? availableFiles.has(task.file) : false;
+    return satisfiedByLabel || satisfiedByFile ? [] : [taskName];
+  });
+  return {
+    passed: missingLabels.length === 0 && missingFiles.length === 0 && failedCommands.length === 0 && missingTasks.length === 0,
+    missingLabels,
+    missingFiles,
+    failedCommands,
+    missingTasks,
+    requestedTasks
+  };
+}
+function readinessMarkdown(report) {
+  const lines = [`## Readiness`, "", report.passed ? "\u2705 All configured release checks pass." : "\u26A0\uFE0F Release is waiting on required product work.", ""];
+  if (report.missingLabels.length > 0) {
+    lines.push(`- Missing labels: ${report.missingLabels.map((label) => `\`${label}\``).join(", ")}`);
+  }
+  if (report.missingFiles.length > 0) {
+    lines.push(`- Missing files: ${report.missingFiles.map((file) => `\`${file}\``).join(", ")}`);
+  }
+  if (report.failedCommands.length > 0) {
+    lines.push(`- Failed checks: ${report.failedCommands.map((command) => `\`${command}\``).join(", ")}`);
+  }
+  if (report.missingTasks.length > 0) {
+    lines.push(`- Missing product tasks: ${report.missingTasks.map((task) => `\`${task}\``).join(", ")}`);
+  }
+  if (report.requestedTasks.length > 0) {
+    lines.push(`- Requested product tasks: ${report.requestedTasks.map((task) => `\`${task}\``).join(", ")}`);
+  }
+  return `${lines.join("\n")}
+`;
+}
+
+// src/github.ts
+var import_promises = require("node:fs/promises");
+var GitHubClient = class {
+  constructor(token, repository, apiBase = process.env.GITHUB_API_URL ?? "https://api.github.com") {
+    this.token = token;
+    this.repository = repository;
+    this.apiBase = apiBase.replace(/\/$/, "");
+  }
+  apiBase;
+  async request(path, options = {}, allowNotFound = false) {
+    const headers = new Headers(options.headers);
+    headers.set("accept", "application/vnd.github+json");
+    headers.set("x-github-api-version", "2022-11-28");
+    if (this.token) {
+      headers.set("authorization", `Bearer ${this.token}`);
+    }
+    const init = {
+      method: options.method ?? "GET",
+      headers
+    };
+    if (options.body !== void 0) {
+      headers.set("content-type", "application/json");
+      init.body = JSON.stringify(options.body);
+    }
+    const response = await fetch(`${this.apiBase}/repos/${this.repository}${path}`, init);
+    if (allowNotFound && response.status === 404) {
+      return null;
+    }
+    const text = await response.text();
+    if (!response.ok) {
+      throw new Error(`GitHub API ${options.method ?? "GET"} ${path} failed (${response.status}): ${text.slice(0, 500)}`);
+    }
+    return text ? JSON.parse(text) : null;
+  }
+  async repositoryInfo() {
+    return await this.request("");
+  }
+  async getFile(path, ref) {
+    const encodedPath = path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
+    const query = ref ? `?ref=${encodeURIComponent(ref)}` : "";
+    const file = await this.request(`/contents/${encodedPath}${query}`, {}, true);
+    if (!file || file.type !== "file" || !file.content) {
+      return null;
+    }
+    return Buffer.from(file.content.replace(/\n/g, ""), file.encoding === "base64" ? "base64" : "utf8").toString("utf8");
+  }
+  async getRef(ref) {
+    return this.request(`/git/ref/${ref}`, {}, true);
+  }
+  async getCommit(sha) {
+    return await this.request(`/git/commits/${encodeURIComponent(sha)}`);
+  }
+  async getTree(treeSha) {
+    const result = await this.request(`/git/trees/${encodeURIComponent(treeSha)}?recursive=1`);
+    if (result.truncated) {
+      throw new Error("GitHub returned a truncated repository tree; configure explicit monorepo package paths for large repositories.");
+    }
+    return result.tree;
+  }
+  async listTags() {
+    return await this.request("/tags?per_page=100") ?? [];
+  }
+  async compare(base, head) {
+    return await this.request(`/compare/${encodeURIComponent(`${base}...${head}`)}`);
+  }
+  async listCommits(sha) {
+    return await this.request(`/commits?sha=${encodeURIComponent(sha)}&per_page=100`) ?? [];
+  }
+  async commitPullRequests(sha) {
+    return await this.request(`/commits/${encodeURIComponent(sha)}/pulls`) ?? [];
+  }
+  async listPullRequestFiles(number) {
+    const files = await this.request(`/pulls/${number}/files?per_page=100`) ?? [];
+    return files.flatMap((file) => typeof file.filename === "string" ? [file.filename] : []);
+  }
+  async listPullRequests(params) {
+    const query = new URLSearchParams({ state: params.state, per_page: "100" });
+    if (params.head) query.set("head", params.head);
+    if (params.base) query.set("base", params.base);
+    return await this.request(`/pulls?${query.toString()}`) ?? [];
+  }
+  async listWorkflowRuns(headSha) {
+    const result = await this.request(`/actions/runs?head_sha=${encodeURIComponent(headSha)}&per_page=100`);
+    return result.workflow_runs ?? [];
+  }
+  async listReleases() {
+    return await this.request("/releases?per_page=100") ?? [];
+  }
+  async createTree(baseTree, entries) {
+    return await this.request("/git/trees", {
+      method: "POST",
+      body: { base_tree: baseTree, tree: entries }
+    });
+  }
+  async createCommit(message, tree, parent) {
+    return await this.request("/git/commits", {
+      method: "POST",
+      body: { message, tree, parents: [parent] }
+    });
+  }
+  async createRef(ref, sha) {
+    return await this.request("/git/refs", {
+      method: "POST",
+      body: { ref: `refs/${ref}`, sha }
+    });
+  }
+  async updateRef(ref, sha, force = false) {
+    return await this.request(`/git/refs/${ref}`, {
+      method: "PATCH",
+      body: { sha, force }
+    });
+  }
+  async createPullRequest(input2) {
+    return await this.request("/pulls", { method: "POST", body: input2 });
+  }
+  async updatePullRequest(number, input2) {
+    return await this.request(`/pulls/${number}`, { method: "PATCH", body: input2 });
+  }
+  async createRelease(input2) {
+    return await this.request("/releases", { method: "POST", body: input2 });
+  }
+  async getReleaseByTag(tag) {
+    return this.request(`/releases/tags/${encodeURIComponent(tag)}`, {}, true);
+  }
+  async uploadReleaseAsset(release, filePath) {
+    const { basename: basename4 } = await import("node:path");
+    const content = await (0, import_promises.readFile)(filePath);
+    const uploadUrl = release.upload_url.replace(/\{[^}]+\}$/, "");
+    const url = new URL(uploadUrl);
+    url.searchParams.set("name", basename4(filePath));
+    const headers = new Headers({
+      accept: "application/vnd.github+json",
+      "content-type": "application/octet-stream",
+      "content-length": String(content.byteLength),
+      "x-github-api-version": "2022-11-28"
+    });
+    if (this.token) {
+      headers.set("authorization", `Bearer ${this.token}`);
+    }
+    const response = await fetch(url, { method: "POST", headers, body: content });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`GitHub asset upload failed (${response.status}): ${text.slice(0, 500)}`);
+    }
+  }
+};
+function releaseTagName(prefix, version) {
+  return `${prefix}${version}`;
+}
+
+// src/packages.ts
+var import_node_path = require("node:path");
+var import_yaml2 = __toESM(require_dist(), 1);
+
+// src/semver.ts
+var VERSION_PATTERN = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
 function parseVersion(value) {
   const match = VERSION_PATTERN.exec(value.trim());
   if (!match) {
@@ -7476,394 +8100,297 @@ function bumpVersion(current, level, prereleaseChannel) {
   }
   return formatVersion(next);
 }
-function isVersion(value) {
-  return parseVersion(value) !== null;
+
+// src/version-adapters.ts
+function jsonObject(path, content) {
+  try {
+    const value = JSON.parse(content);
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("expected a JSON object");
+    }
+    return value;
+  } catch (error) {
+    throw new Error(`Cannot read ${path}: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
-var VERSION_PATTERN;
-var init_semver = __esm({
-  "src/semver.ts"() {
-    "use strict";
-    VERSION_PATTERN = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
+function tomlVersionLine(content, sections) {
+  const lines = content.split(/\r?\n/);
+  let section2 = "";
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    const sectionMatch = /^\s*\[([^\]]+)\]\s*$/.exec(line);
+    if (sectionMatch) {
+      section2 = sectionMatch[1]?.trim() ?? "";
+      continue;
+    }
+    if (sections.includes(section2)) {
+      const versionMatch = /^(\s*version\s*=\s*["'])([^"']+)(["'].*)$/.exec(line);
+      if (versionMatch?.[2]) {
+        return { line: index, value: versionMatch[2] };
+      }
+    }
   }
-});
-
-// src/action.ts
-var action_exports = {};
-__export(action_exports, {
-  run: () => run
-});
-module.exports = __toCommonJS(action_exports);
-var import_node_fs = require("node:fs");
-var import_node_child_process = require("node:child_process");
-var import_node_util = require("node:util");
-var import_node_path = require("node:path");
-
-// src/metadata.ts
-var METADATA_BLOCK = /<!--\s*shipkit(?:\s+release)?\s*([\s\S]*?)-->/i;
-var ALLOWED_TYPES = /* @__PURE__ */ new Set(["feature", "fix", "breaking", "docs", "internal", "other"]);
-function parseBoolean(value) {
-  const normalized = value.trim().toLowerCase();
-  if (["true", "yes", "1"].includes(normalized)) {
-    return true;
-  }
-  if (["false", "no", "0"].includes(normalized)) {
-    return false;
+  return null;
+}
+function tomlName(content, sections) {
+  const lines = content.split(/\r?\n/);
+  let section2 = "";
+  for (const line of lines) {
+    const sectionMatch = /^\s*\[([^\]]+)\]\s*$/.exec(line);
+    if (sectionMatch) {
+      section2 = sectionMatch[1]?.trim() ?? "";
+      continue;
+    }
+    if (sections.includes(section2)) {
+      const nameMatch = /^\s*name\s*=\s*["']([^"']+)["']/.exec(line);
+      if (nameMatch?.[1]) {
+        return nameMatch[1];
+      }
+    }
   }
   return void 0;
 }
-function parseValue(value) {
-  const trimmed = value.trim().replace(/^['"]|['"]$/g, "");
-  const booleanValue = parseBoolean(trimmed);
-  if (booleanValue !== void 0) {
-    return booleanValue;
+function replaceTomlVersion(path, content, sections, version) {
+  const location = tomlVersionLine(content, sections);
+  if (!location) {
+    throw new Error(`Could not find a version field in ${path} (${sections.join(" or ")}).`);
   }
-  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-    return trimmed.slice(1, -1).split(",").map((item) => item.trim().replace(/^['"]|['"]$/g, "")).filter(Boolean);
-  }
-  return trimmed || void 0;
+  const newline = content.includes("\r\n") ? "\r\n" : "\n";
+  const lines = content.split(/\r?\n/);
+  const original = lines[location.line] ?? "";
+  lines[location.line] = original.replace(/^(\s*version\s*=\s*["'])([^"']+)(["'].*)$/, `$1${version}$3`);
+  return lines.join(newline);
 }
-function parseJsonMetadata(value) {
+function pythonVersion(content, path) {
+  const location = tomlVersionLine(content, ["project", "tool.poetry"]);
+  if (location) {
+    return location.value;
+  }
+  const initMatch = /(?:^|\r?\n)\s*__version__\s*=\s*["']([^"']+)["']/.exec(content);
+  if (initMatch?.[1]) {
+    return initMatch[1];
+  }
+  throw new Error(`Could not find a Python version in ${path}.`);
+}
+function rustVersion(content, path) {
+  const location = tomlVersionLine(content, ["package"]);
+  if (!location) {
+    throw new Error(`Could not find [package].version in ${path}.`);
+  }
+  return location.value;
+}
+function readTargetVersion(target, content) {
+  if (target.ecosystem === "node") {
+    const value = jsonObject(target.manifestPath, content).version;
+    if (typeof value !== "string" || !value.trim()) {
+      throw new Error(`${target.manifestPath} must contain a version string.`);
+    }
+    return value.trim();
+  }
+  if (target.ecosystem === "python") {
+    return pythonVersion(content, target.manifestPath);
+  }
+  return rustVersion(content, target.manifestPath);
+}
+function readTargetName(target, content) {
+  if (target.ecosystem === "node") {
+    const name = jsonObject(target.manifestPath, content).name;
+    return typeof name === "string" && name.trim() ? name.trim() : void 0;
+  }
+  if (target.ecosystem === "python") {
+    return tomlName(content, ["project", "tool.poetry"]);
+  }
+  return tomlName(content, ["package"]);
+}
+function updateTargetVersion(target, content, version) {
+  if (target.ecosystem === "node") {
+    const value = jsonObject(target.manifestPath, content);
+    value.version = version;
+    return { path: target.manifestPath, content: `${JSON.stringify(value, null, 2)}
+` };
+  }
+  if (target.ecosystem === "python") {
+    const initPath = target.directory ? `${target.directory}/__init__.py` : "__init__.py";
+    if (!tomlVersionLine(content, ["project", "tool.poetry"])) {
+      return { path: initPath, content: content.replace(/(__version__\s*=\s*["'])([^"']+)(["'])/, `$1${version}$3`) };
+    }
+    return { path: target.manifestPath, content: replaceTomlVersion(target.manifestPath, content, ["project", "tool.poetry"], version) };
+  }
+  return { path: target.manifestPath, content: replaceTomlVersion(target.manifestPath, content, ["package"], version) };
+}
+function targetFromDescriptor(descriptor2) {
+  return {
+    ecosystem: descriptor2.ecosystem,
+    manifestPath: descriptor2.manifestPath,
+    directory: descriptor2.directory
+  };
+}
+
+// src/packages.ts
+function normalize(value) {
+  return value.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/$/, "");
+}
+function jsonObject2(content) {
   try {
-    const parsed = JSON.parse(value);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return null;
-    }
-    const object = parsed;
-    const result = {};
-    if (typeof object.type === "string" && ALLOWED_TYPES.has(object.type)) {
-      result.type = object.type;
-    }
-    for (const key of ["customer", "migration", "internal", "announcement"]) {
-      if (typeof object[key] === "string" && object[key].trim()) {
-        result[key] = object[key].trim();
-      }
-    }
-    if (typeof object.breaking === "boolean") {
-      result.breaking = object.breaking;
-    }
-    if (typeof object.skip === "boolean") {
-      result.skip = object.skip;
-    }
-    if (Array.isArray(object.readiness)) {
-      result.readiness = object.readiness.filter((item) => typeof item === "string" && item.trim().length > 0).map((item) => item.trim());
-    }
-    return result;
+    const value = JSON.parse(content);
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
   } catch {
     return null;
   }
 }
-function parseShipkitMetadata(body = "") {
-  const match = METADATA_BLOCK.exec(body);
-  if (!match) {
-    return {};
+function workspacePatterns(rootContent, pnpmWorkspaceContent, config) {
+  if (config.monorepo.packages.length > 0) {
+    return config.monorepo.packages.map(normalize);
   }
-  const payload = match[1]?.trim() ?? "";
-  if (!payload) {
-    return {};
+  const root = jsonObject2(rootContent);
+  const workspaces = root?.workspaces;
+  if (Array.isArray(workspaces)) {
+    return workspaces.filter((item) => typeof item === "string").map(normalize);
   }
-  const json = parseJsonMetadata(payload);
-  if (json) {
-    return json;
-  }
-  const result = {};
-  for (const rawLine of payload.split(/\r?\n/)) {
-    const line = rawLine.trim().replace(/^[-*]\s+/, "");
-    const separator = line.indexOf(":");
-    if (separator < 1) {
-      continue;
-    }
-    const key = line.slice(0, separator).trim().toLowerCase();
-    const parsed = parseValue(line.slice(separator + 1));
-    if (parsed === void 0) {
-      continue;
-    }
-    if (key === "type" && typeof parsed === "string" && ALLOWED_TYPES.has(parsed)) {
-      result.type = parsed;
-    } else if (["customer", "migration", "internal", "announcement"].includes(key) && typeof parsed === "string") {
-      result[key] = parsed;
-    } else if ((key === "breaking" || key === "skip") && typeof parsed === "boolean") {
-      result[key] = parsed;
-    } else if (key === "readiness") {
-      result.readiness = Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : typeof parsed === "string" ? [parsed] : [];
+  if (workspaces && typeof workspaces === "object" && !Array.isArray(workspaces)) {
+    const packages = workspaces.packages;
+    if (Array.isArray(packages)) {
+      return packages.filter((item) => typeof item === "string").map(normalize);
     }
   }
-  return result;
-}
-
-// src/changes.ts
-var HEADER_PATTERN = /^(?<type>[a-z]+)(?:\((?<scope>[^)]+)\))?(?<breaking>!)?:\s*(?<description>.+)$/i;
-var LABEL_KIND = {
-  "ship:feature": "feature",
-  "ship:fix": "fix",
-  "ship:breaking": "breaking",
-  "ship:internal": "internal",
-  "ship:docs": "docs"
-};
-function normalizeLabels(labels) {
-  return [...new Set((labels ?? []).map((label) => label.trim().toLowerCase()).filter(Boolean))];
-}
-function kindFromConventionalType(type) {
-  switch (type.toLowerCase()) {
-    case "feat":
-    case "feature":
-      return "feature";
-    case "fix":
-    case "bugfix":
-    case "perf":
-      return "fix";
-    case "docs":
-      return "docs";
-    case "chore":
-    case "ci":
-    case "build":
-    case "refactor":
-    case "revert":
-    case "style":
-    case "test":
-      return "internal";
-    default:
-      return "other";
-  }
-}
-function hasBreakingFooter(body) {
-  return /(?:^|\n)BREAKING(?:-|\s)CHANGE\s*:/im.test(body);
-}
-function parseTitle(title) {
-  const match = HEADER_PATTERN.exec(title.trim());
-  if (!match?.groups) {
-    return { kind: "other", description: title.trim(), breaking: false };
-  }
-  const result = {
-    kind: kindFromConventionalType(match.groups.type ?? ""),
-    description: (match.groups.description ?? title).trim(),
-    breaking: Boolean(match.groups.breaking)
-  };
-  if (match.groups.scope) {
-    result.scope = match.groups.scope.trim();
-  }
-  return result;
-}
-function labelKind(labels) {
-  for (const label of labels) {
-    const kind = LABEL_KIND[label];
-    if (kind) {
-      return kind;
+  if (pnpmWorkspaceContent) {
+    try {
+      const parsed = (0, import_yaml2.parse)(pnpmWorkspaceContent);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const packages = parsed.packages;
+        if (Array.isArray(packages)) {
+          return packages.filter((item) => typeof item === "string").map(normalize);
+        }
+      }
+    } catch {
     }
   }
-  return void 0;
+  return [];
 }
-function bumpForKind(kind, breaking) {
-  if (breaking || kind === "breaking") {
-    return "major";
-  }
-  if (kind === "feature") {
-    return "minor";
-  }
-  if (kind === "fix") {
-    return "patch";
-  }
-  return "none";
-}
-function parseChange(input2) {
-  const body = input2.body ?? "";
-  const labels = normalizeLabels(input2.labels);
-  const parsed = parseTitle(input2.title);
-  const metadata = parseShipkitMetadata(body);
-  const overriddenKind = labelKind(labels);
-  const kind = metadata.type ?? overriddenKind ?? parsed.kind;
-  const breaking = metadata.breaking ?? (labels.includes("ship:breaking") || parsed.breaking || hasBreakingFooter(body) || kind === "breaking");
-  const skipped = metadata.skip === true || labels.includes("ship:skip");
-  const description = parsed.description || input2.title.trim();
-  const customerSummary = metadata.customer ?? description;
-  const change = {
-    title: input2.title.trim(),
-    description,
-    source: input2.source,
-    labels,
-    kind,
-    breaking,
-    skipped,
-    customerSummary,
-    readiness: metadata.readiness ?? []
-  };
-  for (const [key, value] of Object.entries({
-    sha: input2.sha,
-    number: input2.number,
-    url: input2.url,
-    author: input2.author,
-    mergedAt: input2.mergedAt,
-    scope: parsed.scope,
-    internalSummary: metadata.internal,
-    migration: metadata.migration,
-    announcement: metadata.announcement
-  })) {
-    if (value !== void 0) {
-      change[key] = value;
+function globRegex(pattern) {
+  let expression = "^";
+  for (let index = 0; index < pattern.length; index += 1) {
+    const character = pattern[index];
+    if (character === "*" && pattern[index + 1] === "*") {
+      expression += ".*";
+      index += 1;
+    } else if (character === "*") {
+      expression += "[^/]*";
+    } else if (character === "?") {
+      expression += "[^/]";
+    } else {
+      expression += character?.replace(/[.+^${}()|[\]\\]/g, "\\$&") ?? "";
     }
   }
-  return change;
+  return new RegExp(`${expression}$`);
 }
-function formatChangeReference(change) {
-  if (change.number !== void 0 && change.url) {
-    return `[${change.customerSummary}](${change.url}) (#${change.number})`;
-  }
-  if (change.number !== void 0) {
-    return `${change.customerSummary} (#${change.number})`;
-  }
-  return change.customerSummary;
+function matchesWorkspace(pattern, packagePath) {
+  const normalizedPattern = normalize(pattern);
+  const candidate = normalize(packagePath);
+  const packagePattern = normalizedPattern.endsWith("/package.json") ? normalizedPattern : `${normalizedPattern}/package.json`;
+  return globRegex(packagePattern).test(candidate);
 }
-
-// src/config.ts
-var import_yaml = __toESM(require_dist(), 1);
-var DEFAULT_CONFIG = {
-  release: {
-    branch: "shipkit/release",
-    tagPrefix: "v"
-  },
-  readiness: {
-    requiredLabels: [],
-    requiredFiles: [],
-    commands: []
-  },
-  outputs: {
-    changelog: "CHANGELOG.md",
-    customerNotes: "RELEASE_NOTES.md",
-    migrationGuide: "MIGRATION.md",
-    internalSummary: ".shipkit/internal-release.md",
-    manifest: "release-manifest.json",
-    announcement: "RELEASE_ANNOUNCEMENT.md"
-  },
-  artifacts: {
-    paths: []
+function packageTarget(path) {
+  const normalized = normalize(path);
+  if (normalized.endsWith("/package.json") || normalized === "package.json") {
+    return { ecosystem: "node", directory: normalized === "package.json" ? "" : (0, import_node_path.dirname)(normalized).replace(/\\/g, "/") };
   }
-};
-function strings(value) {
-  if (!Array.isArray(value)) {
-    return [];
+  if (normalized.endsWith("/pyproject.toml") || normalized === "pyproject.toml") {
+    return { ecosystem: "python", directory: normalized === "pyproject.toml" ? "" : (0, import_node_path.dirname)(normalized).replace(/\\/g, "/") };
   }
-  return value.filter((item) => typeof item === "string").map((item) => item.trim()).filter(Boolean);
+  if (normalized.endsWith("/Cargo.toml") || normalized === "Cargo.toml") {
+    return { ecosystem: "rust", directory: normalized === "Cargo.toml" ? "" : (0, import_node_path.dirname)(normalized).replace(/\\/g, "/") };
+  }
+  return null;
 }
-function commands(value) {
-  if (!Array.isArray(value)) {
-    return [];
+function descriptor(path, content, releaseable) {
+  const normalized = normalize(path);
+  const target = packageTarget(normalized);
+  if (!target) {
+    throw new Error(`Unsupported package manifest: ${path}`);
   }
-  return value.flatMap((item) => {
-    if (!item || typeof item !== "object") {
-      return [];
-    }
-    const record = item;
-    if (typeof record.name !== "string" || typeof record.run !== "string" || !record.name.trim() || !record.run.trim()) {
-      return [];
-    }
-    return [{ name: record.name.trim(), run: record.run.trim() }];
-  });
-}
-function mergeConfig(raw) {
-  if (!raw || typeof raw !== "object") {
-    return DEFAULT_CONFIG;
+  const name = readTargetName({ ecosystem: target.ecosystem, manifestPath: normalized, directory: target.directory }, content) ?? (target.directory || (0, import_node_path.basename)((0, import_node_path.dirname)(normalized)) || "root");
+  const version = readTargetVersion({ ecosystem: target.ecosystem, manifestPath: normalized, directory: target.directory }, content);
+  if (!parseVersion(version)) {
+    throw new Error(`${normalized} contains an invalid semantic version: ${version}`);
   }
-  const object = raw;
-  const release = object.release && typeof object.release === "object" ? object.release : {};
-  const readiness = object.readiness && typeof object.readiness === "object" ? object.readiness : {};
-  const outputs = object.outputs && typeof object.outputs === "object" ? object.outputs : {};
-  const artifacts = object.artifacts && typeof object.artifacts === "object" ? object.artifacts : {};
-  const result = {
-    release: {
-      branch: typeof release.branch === "string" && release.branch.trim() ? release.branch.trim() : DEFAULT_CONFIG.release.branch,
-      tagPrefix: typeof release.tagPrefix === "string" ? release.tagPrefix : DEFAULT_CONFIG.release.tagPrefix
-    },
-    readiness: {
-      requiredLabels: strings(readiness.requiredLabels),
-      requiredFiles: strings(readiness.requiredFiles),
-      commands: commands(readiness.commands)
-    },
-    outputs: {
-      changelog: typeof outputs.changelog === "string" && outputs.changelog.trim() ? outputs.changelog.trim() : DEFAULT_CONFIG.outputs.changelog,
-      customerNotes: typeof outputs.customerNotes === "string" && outputs.customerNotes.trim() ? outputs.customerNotes.trim() : DEFAULT_CONFIG.outputs.customerNotes,
-      migrationGuide: typeof outputs.migrationGuide === "string" && outputs.migrationGuide.trim() ? outputs.migrationGuide.trim() : DEFAULT_CONFIG.outputs.migrationGuide,
-      internalSummary: typeof outputs.internalSummary === "string" && outputs.internalSummary.trim() ? outputs.internalSummary.trim() : DEFAULT_CONFIG.outputs.internalSummary,
-      manifest: typeof outputs.manifest === "string" && outputs.manifest.trim() ? outputs.manifest.trim() : DEFAULT_CONFIG.outputs.manifest,
-      announcement: typeof outputs.announcement === "string" && outputs.announcement.trim() ? outputs.announcement.trim() : DEFAULT_CONFIG.outputs.announcement
-    },
-    artifacts: {
-      paths: strings(artifacts.paths)
-    }
-  };
-  if (typeof release.prerelease === "string" && release.prerelease.trim()) {
-    result.release.prerelease = release.prerelease.trim();
-  }
-  if (typeof artifacts.command === "string" && artifacts.command.trim()) {
-    result.artifacts.command = artifacts.command.trim();
-  }
-  return result;
-}
-function parseConfig(content, fileName = ".shipkit.yml") {
-  if (!content.trim()) {
-    return DEFAULT_CONFIG;
-  }
-  let raw;
-  try {
-    raw = fileName.toLowerCase().endsWith(".json") ? JSON.parse(content) : (0, import_yaml.parse)(content);
-  } catch (error) {
-    throw new Error(`Could not parse ${fileName}: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  return mergeConfig(raw);
-}
-function withOverrides(config, overrides) {
-  const result = {
-    release: { ...config.release },
-    readiness: { ...config.readiness, requiredLabels: [...config.readiness.requiredLabels], requiredFiles: [...config.readiness.requiredFiles], commands: [...config.readiness.commands] },
-    outputs: { ...config.outputs },
-    artifacts: { ...config.artifacts, paths: [...config.artifacts.paths] }
-  };
-  const prerelease = overrides.prerelease?.trim();
-  if (prerelease) {
-    result.release.prerelease = prerelease;
-  }
-  const artifactCommand = overrides.artifactCommand?.trim();
-  if (artifactCommand) {
-    result.artifacts.command = artifactCommand;
-  }
-  return result;
-}
-
-// src/readiness.ts
-function evaluateReadiness(config, changes, context = {}) {
-  const availableLabels = new Set([...context.availableLabels ?? []].map((label) => label.toLowerCase()));
-  const availableFiles = new Set(context.availableFiles ?? []);
-  const missingLabels = config.requiredLabels.filter((label) => !availableLabels.has(label.toLowerCase()));
-  const missingFiles = config.requiredFiles.filter((file) => !availableFiles.has(file));
-  const commandResults = context.commandResults ?? {};
-  const failedCommands = config.commands.filter((command) => commandResults[command.name] === false).map((command) => command.name);
-  const requestedTasks = [...new Set(changes.flatMap((change) => change.readiness))];
+  const root = target.directory === "";
+  const privateValue = target.ecosystem === "node" ? Boolean(jsonObject2(content)?.private) : false;
+  const workspaceDependencies = target.ecosystem === "node" ? nodeWorkspaceDependencies(content) : [];
   return {
-    passed: missingLabels.length === 0 && missingFiles.length === 0 && failedCommands.length === 0,
-    missingLabels,
-    missingFiles,
-    failedCommands,
-    requestedTasks
+    id: target.directory || name,
+    name,
+    manifestPath: normalized,
+    version,
+    private: privateValue,
+    releaseable: releaseable && !privateValue,
+    workspaceDependencies,
+    ...target
   };
 }
-function readinessMarkdown(report) {
-  const lines = [`## Readiness`, "", report.passed ? "\u2705 All configured release checks pass." : "\u26A0\uFE0F Release is waiting on required product work.", ""];
-  if (report.missingLabels.length > 0) {
-    lines.push(`- Missing labels: ${report.missingLabels.map((label) => `\`${label}\``).join(", ")}`);
+function nodeWorkspaceDependencies(content) {
+  const value = jsonObject2(content);
+  if (!value) {
+    return [];
   }
-  if (report.missingFiles.length > 0) {
-    lines.push(`- Missing files: ${report.missingFiles.map((file) => `\`${file}\``).join(", ")}`);
+  const names = /* @__PURE__ */ new Set();
+  for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+    const dependencies = value[field];
+    if (!dependencies || typeof dependencies !== "object" || Array.isArray(dependencies)) {
+      continue;
+    }
+    for (const [name, version] of Object.entries(dependencies)) {
+      if (typeof version === "string" && version.startsWith("workspace:")) {
+        names.add(name);
+      }
+    }
   }
-  if (report.failedCommands.length > 0) {
-    lines.push(`- Failed checks: ${report.failedCommands.map((command) => `\`${command}\``).join(", ")}`);
+  return [...names];
+}
+function selectedMode(config, packages) {
+  if (config.monorepo.mode !== "auto") {
+    return config.monorepo.mode;
   }
-  if (report.requestedTasks.length > 0) {
-    lines.push(`- Requested product tasks: ${report.requestedTasks.map((task) => `\`${task}\``).join(", ")}`);
+  if (packages.length <= 1) {
+    return "single";
   }
-  return `${lines.join("\n")}
-`;
+  const versions = new Set(packages.map((item) => item.version));
+  return versions.size === 1 ? "fixed" : "independent";
+}
+function discoverPackages(files, allPaths, config) {
+  const normalizedFiles = new Map(Object.entries(files).map(([path, content]) => [normalize(path), content]));
+  const rootNode = normalizedFiles.get("package.json");
+  const pnpmWorkspace = normalizedFiles.get("pnpm-workspace.yaml");
+  const rootPython = normalizedFiles.get("pyproject.toml");
+  const rootRust = normalizedFiles.get("Cargo.toml");
+  const discovered = [];
+  if (rootNode) {
+    const rootObject = jsonObject2(rootNode);
+    const rootIsPrivate = Boolean(rootObject?.private);
+    if (config.monorepo.includeRoot || !rootIsPrivate) {
+      discovered.push(descriptor("package.json", rootNode, config.monorepo.includeRoot));
+    }
+    const patterns = config.monorepo.mode === "single" ? [] : workspacePatterns(rootNode, pnpmWorkspace, config);
+    for (const path of [...new Set(allPaths.map(normalize))].filter((item) => item.endsWith("/package.json") && item !== "package.json")) {
+      const content = normalizedFiles.get(path);
+      if (content && patterns.some((pattern) => matchesWorkspace(pattern, path))) {
+        discovered.push(descriptor(path, content, true));
+      }
+    }
+  } else if (rootPython) {
+    discovered.push(descriptor("pyproject.toml", rootPython, true));
+  } else if (rootRust) {
+    discovered.push(descriptor("Cargo.toml", rootRust, true));
+  }
+  const unique = [...new Map(discovered.map((item) => [item.manifestPath, item])).values()];
+  if (unique.length === 0) {
+    throw new Error("Shipkit could not find a supported package manifest (package.json, pyproject.toml, or Cargo.toml).");
+  }
+  return { mode: selectedMode(config, unique), packages: unique };
 }
 
-// src/release.ts
-init_semver();
+// src/workspace-release.ts
+var import_node_path2 = require("node:path");
 
 // src/notes.ts
 function section(title, changes) {
@@ -7976,9 +8503,10 @@ function buildReleasePlan(input2) {
   const config = input2.config ?? DEFAULT_CONFIG;
   const releaseChanges = input2.changes.filter((change) => !change.skipped);
   const skippedChanges = input2.changes.filter((change) => change.skipped);
-  const bump = highestBump(releaseChanges.map((change) => bumpForKind(change.kind, change.breaking)));
+  const bump = highestBump(releaseChanges.map((change) => bumpForChange(change)));
   const hasRelease = bump !== "none";
-  const version = hasRelease ? bumpVersion(input2.currentVersion, bump, config.release.prerelease) : input2.currentVersion;
+  const labelPrerelease = releaseChanges.some((change) => change.labels.includes("ship:beta")) ? "beta" : void 0;
+  const version = hasRelease ? bumpVersion(input2.currentVersion, bump, config.release.prerelease ?? labelPrerelease) : input2.currentVersion;
   const readiness = evaluateReadiness(config.readiness, releaseChanges, input2.readinessContext);
   if (!hasRelease) {
     return {
@@ -8030,194 +8558,394 @@ function buildReleasePlan(input2) {
   return { ...basePlan, outputs, manifest };
 }
 
-// src/github.ts
-var import_promises = require("node:fs/promises");
-var GitHubClient = class {
-  constructor(token, repository, apiBase = process.env.GITHUB_API_URL ?? "https://api.github.com") {
-    this.token = token;
-    this.repository = repository;
-    this.apiBase = apiBase.replace(/\/$/, "");
-  }
-  apiBase;
-  async request(path, options = {}, allowNotFound = false) {
-    const headers = new Headers(options.headers);
-    headers.set("accept", "application/vnd.github+json");
-    headers.set("x-github-api-version", "2022-11-28");
-    if (this.token) {
-      headers.set("authorization", `Bearer ${this.token}`);
-    }
-    const init = {
-      method: options.method ?? "GET",
-      headers
-    };
-    if (options.body !== void 0) {
-      headers.set("content-type", "application/json");
-      init.body = JSON.stringify(options.body);
-    }
-    const response = await fetch(`${this.apiBase}/repos/${this.repository}${path}`, init);
-    if (allowNotFound && response.status === 404) {
-      return null;
-    }
-    const text = await response.text();
-    if (!response.ok) {
-      throw new Error(`GitHub API ${options.method ?? "GET"} ${path} failed (${response.status}): ${text.slice(0, 500)}`);
-    }
-    return text ? JSON.parse(text) : null;
-  }
-  async repositoryInfo() {
-    return await this.request("");
-  }
-  async getFile(path, ref) {
-    const encodedPath = path.split("/").map((segment) => encodeURIComponent(segment)).join("/");
-    const query = ref ? `?ref=${encodeURIComponent(ref)}` : "";
-    const file = await this.request(`/contents/${encodedPath}${query}`, {}, true);
-    if (!file || file.type !== "file" || !file.content) {
-      return null;
-    }
-    return Buffer.from(file.content.replace(/\n/g, ""), file.encoding === "base64" ? "base64" : "utf8").toString("utf8");
-  }
-  async getRef(ref) {
-    return this.request(`/git/ref/${ref}`, {}, true);
-  }
-  async getCommit(sha) {
-    return await this.request(`/git/commits/${encodeURIComponent(sha)}`);
-  }
-  async listTags() {
-    return await this.request("/tags?per_page=100") ?? [];
-  }
-  async compare(base, head) {
-    return await this.request(`/compare/${encodeURIComponent(`${base}...${head}`)}`);
-  }
-  async listCommits(sha) {
-    return await this.request(`/commits?sha=${encodeURIComponent(sha)}&per_page=100`) ?? [];
-  }
-  async commitPullRequests(sha) {
-    return await this.request(`/commits/${encodeURIComponent(sha)}/pulls`) ?? [];
-  }
-  async listPullRequests(params) {
-    const query = new URLSearchParams({ state: params.state, per_page: "100" });
-    if (params.head) query.set("head", params.head);
-    if (params.base) query.set("base", params.base);
-    return await this.request(`/pulls?${query.toString()}`) ?? [];
-  }
-  async createTree(baseTree, entries) {
-    return await this.request("/git/trees", {
-      method: "POST",
-      body: { base_tree: baseTree, tree: entries }
-    });
-  }
-  async createCommit(message, tree, parent) {
-    return await this.request("/git/commits", {
-      method: "POST",
-      body: { message, tree, parents: [parent] }
-    });
-  }
-  async createRef(ref, sha) {
-    return await this.request("/git/refs", {
-      method: "POST",
-      body: { ref: `refs/${ref}`, sha }
-    });
-  }
-  async updateRef(ref, sha, force = false) {
-    return await this.request(`/git/refs/${ref}`, {
-      method: "PATCH",
-      body: { sha, force }
-    });
-  }
-  async createPullRequest(input2) {
-    return await this.request("/pulls", { method: "POST", body: input2 });
-  }
-  async updatePullRequest(number, input2) {
-    return await this.request(`/pulls/${number}`, { method: "PATCH", body: input2 });
-  }
-  async createRelease(input2) {
-    return await this.request("/releases", { method: "POST", body: input2 });
-  }
-  async getReleaseByTag(tag) {
-    return this.request(`/releases/tags/${encodeURIComponent(tag)}`, {}, true);
-  }
-  async uploadReleaseAsset(release, filePath) {
-    const { basename: basename2 } = await import("node:path");
-    const content = await (0, import_promises.readFile)(filePath);
-    const uploadUrl = release.upload_url.replace(/\{[^}]+\}$/, "");
-    const url = new URL(uploadUrl);
-    url.searchParams.set("name", basename2(filePath));
-    const headers = new Headers({
-      accept: "application/vnd.github+json",
-      "content-type": "application/octet-stream",
-      "content-length": String(content.byteLength),
-      "x-github-api-version": "2022-11-28"
-    });
-    if (this.token) {
-      headers.set("authorization", `Bearer ${this.token}`);
-    }
-    const response = await fetch(url, { method: "POST", headers, body: content });
-    if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`GitHub asset upload failed (${response.status}): ${text.slice(0, 500)}`);
-    }
-  }
-};
-function releaseTagName(prefix, version) {
-  return `${prefix}${version}`;
+// src/workspace-release.ts
+function normalize2(path) {
+  return path.replace(/\\/g, "/").replace(/^\.\//, "");
 }
-
-// src/version-files.ts
-function parseJson(path, content) {
-  try {
-    const parsed = JSON.parse(content);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      throw new Error("expected a JSON object");
-    }
-    return parsed;
-  } catch (error) {
-    throw new Error(`Cannot update ${path}: ${error instanceof Error ? error.message : String(error)}`);
+function outputPath(packageItem, relativePath, mode) {
+  const clean = normalize2(relativePath);
+  return mode === "independent" && packageItem.directory ? import_node_path2.posix.join(packageItem.directory, clean) : clean;
+}
+function packageNameMatches(packageItem, scope) {
+  if (!scope) {
+    return false;
   }
+  const cleanScope = scope.trim().toLowerCase();
+  return [packageItem.id, packageItem.name, (0, import_node_path2.basename)(packageItem.directory)].some((candidate) => candidate.toLowerCase() === cleanScope);
 }
-function jsonContent(value) {
-  return `${JSON.stringify(value, null, 2)}
-`;
-}
-function updatePackageLock(path, content, version) {
-  const lock = parseJson(path, content);
-  lock.version = version;
-  const packages = lock.packages;
-  if (packages && typeof packages === "object" && !Array.isArray(packages)) {
-    const root = packages[""];
-    if (root && typeof root === "object" && !Array.isArray(root)) {
-      root.version = version;
-    }
+function affectsPackage(change, packageItem, config) {
+  if (packageNameMatches(packageItem, change.scope)) {
+    return true;
   }
-  return jsonContent(lock);
+  const files = (change.files ?? []).map(normalize2);
+  if (files.length === 0) {
+    return config.monorepo.unscopedChanges === "all";
+  }
+  const directoryPrefix = packageItem.directory ? `${packageItem.directory}/` : "";
+  return files.some((file) => {
+    if (!packageItem.directory) {
+      return !file.startsWith("packages/") && !file.includes("/package.json");
+    }
+    return file === packageItem.manifestPath || file.startsWith(directoryPrefix) || file === "package.json";
+  });
 }
-function updateVersionFiles(files, version) {
+function packageConfig(config, packageItem, mode) {
+  const packageOutputs = {
+    changelog: outputPath(packageItem, config.outputs.changelog, mode),
+    customerNotes: outputPath(packageItem, config.outputs.customerNotes, mode),
+    migrationGuide: outputPath(packageItem, config.outputs.migrationGuide, mode),
+    internalSummary: outputPath(packageItem, config.outputs.internalSummary, mode),
+    manifest: outputPath(packageItem, config.outputs.manifest, mode),
+    announcement: outputPath(packageItem, config.outputs.announcement, mode)
+  };
+  return {
+    ...config,
+    outputs: packageOutputs,
+    readiness: {
+      ...config.readiness,
+      requiredLabels: [...config.readiness.requiredLabels],
+      requiredFiles: [...config.readiness.requiredFiles],
+      commands: [...config.readiness.commands],
+      tasks: [...config.readiness.tasks]
+    }
+  };
+}
+function buildPackagePlan(input2, packageItem, changes) {
+  const config = packageConfig(input2.config, packageItem, input2.mode);
+  return buildReleasePlan({
+    currentVersion: packageItem.version,
+    changes,
+    config,
+    existingChangelog: input2.files[config.outputs.changelog] ?? "",
+    date: input2.date,
+    readinessContext: input2.readinessContext
+  });
+}
+function workspaceDependencyChange(packageItem, dependencyNames) {
+  const dependencies = dependencyNames.join(", ");
+  return {
+    title: `chore(${packageItem.name}): refresh workspace dependencies`,
+    description: `Refresh workspace dependency metadata after ${dependencies} release.`,
+    source: "commit",
+    labels: ["ship:internal"],
+    kind: "internal",
+    scope: packageItem.name,
+    breaking: false,
+    skipped: false,
+    forcedBump: "patch",
+    dependencyUpdate: true,
+    customerSummary: `Refresh ${packageItem.name} for the ${dependencies} release.`,
+    internalSummary: `Refresh ${packageItem.name} after ${dependencies} released.`,
+    readiness: []
+  };
+}
+function mergeReadiness(reports) {
+  return {
+    passed: reports.every((report) => report.passed),
+    missingLabels: [...new Set(reports.flatMap((report) => report.missingLabels))],
+    missingFiles: [...new Set(reports.flatMap((report) => report.missingFiles))],
+    failedCommands: [...new Set(reports.flatMap((report) => report.failedCommands))],
+    missingTasks: [...new Set(reports.flatMap((report) => report.missingTasks))],
+    requestedTasks: [...new Set(reports.flatMap((report) => report.requestedTasks))]
+  };
+}
+function updateNodeLocks(files, packages, versions) {
   const changes = [];
-  const packageJson = files["package.json"];
-  if (packageJson !== void 0) {
-    const parsed = parseJson("package.json", packageJson);
-    parsed.version = version;
-    changes.push({ path: "package.json", content: jsonContent(parsed) });
+  const lockPaths = /* @__PURE__ */ new Set(["package-lock.json", "npm-shrinkwrap.json"]);
+  for (const packageItem of packages.filter((item) => item.ecosystem === "node" && item.directory)) {
+    lockPaths.add(`${packageItem.directory}/package-lock.json`);
+    lockPaths.add(`${packageItem.directory}/npm-shrinkwrap.json`);
   }
-  for (const lockPath of ["package-lock.json", "npm-shrinkwrap.json"]) {
-    const lock = files[lockPath];
-    if (lock !== void 0) {
-      changes.push({ path: lockPath, content: updatePackageLock(lockPath, lock, version) });
+  for (const path of lockPaths) {
+    const content = files[path];
+    if (content === void 0) {
+      continue;
     }
+    let lock;
+    try {
+      const value = JSON.parse(content);
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        continue;
+      }
+      lock = value;
+    } catch {
+      continue;
+    }
+    const lockDirectory = path.includes("/") ? (0, import_node_path2.dirname)(path).replace(/\\/g, "/") : "";
+    const root = packages.find((item) => item.directory === lockDirectory) ?? packages.find((item) => item.directory === "");
+    if (root && versions.has(root.manifestPath)) {
+      lock.version = versions.get(root.manifestPath);
+    }
+    const entries = lock.packages;
+    if (entries && typeof entries === "object" && !Array.isArray(entries)) {
+      const packageEntries = entries;
+      const rootEntry = packageEntries[""];
+      const rootVersion = root ? versions.get(root.manifestPath) : void 0;
+      if (rootVersion && rootEntry && typeof rootEntry === "object" && !Array.isArray(rootEntry)) {
+        rootEntry.version = rootVersion;
+      }
+      for (const packageItem of lockDirectory ? [] : packages) {
+        const version = versions.get(packageItem.manifestPath);
+        if (!version) {
+          continue;
+        }
+        const keys = [packageItem.directory, packageItem.directory ? `node_modules/${packageItem.name}` : "", `node_modules/${packageItem.name}`];
+        for (const key of keys) {
+          const entry = packageEntries[key];
+          if (entry && typeof entry === "object" && !Array.isArray(entry)) {
+            entry.version = version;
+          }
+        }
+      }
+    }
+    changes.push({ path, content: `${JSON.stringify(lock, null, 2)}
+` });
   }
   return changes;
 }
-function readPackageVersion(packageJson) {
-  const parsed = parseJson("package.json", packageJson);
-  if (typeof parsed.version !== "string" || !parsed.version.trim()) {
-    throw new Error("package.json must contain a version string");
+function manifestContent(plan) {
+  return `${JSON.stringify({
+    schemaVersion: 2,
+    mode: plan.mode,
+    version: plan.version,
+    generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+    packages: plan.packages.map(({ package: packageItem, plan: packagePlan }) => ({
+      id: packageItem.id,
+      name: packageItem.name,
+      directory: packageItem.directory,
+      ecosystem: packageItem.ecosystem,
+      previousVersion: packageItem.version,
+      version: packagePlan.version,
+      bump: packagePlan.bump,
+      changelog: packagePlan.outputs.find((output) => output.path.toLowerCase().endsWith("changelog.md"))?.path,
+      customerNotes: packagePlan.outputs.find((output) => output.path.toLowerCase().endsWith("release_notes.md") || output.path.toLowerCase().endsWith("release-notes.md"))?.path,
+      private: packageItem.private,
+      releaseable: packageItem.releaseable,
+      dependencyUpdate: packagePlan.releaseChanges.some((change) => change.dependencyUpdate)
+    })),
+    readiness: plan.readiness
+  }, null, 2)}
+`;
+}
+function buildWorkspaceReleasePlan(input2) {
+  const releaseable = input2.packages.filter((packageItem) => packageItem.releaseable || input2.mode === "fixed");
+  const skippedChanges = input2.changes.filter((change) => change.skipped);
+  const plans = [];
+  if (input2.mode === "fixed" || input2.mode === "single") {
+    const packageItem = releaseable[0] ?? input2.packages[0];
+    if (!packageItem) {
+      throw new Error("Shipkit found no releaseable package.");
+    }
+    const packageConfig2 = {
+      ...input2.config,
+      outputs: { ...input2.config.outputs },
+      readiness: { ...input2.config.readiness, requiredLabels: [...input2.config.readiness.requiredLabels], requiredFiles: [...input2.config.readiness.requiredFiles], commands: [...input2.config.readiness.commands], tasks: [...input2.config.readiness.tasks] }
+    };
+    const plan = buildReleasePlan({
+      currentVersion: packageItem.version,
+      changes: input2.changes,
+      config: packageConfig2,
+      existingChangelog: input2.files[input2.config.outputs.changelog] ?? "",
+      date: input2.date,
+      readinessContext: input2.readinessContext
+    });
+    plans.push(...releaseable.map((releasePackage) => ({ package: releasePackage, plan })));
+  } else {
+    const packagePlans = /* @__PURE__ */ new Map();
+    for (const packageItem of releaseable) {
+      const packageChanges = input2.changes.filter((change) => affectsPackage(change, packageItem, input2.config));
+      const plan = buildPackagePlan(input2, packageItem, packageChanges);
+      if (plan.hasRelease) {
+        packagePlans.set(packageItem.id, { package: packageItem, plan });
+      }
+    }
+    let addedDependencyRelease = true;
+    while (addedDependencyRelease) {
+      addedDependencyRelease = false;
+      const releasedNames = new Set([...packagePlans.values()].flatMap(({ package: packageItem }) => [packageItem.id, packageItem.name]));
+      for (const packageItem of releaseable) {
+        if (packagePlans.has(packageItem.id)) {
+          continue;
+        }
+        const dependencyNames = packageItem.workspaceDependencies.filter((dependency) => releasedNames.has(dependency));
+        if (dependencyNames.length === 0) {
+          continue;
+        }
+        const packageChanges = input2.changes.filter((change) => affectsPackage(change, packageItem, input2.config));
+        const plan = buildPackagePlan(input2, packageItem, [...packageChanges, workspaceDependencyChange(packageItem, dependencyNames)]);
+        if (plan.hasRelease) {
+          packagePlans.set(packageItem.id, { package: packageItem, plan });
+          addedDependencyRelease = true;
+        }
+      }
+    }
+    for (const packageItem of releaseable) {
+      const packagePlan = packagePlans.get(packageItem.id);
+      if (packagePlan) {
+        plans.push(packagePlan);
+      }
+    }
   }
-  return parsed.version.trim();
+  const hasRelease = plans.some((item) => item.plan.hasRelease);
+  const releaseChanges = input2.mode === "independent" ? [...new Map(plans.flatMap((item) => item.plan.releaseChanges.map((change) => [change.title, change]))).values()] : input2.changes.filter((change) => !change.skipped);
+  const readiness = mergeReadiness(plans.length > 0 ? plans.map((item) => item.plan.readiness) : [input2.readinessContext ? { passed: true, missingLabels: [], missingFiles: [], failedCommands: [], missingTasks: [], requestedTasks: [] } : { passed: true, missingLabels: [], missingFiles: [], failedCommands: [], missingTasks: [], requestedTasks: [] }]);
+  const version = input2.mode === "independent" ? plans.map((item) => `${item.package.name}@${item.plan.version}`).join(", ") : plans[0]?.plan.version ?? input2.packages[0]?.version ?? "0.0.0";
+  const versionChangeMap = /* @__PURE__ */ new Map();
+  const versionMap = /* @__PURE__ */ new Map();
+  for (const item of plans) {
+    const nextVersion = item.plan.version;
+    versionMap.set(item.package.manifestPath, nextVersion);
+    const manifest2 = input2.files[item.package.manifestPath];
+    if (manifest2 !== void 0) {
+      const change = updateTargetVersion(targetFromDescriptor(item.package), manifest2, nextVersion);
+      versionChangeMap.set(change.path, change);
+    }
+  }
+  if (input2.mode === "fixed" || input2.mode === "single") {
+    const fixedPlan = plans[0];
+    if (fixedPlan?.plan.hasRelease) {
+      for (const packageItem of input2.packages) {
+        if (packageItem.manifestPath === fixedPlan.package.manifestPath) {
+          continue;
+        }
+        const manifest2 = input2.files[packageItem.manifestPath];
+        if (manifest2 !== void 0) {
+          versionMap.set(packageItem.manifestPath, fixedPlan.plan.version);
+          const change = updateTargetVersion(targetFromDescriptor(packageItem), manifest2, fixedPlan.plan.version);
+          versionChangeMap.set(change.path, change);
+        }
+      }
+    }
+  }
+  for (const change of updateNodeLocks(input2.files, input2.packages, versionMap)) {
+    versionChangeMap.set(change.path, change);
+  }
+  const versionChanges = [...versionChangeMap.values()];
+  const outputMap = /* @__PURE__ */ new Map();
+  for (const item of plans) {
+    for (const output of item.plan.outputs) {
+      if (output.path !== (input2.mode === "independent" ? outputPath(item.package, input2.config.outputs.manifest, input2.mode) : input2.config.outputs.manifest)) {
+        outputMap.set(output.path, output.content);
+      }
+    }
+  }
+  const provisional = {
+    mode: input2.mode,
+    hasRelease,
+    version,
+    packages: plans,
+    changes: input2.changes,
+    releaseChanges,
+    skippedChanges,
+    readiness,
+    outputs: [...outputMap].map(([path, content]) => ({ path, content })),
+    versionChanges,
+    manifest: ""
+  };
+  const manifest = manifestContent(provisional);
+  provisional.manifest = manifest;
+  if (hasRelease) {
+    provisional.outputs.push({ path: input2.config.outputs.manifest, content: manifest });
+  } else {
+    provisional.outputs = [];
+    provisional.versionChanges = [];
+  }
+  return provisional;
+}
+
+// src/health.ts
+function versionFromReleaseTag(tag, tagPrefix) {
+  const direct = tag.startsWith(tagPrefix) ? tag.slice(tagPrefix.length) : tag;
+  if (parseVersion(direct)) {
+    return direct;
+  }
+  const suffix = /@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(tag)?.[1];
+  return suffix && parseVersion(suffix) ? suffix : void 0;
+}
+function workflowCheck(config, observation) {
+  return config.workflows.map((expected) => {
+    const matches = observation.workflows.filter((run2) => run2.name.toLowerCase() === expected.name.toLowerCase());
+    if (matches.length === 0) {
+      return { name: `${expected.purpose} workflow: ${expected.name}`, status: expected.required ? "fail" : "warn", detail: "No workflow run was found for the released commit." };
+    }
+    const latest = matches[0];
+    if (latest?.conclusion === "success") {
+      return { name: `${expected.purpose} workflow: ${expected.name}`, status: "pass", detail: "Workflow completed successfully." };
+    }
+    if (latest?.status !== "completed") {
+      return { name: `${expected.purpose} workflow: ${expected.name}`, status: "warn", detail: `Workflow is ${latest?.status ?? "pending"}.` };
+    }
+    return { name: `${expected.purpose} workflow: ${expected.name}`, status: expected.required ? "fail" : "warn", detail: `Workflow concluded ${latest?.conclusion ?? "without a conclusion"}.` };
+  });
+}
+function evaluateReleaseHealth(config, observation) {
+  if (!config.enabled) {
+    return { schemaVersion: 1, status: "disabled", tag: observation.tag, checks: [], generatedAt: (/* @__PURE__ */ new Date()).toISOString() };
+  }
+  const checks = [];
+  for (const expected of config.expectedArtifacts) {
+    checks.push({
+      name: `artifact: ${expected}`,
+      status: observation.assets.includes(expected) ? "pass" : "fail",
+      detail: observation.assets.includes(expected) ? "Expected release asset is attached." : "Expected release asset is missing."
+    });
+  }
+  for (const link of observation.links) {
+    checks.push({
+      name: `documentation link: ${link.url}`,
+      status: link.status !== null && link.status >= 200 && link.status < 400 ? "pass" : "fail",
+      detail: link.status === null ? "The link could not be reached." : `The link returned HTTP ${link.status}.`
+    });
+  }
+  checks.push(...workflowCheck(config, observation));
+  if (observation.rollbackDetected) {
+    checks.push({ name: "rollback signal", status: "fail", detail: "A configured rollback workflow completed for this release." });
+  }
+  if (observation.hotfixDetected) {
+    checks.push({ name: "rapid hotfix signal", status: "warn", detail: `A patch release followed this release within ${config.hotfixWindowHours} hours.` });
+  }
+  if (checks.length === 0) {
+    checks.push({ name: "configured health checks", status: "pass", detail: "No additional health checks were configured." });
+  }
+  const status = checks.some((check) => check.status === "fail") ? "failed" : checks.some((check) => check.status === "warn") ? "degraded" : "healthy";
+  return { schemaVersion: 1, status, tag: observation.tag, checks, generatedAt: (/* @__PURE__ */ new Date()).toISOString() };
+}
+function detectRapidHotfix(releaseVersion, publishedAt, laterReleases, tagPrefix, windowHours) {
+  if (!releaseVersion || !publishedAt) {
+    return false;
+  }
+  const current = parseVersion(releaseVersion);
+  const releasedAt = Date.parse(publishedAt);
+  if (!current || !Number.isFinite(releasedAt)) {
+    return false;
+  }
+  return laterReleases.some((release) => {
+    if (!release.publishedAt) {
+      return false;
+    }
+    const laterAt = Date.parse(release.publishedAt);
+    const laterVersion = versionFromReleaseTag(release.tag, tagPrefix);
+    const parsedLater = laterVersion ? parseVersion(laterVersion) : null;
+    if (!parsedLater || laterAt <= releasedAt || laterAt - releasedAt > windowHours * 60 * 60 * 1e3) {
+      return false;
+    }
+    return parsedLater.major === current.major && parsedLater.minor === current.minor && parsedLater.patch > current.patch && compareVersions(parsedLater, current) > 0;
+  });
+}
+function healthMarkdown(report) {
+  const icon = report.status === "healthy" ? "\u2705" : report.status === "degraded" ? "\u26A0\uFE0F" : report.status === "failed" ? "\u274C" : "\u2139\uFE0F";
+  return [
+    `## Shipkit release health: ${icon} ${report.status}`,
+    "",
+    ...report.checks.map((check) => `${check.status === "pass" ? "\u2705" : check.status === "warn" ? "\u26A0\uFE0F" : "\u274C"} **${check.name}** \u2014 ${check.detail}`),
+    ""
+  ].join("\n");
 }
 
 // src/action.ts
 var exec = (0, import_node_util.promisify)(import_node_child_process.exec);
 function input(name) {
-  return process.env[`INPUT_${name.toUpperCase().replace(/ /g, "_")}`]?.trim() ?? "";
+  return process.env[`INPUT_${name.toUpperCase().replace(/[\s-]+/g, "_")}`]?.trim() ?? "";
 }
 function setOutput(name, value) {
   const outputFile = process.env.GITHUB_OUTPUT;
@@ -8244,7 +8972,7 @@ function readEvent() {
 function isDryRun() {
   return input("dry-run").toLowerCase() === "true";
 }
-function pullRequestChange(pr) {
+async function pullRequestChange(client, pr) {
   return parseChange({
     title: pr.title,
     body: pr.body ?? "",
@@ -8253,7 +8981,8 @@ function pullRequestChange(pr) {
     url: pr.html_url,
     labels: pr.labels.map((label) => label.name),
     mergedAt: pr.merged_at ?? void 0,
-    sha: pr.merge_commit_sha ?? void 0
+    sha: pr.merge_commit_sha ?? void 0,
+    files: await client.listPullRequestFiles(pr.number)
   });
 }
 function commitChange(commit) {
@@ -8267,12 +8996,19 @@ function commitChange(commit) {
     mergedAt: commit.commit.author?.date
   });
 }
+async function limitedMap(values, limit, mapper) {
+  const results = [];
+  for (let index = 0; index < values.length; index += limit) {
+    results.push(...await Promise.all(values.slice(index, index + limit).map(mapper)));
+  }
+  return results;
+}
 async function changesSinceTag(client, head, tag) {
   const commits = tag ? (await client.compare(tag, head)).commits : await client.listCommits(head);
   const pullRequests = /* @__PURE__ */ new Map();
   const changes = [];
-  for (const commit of commits) {
-    const associated = await client.commitPullRequests(commit.sha);
+  const associations = await limitedMap(commits, 8, async (commit) => ({ commit, pullRequests: await client.commitPullRequests(commit.sha) }));
+  for (const { commit, pullRequests: associated } of associations) {
     if (associated.length === 0) {
       changes.push(commitChange(commit));
       continue;
@@ -8283,18 +9019,17 @@ async function changesSinceTag(client, head, tag) {
       }
     }
   }
-  changes.push(...[...pullRequests.values()].map(pullRequestChange));
+  changes.push(...await limitedMap([...pullRequests.values()], 8, (pr) => pullRequestChange(client, pr)));
   return changes;
 }
 async function latestReleaseTag(client, config) {
-  const { parseVersion: parseVersion2, compareVersions: compareVersions2 } = await Promise.resolve().then(() => (init_semver(), semver_exports));
   let selected = null;
   for (const tag of await client.listTags()) {
     const value = tag.name.startsWith(config.release.tagPrefix) ? tag.name.slice(config.release.tagPrefix.length) : tag.name;
-    if (!parseVersion2(value)) {
+    if (!parseVersion(value)) {
       continue;
     }
-    if (!selected || compareVersions2(value, selected.version) > 0) {
+    if (!selected || compareVersions(value, selected.version) > 0) {
       selected = { name: tag.name, version: value };
     }
   }
@@ -8305,18 +9040,26 @@ async function loadConfig(client, path, ref) {
   return content ? parseConfig(content, path) : parseConfig("");
 }
 function releasePrBody(plan, config) {
-  const marker = JSON.stringify({ version: plan.version, manifest: config.outputs.manifest });
+  const marker = JSON.stringify({ version: plan.version, manifest: config.outputs.manifest, mode: plan.mode });
+  const packageLines = plan.packages.map(({ package: packageItem, plan: packagePlan }) => `- **${packageItem.name}**: ${packageItem.version} -> **${packagePlan.version}** (${packagePlan.bump})`);
+  const notes = plan.packages.map(({ package: packageItem, plan: packagePlan }) => `### ${packageItem.name}
+
+${packagePlan.customerNotes.trim()}`).join("\n\n");
   const lines = [
     `<!-- shipkit-release ${marker} -->`,
     `# Shipkit release ${plan.version}`,
     "",
-    `This release updates the package from **${plan.previousVersion}** to **${plan.version}** and prepares the release communication files.`,
+    `This ${plan.mode} release prepares version changes and release communication for ${plan.packages.length} package(s).`,
+    "",
+    "## Package versions",
+    "",
+    ...packageLines,
     "",
     readinessMarkdown(plan.readiness).trim(),
     "",
     "## Customer-facing notes",
     "",
-    plan.customerNotes.trim(),
+    notes || "No customer-facing changes were marked for this release.",
     "",
     "---",
     "Generated by Shipkit. Merge this pull request to publish the tag and GitHub release."
@@ -8342,28 +9085,100 @@ async function runReadinessCommands(config) {
   }
   return results;
 }
-async function prepareRelease(client, head, config) {
-  const packageJson = await client.getFile("package.json", head);
-  if (!packageJson) {
-    throw new Error("Shipkit requires package.json in the repository root for the Node.js v1 release path.");
+async function checkLink(url) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 1e4);
+  try {
+    let response = await fetch(url, { method: "HEAD", redirect: "manual", signal: controller.signal });
+    if (response.status === 405 || response.status === 403) {
+      response = await fetch(url, { method: "GET", redirect: "manual", signal: controller.signal });
+    }
+    return response.status;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
   }
-  const currentVersion = readPackageVersion(packageJson);
-  const existingChangelog = await client.getFile(config.outputs.changelog, head) ?? "";
+}
+async function runReleaseHealth(client, releaseEvent, config) {
+  if (!config.health.enabled) {
+    log("Release health checks are disabled.");
+    return;
+  }
+  const releaseDetails = await client.getReleaseByTag(releaseEvent.tag_name);
+  const targetCommit = releaseDetails?.target_commitish || releaseEvent.target_commitish || process.env.GITHUB_SHA || "";
+  const workflowRuns = targetCommit ? await client.listWorkflowRuns(targetCommit) : [];
+  const workflowObservations = workflowRuns.map((run2) => ({ name: run2.name, status: run2.status, conclusion: run2.conclusion, url: run2.html_url }));
+  const rollbackNames = new Set(config.health.workflows.filter((workflow) => workflow.purpose === "rollback").map((workflow) => workflow.name.toLowerCase()));
+  const rollbackDetected = workflowRuns.some((run2) => rollbackNames.has(run2.name.toLowerCase()) && run2.conclusion === "success");
+  const links = await Promise.all(config.health.requiredLinks.map(async (url) => ({ url, status: await checkLink(url) })));
+  const laterReleases = (await client.listReleases()).filter((release) => release.tag_name !== releaseEvent.tag_name).map((release) => ({ tag: release.tag_name, publishedAt: release.published_at }));
+  const versionValue = versionFromReleaseTag(releaseEvent.tag_name, config.release.tagPrefix);
+  const observation = {
+    tag: releaseEvent.tag_name,
+    ...versionValue ? { version: versionValue } : {},
+    assets: (releaseDetails?.assets ?? releaseEvent.assets ?? []).map((asset) => asset.name),
+    workflows: workflowObservations,
+    links,
+    rollbackDetected,
+    hotfixDetected: detectRapidHotfix(versionValue, releaseDetails?.published_at ?? releaseEvent.published_at ?? void 0, laterReleases, config.release.tagPrefix, config.health.hotfixWindowHours)
+  };
+  const report = evaluateReleaseHealth(config.health, observation);
+  const markdown = healthMarkdown(report);
+  log(markdown.trim());
+  setOutput("health", JSON.stringify(report));
+  const summaryFile = process.env.GITHUB_STEP_SUMMARY;
+  if (summaryFile) {
+    (0, import_node_fs.appendFileSync)(summaryFile, `${markdown}
+`, "utf8");
+  }
+  if (report.status === "failed") {
+    throw new Error(`Release health checks failed for ${releaseEvent.tag_name}.`);
+  }
+}
+async function prepareRelease(client, head, config) {
+  const baseCommit = await client.getCommit(head);
+  const repositoryTree = await client.getTree(baseCommit.tree.sha);
+  const allPaths = repositoryTree.filter((entry) => entry.type === "blob").map((entry) => entry.path);
+  const manifestPaths = allPaths.filter((path) => path === "package.json" || path.endsWith("/package.json") || path === "pyproject.toml" || path.endsWith("/pyproject.toml") || path === "Cargo.toml" || path.endsWith("/Cargo.toml") || path === "pnpm-workspace.yaml");
+  const manifestEntries = await Promise.all(manifestPaths.map(async (path) => [path, await client.getFile(path, head)]));
+  const manifestFiles = Object.fromEntries(manifestEntries.flatMap(([path, content]) => content === null ? [] : [[path, content]]));
+  const discovered = discoverPackages(manifestFiles, allPaths, config);
   const changes = await changesSinceTag(client, head, await latestReleaseTag(client, config));
   const betaLabelPresent = changes.some((change) => change.labels.includes("ship:beta"));
   const effectiveConfig = betaLabelPresent && !config.release.prerelease ? withOverrides(config, { prerelease: "beta" }) : config;
+  const packageOutputPaths = discovered.packages.flatMap((packageItem) => {
+    const prefix = discovered.mode === "independent" && packageItem.directory ? `${packageItem.directory}/` : "";
+    return Object.values(effectiveConfig.outputs).map((path) => prefix + path);
+  });
+  const neededPaths = [.../* @__PURE__ */ new Set([
+    ...Object.keys(manifestFiles),
+    "package-lock.json",
+    "npm-shrinkwrap.json",
+    ...discovered.packages.filter((packageItem) => packageItem.ecosystem === "node" && packageItem.directory).flatMap((packageItem) => [`${packageItem.directory}/package-lock.json`, `${packageItem.directory}/npm-shrinkwrap.json`]),
+    ...Object.values(effectiveConfig.outputs),
+    ...packageOutputPaths,
+    ...effectiveConfig.readiness.requiredFiles,
+    ...effectiveConfig.readiness.tasks.flatMap((task) => task.file ? [task.file] : [])
+  ])];
+  const fileEntries = await Promise.all(neededPaths.map(async (path) => [path, await client.getFile(path, head)]));
+  const files = {
+    ...manifestFiles,
+    ...Object.fromEntries(fileEntries.flatMap(([path, content]) => content === null ? [] : [[path, content]]))
+  };
   const availableLabels = new Set(changes.flatMap((change) => change.labels));
   const availableFiles = /* @__PURE__ */ new Set();
-  for (const requiredFile of effectiveConfig.readiness.requiredFiles) {
-    if (await client.getFile(requiredFile, head)) {
+  for (const requiredFile of [...effectiveConfig.readiness.requiredFiles, ...effectiveConfig.readiness.tasks.flatMap((task) => task.file ? [task.file] : [])]) {
+    if (files[requiredFile] !== void 0) {
       availableFiles.add(requiredFile);
     }
   }
-  const plan = buildReleasePlan({
-    currentVersion,
-    changes,
+  const plan = buildWorkspaceReleasePlan({
+    packages: discovered.packages,
+    mode: discovered.mode,
+    files,
     config: effectiveConfig,
-    existingChangelog: await client.getFile(effectiveConfig.outputs.changelog, head) ?? existingChangelog,
+    changes,
     readinessContext: { availableLabels, availableFiles, commandResults: await runReadinessCommands(effectiveConfig) }
   });
   setOutput("version", plan.version);
@@ -8371,44 +9186,46 @@ async function prepareRelease(client, head, config) {
     log("No release-worthy changes were found.");
     return;
   }
-  log(`Planned ${plan.version} (${plan.bump}) from ${plan.releaseChanges.length} change(s).`);
+  log(`Planned ${plan.version} (${plan.mode}) from ${plan.releaseChanges.length} change(s).`);
   if (isDryRun()) {
     log(JSON.stringify(plan, null, 2));
     return;
   }
   const repository = await client.repositoryInfo();
-  const baseCommit = await client.getCommit(head);
-  const versionFiles = {
-    "package.json": packageJson,
-    ...await client.getFile("package-lock.json", head) ? { "package-lock.json": await client.getFile("package-lock.json", head) } : {},
-    ...await client.getFile("npm-shrinkwrap.json", head) ? { "npm-shrinkwrap.json": await client.getFile("npm-shrinkwrap.json", head) } : {}
-  };
   const entries = new Map(Object.entries(fileMapFromPlan(plan)));
-  for (const change of updateVersionFiles(versionFiles, plan.version)) {
+  for (const change of plan.versionChanges) {
     entries.set(change.path, change.content);
   }
-  const tree = await client.createTree(baseCommit.tree.sha, [...entries].map(([path, content]) => ({ path, mode: "100644", type: "blob", content })));
-  const commit = await client.createCommit(`chore(release): prepare ${releaseTagName(effectiveConfig.release.tagPrefix, plan.version)}`, tree.sha, head);
+  const releaseTree = await client.createTree(baseCommit.tree.sha, [...entries].map(([path, content]) => ({ path, mode: "100644", type: "blob", content })));
+  const commit = await client.createCommit(`chore(release): prepare ${plan.version}`, releaseTree.sha, head);
   const branchRef = `heads/${effectiveConfig.release.branch}`;
   if (await client.getRef(branchRef)) {
     await client.updateRef(branchRef, commit.sha, true);
   } else {
     await client.createRef(branchRef, commit.sha);
   }
-  const title = `chore(release): ${releaseTagName(effectiveConfig.release.tagPrefix, plan.version)}`;
+  const titleVersion = plan.mode === "independent" ? plan.version : releaseTagName(effectiveConfig.release.tagPrefix, plan.version);
+  const title = `chore(release): ${titleVersion}`;
   const body = releasePrBody(plan, effectiveConfig);
   const existing = (await client.listPullRequests({ state: "open", head: `${repository.owner.login}:${effectiveConfig.release.branch}`, base: repository.default_branch }))[0];
   const releasePr = existing ? await client.updatePullRequest(existing.number, { title, body }) : await client.createPullRequest({ title, body, head: effectiveConfig.release.branch, base: repository.default_branch });
   setOutput("release-pr", releasePr.html_url);
   log(`${existing ? "Updated" : "Created"} release PR: ${releasePr.html_url}`);
 }
-function isShipkitReleasePullRequest(pr) {
-  return pr.head.ref.startsWith("shipkit/") && /release/i.test(pr.title);
+function isShipkitReleasePullRequest(pr, config) {
+  return (pr.head.ref === config.release.branch || pr.head.ref.startsWith("shipkit/")) && /release/i.test(pr.title);
+}
+function independentTagName(config, packageItem) {
+  const safeName = packageItem.name.replace(/^@/, "").replace(/[\\/]/g, "-");
+  return `${config.release.independentTagPrefix}${safeName}@${packageItem.version}`;
+}
+function packageTagName(config, mode, packageItem) {
+  return mode === "independent" ? independentTagName(config, packageItem) : releaseTagName(config.release.tagPrefix, packageItem.version);
 }
 function collectFiles(target, root) {
-  const absolute = (0, import_node_path.resolve)(root, target);
-  const relativePath = (0, import_node_path.relative)(root, absolute);
-  if (relativePath === ".." || relativePath.startsWith(`..${import_node_path.sep}`)) {
+  const absolute = (0, import_node_path3.resolve)(root, target);
+  const relativePath = (0, import_node_path3.relative)(root, absolute);
+  if (relativePath === ".." || relativePath.startsWith(`..${import_node_path3.sep}`)) {
     throw new Error(`Artifact path must stay inside the workspace: ${target}`);
   }
   if (!(0, import_node_fs.existsSync)(absolute)) {
@@ -8417,41 +9234,70 @@ function collectFiles(target, root) {
   if ((0, import_node_fs.statSync)(absolute).isFile()) {
     return [absolute];
   }
-  return (0, import_node_fs.readdirSync)(absolute, { withFileTypes: true }).flatMap((entry) => collectFiles((0, import_node_path.join)(target, entry.name), root));
+  return (0, import_node_fs.readdirSync)(absolute, { withFileTypes: true }).flatMap((entry) => collectFiles((0, import_node_path3.join)(target, entry.name), root));
 }
 async function publishRelease(client, pr, config) {
   const mergeSha = pr.merge_commit_sha;
   if (!mergeSha) {
     throw new Error("The Shipkit release PR does not have a merge commit SHA.");
   }
-  const packageJson = await client.getFile("package.json", mergeSha);
-  if (!packageJson) {
-    throw new Error("The merged Shipkit release PR does not contain package.json.");
+  const manifestContent2 = await client.getFile(config.outputs.manifest, mergeSha);
+  const manifest = manifestContent2 ? JSON.parse(manifestContent2) : {};
+  if (manifest.readiness?.passed === false) {
+    throw new Error("Release readiness checks are incomplete; Shipkit did not publish the release.");
   }
-  const version = readPackageVersion(packageJson);
-  const manifestContent = await client.getFile(config.outputs.manifest, mergeSha);
-  if (manifestContent) {
-    const manifest = JSON.parse(manifestContent);
-    if (manifest.readiness?.passed === false) {
-      throw new Error("Release readiness checks are incomplete; Shipkit did not publish the release.");
+  let packages = manifest.packages ?? [];
+  if (packages.length === 0) {
+    const packageJson = await client.getFile("package.json", mergeSha);
+    if (!packageJson) {
+      throw new Error("The merged Shipkit release PR does not contain a release manifest or package.json.");
+    }
+    const value = JSON.parse(packageJson);
+    if (!value || typeof value !== "object" || Array.isArray(value) || typeof value.version !== "string") {
+      throw new Error("The merged package.json does not contain a valid version.");
+    }
+    packages = [{ id: "root", name: typeof value.name === "string" ? value.name : "root", directory: "", version: value.version, customerNotes: config.outputs.customerNotes }];
+  }
+  const mode = manifest.mode ?? "single";
+  const publishablePackages = mode === "single" ? packages : packages.filter((packageItem) => !packageItem.private && packageItem.releaseable !== false);
+  const releasePackages = mode === "fixed" ? [publishablePackages[0] ?? packages[0]].filter((packageItem) => Boolean(packageItem)) : publishablePackages;
+  const releases = [];
+  for (const packageItem of releasePackages) {
+    const tag = packageTagName(config, mode, packageItem);
+    const existingTag = await client.getRef(`tags/${tag}`);
+    if (!existingTag) {
+      await client.createRef(`tags/${tag}`, mergeSha);
+    } else if (existingTag.object.sha !== mergeSha) {
+      throw new Error(`Release tag ${tag} already points to ${existingTag.object.sha}, not the merged release commit ${mergeSha}.`);
+    }
+    const existingRelease = await client.getReleaseByTag(tag);
+    const customerNotesPath = packageItem.customerNotes ?? (packageItem.directory ? `${packageItem.directory}/${config.outputs.customerNotes}` : config.outputs.customerNotes);
+    const customerNotes = await client.getFile(customerNotesPath, mergeSha) ?? `Release ${packageItem.version}`;
+    const release = existingRelease ?? await client.createRelease({
+      tag_name: tag,
+      target_commitish: mergeSha,
+      name: tag,
+      body: customerNotes,
+      prerelease: Boolean(packageItem.version.includes("-"))
+    });
+    releases.push({ tag, url: release.html_url });
+    log(`${existingRelease ? "Found" : "Published"} GitHub release for ${packageItem.name}: ${release.html_url}`);
+  }
+  if (mode === "independent") {
+    const versions = publishablePackages.map((packageItem) => packageItem.version).filter((version) => parseVersion(version));
+    const anchor = versions.sort((left, right) => (parseVersion(right)?.major ?? 0) - (parseVersion(left)?.major ?? 0) || (parseVersion(right)?.minor ?? 0) - (parseVersion(left)?.minor ?? 0) || (parseVersion(right)?.patch ?? 0) - (parseVersion(left)?.patch ?? 0))[0];
+    if (anchor) {
+      const anchorTag = releaseTagName(config.release.tagPrefix, anchor);
+      const existingAnchor = await client.getRef(`tags/${anchorTag}`);
+      if (!existingAnchor) {
+        await client.createRef(`tags/${anchorTag}`, mergeSha);
+      } else if (existingAnchor.object.sha !== mergeSha) {
+        throw new Error(`Release anchor tag ${anchorTag} already points to a different commit.`);
+      }
     }
   }
-  const tag = releaseTagName(config.release.tagPrefix, version);
-  if (!await client.getRef(`tags/${tag}`)) {
-    await client.createRef(`tags/${tag}`, mergeSha);
-  }
-  const existingRelease = await client.getReleaseByTag(tag);
-  const customerNotes = await client.getFile(config.outputs.customerNotes, mergeSha) ?? `Release ${version}`;
-  const release = existingRelease ?? await client.createRelease({
-    tag_name: tag,
-    target_commitish: mergeSha,
-    name: tag,
-    body: customerNotes,
-    prerelease: Boolean(version.includes("-"))
-  });
-  setOutput("version", version);
-  setOutput("release-url", release.html_url);
-  log(`${existingRelease ? "Found" : "Published"} GitHub release: ${release.html_url}`);
+  setOutput("version", manifest.version ?? packages.map((packageItem) => `${packageItem.name}@${packageItem.version}`).join(", "));
+  setOutput("release-url", JSON.stringify(releases));
   const artifactCommand = input("artifact-command") || config.artifacts.command;
   const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
   if (artifactCommand) {
@@ -8459,9 +9305,26 @@ async function publishRelease(client, pr, config) {
     await exec(artifactCommand, { cwd: workspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
   }
   const artifactFiles = config.artifacts.paths.flatMap((path) => collectFiles(path, workspace));
-  for (const file of artifactFiles) {
-    await client.uploadReleaseAsset(release, file);
-    log(`Uploaded release artifact: ${(0, import_node_path.basename)(file)}`);
+  for (const releaseInfo of releases) {
+    const release = await client.getReleaseByTag(releaseInfo.tag);
+    if (!release) {
+      continue;
+    }
+    for (const file of artifactFiles) {
+      if (release.assets?.some((asset) => asset.name === (0, import_node_path3.basename)(file))) {
+        log(`Release artifact already attached for ${releaseInfo.tag}: ${(0, import_node_path3.basename)(file)}`);
+        continue;
+      }
+      await client.uploadReleaseAsset(release, file);
+      log(`Uploaded release artifact for ${releaseInfo.tag}: ${(0, import_node_path3.basename)(file)}`);
+    }
+  }
+  if (config.publishing.npm.enabled) {
+    for (const packageItem of publishablePackages) {
+      const packageWorkspace = packageItem.directory ? (0, import_node_path3.resolve)(workspace, packageItem.directory) : workspace;
+      log(`Publishing ${packageItem.name} with npm command.`);
+      await exec(config.publishing.npm.command, { cwd: packageWorkspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
+    }
   }
 }
 async function run() {
@@ -8475,17 +9338,22 @@ async function run() {
   const event = readEvent();
   const configPath = input("config") || ".shipkit.yml";
   const pullRequestMergeSha = "pull_request" in event ? event.pull_request?.merge_commit_sha ?? void 0 : void 0;
-  const ref = pullRequestMergeSha || process.env.GITHUB_SHA || ("after" in event ? event.after : void 0) || "HEAD";
+  const releaseTarget = "release" in event ? event.release?.target_commitish ?? void 0 : void 0;
+  const ref = pullRequestMergeSha || releaseTarget || process.env.GITHUB_SHA || ("after" in event ? event.after : void 0) || "HEAD";
   const config = withOverrides(await loadConfig(client, configPath, ref), {
     prerelease: input("prerelease"),
     artifactCommand: input("artifact-command")
   });
-  if (eventName === "pull_request" && "pull_request" in event && event.pull_request && event.action === "closed" && event.pull_request.merged && isShipkitReleasePullRequest(event.pull_request)) {
+  if (eventName === "release" && "release" in event && event.release && event.action === "published") {
+    await runReleaseHealth(client, event.release, config);
+    return;
+  }
+  if (eventName === "pull_request" && "pull_request" in event && event.pull_request && event.action === "closed" && event.pull_request.merged && isShipkitReleasePullRequest(event.pull_request, config)) {
     await publishRelease(client, event.pull_request, config);
     return;
   }
   if (eventName !== "push") {
-    log(`Ignoring event ${eventName || "unknown"}; Shipkit runs on pushes and merged pull requests.`);
+    log(`Ignoring event ${eventName || "unknown"}; Shipkit runs on pushes, merged pull requests, and published releases.`);
     return;
   }
   const repositoryInfo = await client.repositoryInfo();

@@ -1,15 +1,17 @@
 import { parse as parseYaml } from "yaml";
-import type { ArtifactConfig, OutputConfig, ReadinessCommand, ShipkitConfig } from "./types.js";
+import type { ArtifactConfig, HealthWorkflow, OutputConfig, ReadinessCommand, ReadinessTask, ShipkitConfig } from "./types.js";
 
 export const DEFAULT_CONFIG: ShipkitConfig = {
   release: {
     branch: "shipkit/release",
-    tagPrefix: "v"
+    tagPrefix: "v",
+    independentTagPrefix: "pkg-"
   },
   readiness: {
     requiredLabels: [],
     requiredFiles: [],
-    commands: []
+    commands: [],
+    tasks: []
   },
   outputs: {
     changelog: "CHANGELOG.md",
@@ -21,6 +23,25 @@ export const DEFAULT_CONFIG: ShipkitConfig = {
   },
   artifacts: {
     paths: []
+  },
+  monorepo: {
+    mode: "auto",
+    packages: [],
+    includeRoot: true,
+    unscopedChanges: "all"
+  },
+  health: {
+    enabled: true,
+    workflows: [],
+    expectedArtifacts: [],
+    requiredLinks: [],
+    hotfixWindowHours: 48
+  },
+  publishing: {
+    npm: {
+      enabled: false,
+      command: "npm publish"
+    }
   }
 };
 
@@ -47,6 +68,50 @@ function commands(value: unknown): ReadinessCommand[] {
   });
 }
 
+function readinessTasks(value: unknown): ReadinessTask[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((item): ReadinessTask[] => {
+    if (!item || typeof item !== "object") {
+      return [];
+    }
+    const record = item as Record<string, unknown>;
+    if (typeof record.name !== "string" || !record.name.trim()) {
+      return [];
+    }
+    const task: ReadinessTask = { name: record.name.trim() };
+    if (typeof record.label === "string" && record.label.trim()) task.label = record.label.trim();
+    if (typeof record.file === "string" && record.file.trim()) task.file = record.file.trim();
+    return [task];
+  });
+}
+
+function healthWorkflows(value: unknown): HealthWorkflow[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((item): HealthWorkflow[] => {
+    if (!item || typeof item !== "object") {
+      return [];
+    }
+    const record = item as Record<string, unknown>;
+    if (typeof record.name !== "string" || !record.name.trim()) {
+      return [];
+    }
+    const purpose = record.purpose === "package" || record.purpose === "deployment" || record.purpose === "rollback" || record.purpose === "custom" ? record.purpose : "custom";
+    return [{ name: record.name.trim(), purpose, required: record.required !== false }];
+  });
+}
+
+function booleanValue(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function positiveNumber(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback;
+}
+
 function mergeConfig(raw: unknown): ShipkitConfig {
   if (!raw || typeof raw !== "object") {
     return DEFAULT_CONFIG;
@@ -56,16 +121,22 @@ function mergeConfig(raw: unknown): ShipkitConfig {
   const readiness = object.readiness && typeof object.readiness === "object" ? object.readiness as Record<string, unknown> : {};
   const outputs = object.outputs && typeof object.outputs === "object" ? object.outputs as Record<string, unknown> : {};
   const artifacts = object.artifacts && typeof object.artifacts === "object" ? object.artifacts as Record<string, unknown> : {};
+  const monorepo = object.monorepo && typeof object.monorepo === "object" ? object.monorepo as Record<string, unknown> : {};
+  const health = object.health && typeof object.health === "object" ? object.health as Record<string, unknown> : {};
+  const publishing = object.publishing && typeof object.publishing === "object" ? object.publishing as Record<string, unknown> : {};
+  const npm = publishing.npm && typeof publishing.npm === "object" ? publishing.npm as Record<string, unknown> : {};
 
   const result: ShipkitConfig = {
     release: {
       branch: typeof release.branch === "string" && release.branch.trim() ? release.branch.trim() : DEFAULT_CONFIG.release.branch,
-      tagPrefix: typeof release.tagPrefix === "string" ? release.tagPrefix : DEFAULT_CONFIG.release.tagPrefix
+      tagPrefix: typeof release.tagPrefix === "string" ? release.tagPrefix : DEFAULT_CONFIG.release.tagPrefix,
+      independentTagPrefix: typeof release.independentTagPrefix === "string" ? release.independentTagPrefix : DEFAULT_CONFIG.release.independentTagPrefix
     },
     readiness: {
       requiredLabels: strings(readiness.requiredLabels),
       requiredFiles: strings(readiness.requiredFiles),
-      commands: commands(readiness.commands)
+      commands: commands(readiness.commands),
+      tasks: readinessTasks(readiness.tasks)
     },
     outputs: {
       changelog: typeof outputs.changelog === "string" && outputs.changelog.trim() ? outputs.changelog.trim() : DEFAULT_CONFIG.outputs.changelog,
@@ -77,6 +148,25 @@ function mergeConfig(raw: unknown): ShipkitConfig {
     },
     artifacts: {
       paths: strings(artifacts.paths)
+    },
+    monorepo: {
+      mode: monorepo.mode === "single" || monorepo.mode === "fixed" || monorepo.mode === "independent" ? monorepo.mode : "auto",
+      packages: strings(monorepo.packages),
+      includeRoot: booleanValue(monorepo.includeRoot, DEFAULT_CONFIG.monorepo.includeRoot),
+      unscopedChanges: monorepo.unscopedChanges === "root" ? "root" : "all"
+    },
+    health: {
+      enabled: booleanValue(health.enabled, DEFAULT_CONFIG.health.enabled),
+      workflows: healthWorkflows(health.workflows),
+      expectedArtifacts: strings(health.expectedArtifacts),
+      requiredLinks: strings(health.requiredLinks),
+      hotfixWindowHours: positiveNumber(health.hotfixWindowHours, DEFAULT_CONFIG.health.hotfixWindowHours)
+    },
+    publishing: {
+      npm: {
+        enabled: booleanValue(npm.enabled, DEFAULT_CONFIG.publishing.npm.enabled),
+        command: typeof npm.command === "string" && npm.command.trim() ? npm.command.trim() : DEFAULT_CONFIG.publishing.npm.command
+      }
     }
   };
 
@@ -105,9 +195,12 @@ export function parseConfig(content: string, fileName = ".shipkit.yml"): Shipkit
 export function withOverrides(config: ShipkitConfig, overrides: { prerelease?: string; artifactCommand?: string }): ShipkitConfig {
   const result: ShipkitConfig = {
     release: { ...config.release },
-    readiness: { ...config.readiness, requiredLabels: [...config.readiness.requiredLabels], requiredFiles: [...config.readiness.requiredFiles], commands: [...config.readiness.commands] },
+    readiness: { ...config.readiness, requiredLabels: [...config.readiness.requiredLabels], requiredFiles: [...config.readiness.requiredFiles], commands: [...config.readiness.commands], tasks: [...config.readiness.tasks] },
     outputs: { ...config.outputs },
-    artifacts: { ...config.artifacts, paths: [...config.artifacts.paths] }
+    artifacts: { ...config.artifacts, paths: [...config.artifacts.paths] },
+    monorepo: { ...config.monorepo, packages: [...config.monorepo.packages] },
+    health: { ...config.health, workflows: [...config.health.workflows], expectedArtifacts: [...config.health.expectedArtifacts], requiredLinks: [...config.health.requiredLinks] },
+    publishing: { ...config.publishing, npm: { ...config.publishing.npm } }
   };
   const prerelease = overrides.prerelease?.trim();
   if (prerelease) {

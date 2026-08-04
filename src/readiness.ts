@@ -8,12 +8,22 @@ export function evaluateReadiness(config: ReadinessConfig, changes: ReleaseChang
   const commandResults = context.commandResults ?? {};
   const failedCommands = config.commands.filter((command) => commandResults[command.name] === false).map((command) => command.name);
   const requestedTasks = [...new Set(changes.flatMap((change) => change.readiness))];
+  const missingTasks = requestedTasks.flatMap((taskName) => {
+    const task = config.tasks.find((candidate) => candidate.name.toLowerCase() === taskName.toLowerCase());
+    if (!task) {
+      return [taskName];
+    }
+    const satisfiedByLabel = task.label ? availableLabels.has(task.label.toLowerCase()) : false;
+    const satisfiedByFile = task.file ? availableFiles.has(task.file) : false;
+    return satisfiedByLabel || satisfiedByFile ? [] : [taskName];
+  });
 
   return {
-    passed: missingLabels.length === 0 && missingFiles.length === 0 && failedCommands.length === 0,
+    passed: missingLabels.length === 0 && missingFiles.length === 0 && failedCommands.length === 0 && missingTasks.length === 0,
     missingLabels,
     missingFiles,
     failedCommands,
+    missingTasks,
     requestedTasks
   };
 }
@@ -28,6 +38,9 @@ export function readinessMarkdown(report: ReadinessReport): string {
   }
   if (report.failedCommands.length > 0) {
     lines.push(`- Failed checks: ${report.failedCommands.map((command) => `\`${command}\``).join(", ")}`);
+  }
+  if (report.missingTasks.length > 0) {
+    lines.push(`- Missing product tasks: ${report.missingTasks.map((task) => `\`${task}\``).join(", ")}`);
   }
   if (report.requestedTasks.length > 0) {
     lines.push(`- Requested product tasks: ${report.requestedTasks.map((task) => `\`${task}\``).join(", ")}`);

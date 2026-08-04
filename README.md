@@ -18,16 +18,19 @@ on:
     branches: [main]
   pull_request:
     types: [closed]
+  release:
+    types: [published]
 
 permissions:
   contents: write
   pull-requests: write
+  actions: read
 
 jobs:
   shipkit:
     runs-on: ubuntu-latest
     steps:
-      - uses: EvanGribar/ShipKit@main
+      - uses: EvanGribar/ShipKit@v0.1.0
 ```
 
 On pushes to `main`, Shipkit reads conventional commits and merged pull requests, calculates the next semantic version, and maintains a release pull request. When that pull request merges, Shipkit creates the tag and GitHub release.
@@ -62,7 +65,14 @@ Create `.shipkit.yml` only when the defaults need changing:
 release:
   branch: shipkit/release
   tagPrefix: v
+  independentTagPrefix: pkg-
   prerelease: beta
+
+monorepo:
+  mode: auto # auto, fixed, or independent
+  packages: [packages/*]
+  includeRoot: true
+  unscopedChanges: all
 
 readiness:
   requiredLabels: [ship:ready]
@@ -70,6 +80,9 @@ readiness:
   commands:
     - name: tests
       run: npm test
+  tasks:
+    - name: docs
+      file: docs/migrations/latest.md
 
 outputs:
   changelog: CHANGELOG.md
@@ -81,6 +94,23 @@ outputs:
 artifacts:
   command: npm run build
   paths: [dist, build.zip]
+
+publishing:
+  npm:
+    enabled: false
+    command: npm publish
+
+health:
+  enabled: true
+  expectedArtifacts: [build.zip]
+  requiredLinks: [https://docs.example.com/releases/latest]
+  workflows:
+    - name: Publish package
+      purpose: package
+    - name: Deploy production
+      purpose: deployment
+    - name: Rollback production
+      purpose: rollback
 ```
 
 Readiness checks are reported in the release PR. A missing required label or file blocks publication but does not hide the proposed version or generated communication.
@@ -89,7 +119,7 @@ Configured commands and artifact commands run in the runner workspace. The zero-
 
 ## Current scope
 
-The first slice focuses on Node.js single-package repositories, conventional commits, PR label overrides, version and lockfile updates, changelog/release notes, release PRs, tags, GitHub releases, readiness rules, and a JSON release manifest. Prereleases, richer artifact upload behavior, and monorepo strategies are designed as additive extensions rather than hidden complexity in the default path.
+The current foundation supports Node.js single-package repositories, fixed and independent npm workspaces with bounded workspace-dependency propagation, Python `pyproject.toml`, Rust `Cargo.toml`, conventional commits, PR label overrides, version and lockfile updates, changelog/release notes, release PRs, tags, GitHub releases, readiness rules, npm publishing commands, configurable artifacts, release-health checks, and a JSON release manifest. Richer ecosystem-specific publishing remains deliberately bounded follow-on work.
 
 ## Development
 

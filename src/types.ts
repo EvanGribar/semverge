@@ -2,6 +2,10 @@ export type ReleaseKind = "feature" | "fix" | "breaking" | "docs" | "internal" |
 
 export type BumpLevel = "none" | "patch" | "minor" | "major";
 
+export type Ecosystem = "node" | "python" | "rust";
+
+export type MonorepoMode = "auto" | "single" | "fixed" | "independent";
+
 export interface ShipkitMetadata {
   type?: ReleaseKind;
   customer?: string;
@@ -23,6 +27,7 @@ export interface ChangeInput {
   labels?: string[];
   author?: string;
   mergedAt?: string;
+  files?: string[];
 }
 
 export interface ReleaseChange {
@@ -34,11 +39,14 @@ export interface ReleaseChange {
   url?: string;
   author?: string;
   mergedAt?: string;
+  files?: string[];
   labels: string[];
   kind: ReleaseKind;
   scope?: string;
   breaking: boolean;
   skipped: boolean;
+  forcedBump?: BumpLevel;
+  dependencyUpdate?: boolean;
   customerSummary: string;
   internalSummary?: string;
   migration?: string;
@@ -51,15 +59,23 @@ export interface ReadinessCommand {
   run: string;
 }
 
+export interface ReadinessTask {
+  name: string;
+  label?: string;
+  file?: string;
+}
+
 export interface ReadinessConfig {
   requiredLabels: string[];
   requiredFiles: string[];
   commands: ReadinessCommand[];
+  tasks: ReadinessTask[];
 }
 
 export interface ReleaseConfig {
   branch: string;
   tagPrefix: string;
+  independentTagPrefix: string;
   prerelease?: string;
 }
 
@@ -77,11 +93,46 @@ export interface ArtifactConfig {
   paths: string[];
 }
 
+export interface MonorepoConfig {
+  mode: MonorepoMode;
+  packages: string[];
+  includeRoot: boolean;
+  unscopedChanges: "all" | "root";
+}
+
+export type HealthWorkflowPurpose = "package" | "deployment" | "rollback" | "custom";
+
+export interface HealthWorkflow {
+  name: string;
+  purpose: HealthWorkflowPurpose;
+  required: boolean;
+}
+
+export interface HealthConfig {
+  enabled: boolean;
+  workflows: HealthWorkflow[];
+  expectedArtifacts: string[];
+  requiredLinks: string[];
+  hotfixWindowHours: number;
+}
+
+export interface NpmPublishConfig {
+  enabled: boolean;
+  command: string;
+}
+
+export interface PublishingConfig {
+  npm: NpmPublishConfig;
+}
+
 export interface ShipkitConfig {
   release: ReleaseConfig;
   readiness: ReadinessConfig;
   outputs: OutputConfig;
   artifacts: ArtifactConfig;
+  monorepo: MonorepoConfig;
+  health: HealthConfig;
+  publishing: PublishingConfig;
 }
 
 export interface ReadinessContext {
@@ -95,6 +146,7 @@ export interface ReadinessReport {
   missingLabels: string[];
   missingFiles: string[];
   failedCommands: string[];
+  missingTasks: string[];
   requestedTasks: string[];
 }
 

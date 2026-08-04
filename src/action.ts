@@ -2,13 +2,15 @@ import { appendFileSync, existsSync, readFileSync, statSync, readdirSync } from 
 import { exec as execCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve, relative, join, basename, sep } from "node:path";
-import { buildReleasePlan } from "./release.js";
 import { parseChange } from "./changes.js";
 import { parseConfig, withOverrides } from "./config.js";
 import { readinessMarkdown } from "./readiness.js";
 import { releaseTagName, GitHubClient, type GitHubCommitSummary, type GitHubPullRequest } from "./github.js";
-import { readPackageVersion, updateVersionFiles } from "./version-files.js";
-import type { ReleasePlan, ShipkitConfig } from "./types.js";
+import { discoverPackages } from "./packages.js";
+import { buildWorkspaceReleasePlan, type WorkspaceReleasePlan } from "./workspace-release.js";
+import { detectRapidHotfix, evaluateReleaseHealth, healthMarkdown, versionFromReleaseTag, type ReleaseHealthObservation } from "./health.js";
+import { compareVersions, parseVersion } from "./semver.js";
+import type { ShipkitConfig } from "./types.js";
 
 const exec = promisify(execCallback);
 
@@ -22,8 +24,19 @@ interface PullRequestEvent {
   pull_request?: GitHubPullRequest & { merged?: boolean };
 }
 
+interface ReleaseEvent {
+  action?: string;
+  release?: {
+    tag_name: string;
+    target_commitish?: string;
+    published_at?: string | null;
+    html_url?: string;
+    assets?: Array<{ name: string }>;
+  };
+}
+
 function input(name: string): string {
-  return process.env[`INPUT_${name.toUpperCase().replace(/ /g, "_")}`]?.trim() ?? "";
+  return process.env[`INPUT_${name.toUpperCase().replace(/[\s-]+/g, "_")}`]?.trim() ?? "";
 }
 
 function setOutput(name: string, value: string): void {
@@ -39,7 +52,7 @@ function log(message: string): void {
   process.stdout.write(`[shipkit] ${message}\n`);
 }
 
-function readEvent(): PushEvent | PullRequestEvent {
+function readEvent(): PushEvent | PullRequestEvent | ReleaseEvent {
   const eventPath = process.env.GITHUB_EVENT_PATH;
   if (!eventPath || !existsSync(eventPath)) {
     return {};
@@ -51,7 +64,7 @@ function isDryRun(): boolean {
   return input("dry-run").toLowerCase() === "true";
 }
 
-function pullRequestChange(pr: GitHubPullRequest) {
+async function pullRequestChange(client: GitHubClient, pr: GitHubPullRequest) {
   return parseChange({
     title: pr.title,
     body: pr.body ?? "",
@@ -60,7 +73,8 @@ function pullRequestChange(pr: GitHubPullRequest) {
     url: pr.html_url,
     labels: pr.labels.map((label) => label.name),
     mergedAt: pr.merged_at ?? undefined,
-    sha: pr.merge_commit_sha ?? undefined
+    sha: pr.merge_commit_sha ?? undefined,
+    files: await client.listPullRequestFiles(pr.number)
   });
 }
 
@@ -76,12 +90,20 @@ function commitChange(commit: GitHubCommitSummary) {
   });
 }
 
+async function limitedMap<T, R>(values: T[], limit: number, mapper: (value: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = [];
+  for (let index = 0; index < values.length; index += limit) {
+    results.push(...await Promise.all(values.slice(index, index + limit).map(mapper)));
+  }
+  return results;
+}
+
 async function changesSinceTag(client: GitHubClient, head: string, tag: string | null) {
   const commits = tag ? (await client.compare(tag, head)).commits : await client.listCommits(head);
   const pullRequests = new Map<number, GitHubPullRequest>();
   const changes = [];
-  for (const commit of commits) {
-    const associated = await client.commitPullRequests(commit.sha);
+  const associations = await limitedMap(commits, 8, async (commit) => ({ commit, pullRequests: await client.commitPullRequests(commit.sha) }));
+  for (const { commit, pullRequests: associated } of associations) {
     if (associated.length === 0) {
       changes.push(commitChange(commit));
       continue;
@@ -92,12 +114,11 @@ async function changesSinceTag(client: GitHubClient, head: string, tag: string |
       }
     }
   }
-  changes.push(...[...pullRequests.values()].map(pullRequestChange));
+  changes.push(...await limitedMap([...pullRequests.values()], 8, (pr) => pullRequestChange(client, pr)));
   return changes;
 }
 
 async function latestReleaseTag(client: GitHubClient, config: ShipkitConfig): Promise<string | null> {
-  const { parseVersion, compareVersions } = await import("./semver.js");
   let selected: { name: string; version: string } | null = null;
   for (const tag of await client.listTags()) {
     const value = tag.name.startsWith(config.release.tagPrefix) ? tag.name.slice(config.release.tagPrefix.length) : tag.name;
@@ -116,19 +137,25 @@ async function loadConfig(client: GitHubClient, path: string, ref: string): Prom
   return content ? parseConfig(content, path) : parseConfig("");
 }
 
-function releasePrBody(plan: ReleasePlan, config: ShipkitConfig): string {
-  const marker = JSON.stringify({ version: plan.version, manifest: config.outputs.manifest });
+function releasePrBody(plan: WorkspaceReleasePlan, config: ShipkitConfig): string {
+  const marker = JSON.stringify({ version: plan.version, manifest: config.outputs.manifest, mode: plan.mode });
+  const packageLines = plan.packages.map(({ package: packageItem, plan: packagePlan }) => `- **${packageItem.name}**: ${packageItem.version} -> **${packagePlan.version}** (${packagePlan.bump})`);
+  const notes = plan.packages.map(({ package: packageItem, plan: packagePlan }) => `### ${packageItem.name}\n\n${packagePlan.customerNotes.trim()}`).join("\n\n");
   const lines = [
     `<!-- shipkit-release ${marker} -->`,
     `# Shipkit release ${plan.version}`,
     "",
-    `This release updates the package from **${plan.previousVersion}** to **${plan.version}** and prepares the release communication files.`,
+    `This ${plan.mode} release prepares version changes and release communication for ${plan.packages.length} package(s).`,
+    "",
+    "## Package versions",
+    "",
+    ...packageLines,
     "",
     readinessMarkdown(plan.readiness).trim(),
     "",
     "## Customer-facing notes",
     "",
-    plan.customerNotes.trim(),
+    notes || "No customer-facing changes were marked for this release.",
     "",
     "---",
     "Generated by Shipkit. Merge this pull request to publish the tag and GitHub release."
@@ -136,7 +163,7 @@ function releasePrBody(plan: ReleasePlan, config: ShipkitConfig): string {
   return `${lines.join("\n").trim()}\n`;
 }
 
-function fileMapFromPlan(plan: ReleasePlan): Record<string, string> {
+function fileMapFromPlan(plan: WorkspaceReleasePlan): Record<string, string> {
   return Object.fromEntries(plan.outputs.map((output) => [output.path, output.content]));
 }
 
@@ -156,28 +183,103 @@ async function runReadinessCommands(config: ShipkitConfig): Promise<Record<strin
   return results;
 }
 
-async function prepareRelease(client: GitHubClient, head: string, config: ShipkitConfig): Promise<void> {
-  const packageJson = await client.getFile("package.json", head);
-  if (!packageJson) {
-    throw new Error("Shipkit requires package.json in the repository root for the Node.js v1 release path.");
+async function checkLink(url: string): Promise<number | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    let response = await fetch(url, { method: "HEAD", redirect: "manual", signal: controller.signal });
+    if (response.status === 405 || response.status === 403) {
+      response = await fetch(url, { method: "GET", redirect: "manual", signal: controller.signal });
+    }
+    return response.status;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
   }
-  const currentVersion = readPackageVersion(packageJson);
-  const existingChangelog = await client.getFile(config.outputs.changelog, head) ?? "";
+}
+
+async function runReleaseHealth(client: GitHubClient, releaseEvent: NonNullable<ReleaseEvent["release"]>, config: ShipkitConfig): Promise<void> {
+  if (!config.health.enabled) {
+    log("Release health checks are disabled.");
+    return;
+  }
+  const releaseDetails = await client.getReleaseByTag(releaseEvent.tag_name);
+  const targetCommit = releaseDetails?.target_commitish || releaseEvent.target_commitish || process.env.GITHUB_SHA || "";
+  const workflowRuns = targetCommit ? await client.listWorkflowRuns(targetCommit) : [];
+  const workflowObservations = workflowRuns.map((run) => ({ name: run.name, status: run.status, conclusion: run.conclusion, url: run.html_url }));
+  const rollbackNames = new Set(config.health.workflows.filter((workflow) => workflow.purpose === "rollback").map((workflow) => workflow.name.toLowerCase()));
+  const rollbackDetected = workflowRuns.some((run) => rollbackNames.has(run.name.toLowerCase()) && run.conclusion === "success");
+  const links = await Promise.all(config.health.requiredLinks.map(async (url) => ({ url, status: await checkLink(url) })));
+  const laterReleases = (await client.listReleases())
+    .filter((release) => release.tag_name !== releaseEvent.tag_name)
+    .map((release) => ({ tag: release.tag_name, publishedAt: release.published_at }));
+  const versionValue = versionFromReleaseTag(releaseEvent.tag_name, config.release.tagPrefix);
+  const observation: ReleaseHealthObservation = {
+    tag: releaseEvent.tag_name,
+    ...(versionValue ? { version: versionValue } : {}),
+    assets: (releaseDetails?.assets ?? releaseEvent.assets ?? []).map((asset) => asset.name),
+    workflows: workflowObservations,
+    links,
+    rollbackDetected,
+    hotfixDetected: detectRapidHotfix(versionValue, releaseDetails?.published_at ?? releaseEvent.published_at ?? undefined, laterReleases, config.release.tagPrefix, config.health.hotfixWindowHours)
+  };
+  const report = evaluateReleaseHealth(config.health, observation);
+  const markdown = healthMarkdown(report);
+  log(markdown.trim());
+  setOutput("health", JSON.stringify(report));
+  const summaryFile = process.env.GITHUB_STEP_SUMMARY;
+  if (summaryFile) {
+    appendFileSync(summaryFile, `${markdown}\n`, "utf8");
+  }
+  if (report.status === "failed") {
+    throw new Error(`Release health checks failed for ${releaseEvent.tag_name}.`);
+  }
+}
+
+async function prepareRelease(client: GitHubClient, head: string, config: ShipkitConfig): Promise<void> {
+  const baseCommit = await client.getCommit(head);
+  const repositoryTree = await client.getTree(baseCommit.tree.sha);
+  const allPaths = repositoryTree.filter((entry) => entry.type === "blob").map((entry) => entry.path);
+  const manifestPaths = allPaths.filter((path) => path === "package.json" || path.endsWith("/package.json") || path === "pyproject.toml" || path.endsWith("/pyproject.toml") || path === "Cargo.toml" || path.endsWith("/Cargo.toml") || path === "pnpm-workspace.yaml");
+  const manifestEntries = await Promise.all(manifestPaths.map(async (path) => [path, await client.getFile(path, head)] as const));
+  const manifestFiles = Object.fromEntries(manifestEntries.flatMap(([path, content]) => content === null ? [] : [[path, content]]));
+  const discovered = discoverPackages(manifestFiles, allPaths, config);
   const changes = await changesSinceTag(client, head, await latestReleaseTag(client, config));
   const betaLabelPresent = changes.some((change) => change.labels.includes("ship:beta"));
   const effectiveConfig = betaLabelPresent && !config.release.prerelease ? withOverrides(config, { prerelease: "beta" }) : config;
+  const packageOutputPaths = discovered.packages.flatMap((packageItem) => {
+    const prefix = discovered.mode === "independent" && packageItem.directory ? `${packageItem.directory}/` : "";
+    return Object.values(effectiveConfig.outputs).map((path) => prefix + path);
+  });
+  const neededPaths = [...new Set([
+    ...Object.keys(manifestFiles),
+    "package-lock.json",
+    "npm-shrinkwrap.json",
+    ...discovered.packages.filter((packageItem) => packageItem.ecosystem === "node" && packageItem.directory).flatMap((packageItem) => [`${packageItem.directory}/package-lock.json`, `${packageItem.directory}/npm-shrinkwrap.json`]),
+    ...Object.values(effectiveConfig.outputs),
+    ...packageOutputPaths,
+    ...effectiveConfig.readiness.requiredFiles,
+    ...effectiveConfig.readiness.tasks.flatMap((task) => task.file ? [task.file] : [])
+  ])];
+  const fileEntries = await Promise.all(neededPaths.map(async (path) => [path, await client.getFile(path, head)] as const));
+  const files: Record<string, string> = {
+    ...manifestFiles,
+    ...Object.fromEntries(fileEntries.flatMap(([path, content]) => content === null ? [] : [[path, content]]))
+  };
   const availableLabels = new Set(changes.flatMap((change) => change.labels));
   const availableFiles = new Set<string>();
-  for (const requiredFile of effectiveConfig.readiness.requiredFiles) {
-    if (await client.getFile(requiredFile, head)) {
+  for (const requiredFile of [...effectiveConfig.readiness.requiredFiles, ...effectiveConfig.readiness.tasks.flatMap((task) => task.file ? [task.file] : [])]) {
+    if (files[requiredFile] !== undefined) {
       availableFiles.add(requiredFile);
     }
   }
-  const plan = buildReleasePlan({
-    currentVersion,
-    changes,
+  const plan = buildWorkspaceReleasePlan({
+    packages: discovered.packages,
+    mode: discovered.mode,
+    files,
     config: effectiveConfig,
-    existingChangelog: await client.getFile(effectiveConfig.outputs.changelog, head) ?? existingChangelog,
+    changes,
     readinessContext: { availableLabels, availableFiles, commandResults: await runReadinessCommands(effectiveConfig) }
   });
   setOutput("version", plan.version);
@@ -185,25 +287,19 @@ async function prepareRelease(client: GitHubClient, head: string, config: Shipki
     log("No release-worthy changes were found.");
     return;
   }
-  log(`Planned ${plan.version} (${plan.bump}) from ${plan.releaseChanges.length} change(s).`);
+  log(`Planned ${plan.version} (${plan.mode}) from ${plan.releaseChanges.length} change(s).`);
   if (isDryRun()) {
     log(JSON.stringify(plan, null, 2));
     return;
   }
 
   const repository = await client.repositoryInfo();
-  const baseCommit = await client.getCommit(head);
-  const versionFiles = {
-    "package.json": packageJson,
-    ...(await client.getFile("package-lock.json", head) ? { "package-lock.json": (await client.getFile("package-lock.json", head)) as string } : {}),
-    ...(await client.getFile("npm-shrinkwrap.json", head) ? { "npm-shrinkwrap.json": (await client.getFile("npm-shrinkwrap.json", head)) as string } : {})
-  };
   const entries = new Map<string, string>(Object.entries(fileMapFromPlan(plan)));
-  for (const change of updateVersionFiles(versionFiles, plan.version)) {
+  for (const change of plan.versionChanges) {
     entries.set(change.path, change.content);
   }
-  const tree = await client.createTree(baseCommit.tree.sha, [...entries].map(([path, content]) => ({ path, mode: "100644", type: "blob", content })));
-  const commit = await client.createCommit(`chore(release): prepare ${releaseTagName(effectiveConfig.release.tagPrefix, plan.version)}`, tree.sha, head);
+  const releaseTree = await client.createTree(baseCommit.tree.sha, [...entries].map(([path, content]) => ({ path, mode: "100644", type: "blob", content })));
+  const commit = await client.createCommit(`chore(release): prepare ${plan.version}`, releaseTree.sha, head);
   const branchRef = `heads/${effectiveConfig.release.branch}`;
   if (await client.getRef(branchRef)) {
     await client.updateRef(branchRef, commit.sha, true);
@@ -211,7 +307,8 @@ async function prepareRelease(client: GitHubClient, head: string, config: Shipki
     await client.createRef(branchRef, commit.sha);
   }
 
-  const title = `chore(release): ${releaseTagName(effectiveConfig.release.tagPrefix, plan.version)}`;
+  const titleVersion = plan.mode === "independent" ? plan.version : releaseTagName(effectiveConfig.release.tagPrefix, plan.version);
+  const title = `chore(release): ${titleVersion}`;
   const body = releasePrBody(plan, effectiveConfig);
   const existing = (await client.listPullRequests({ state: "open", head: `${repository.owner.login}:${effectiveConfig.release.branch}`, base: repository.default_branch }))[0];
   const releasePr = existing ? await client.updatePullRequest(existing.number, { title, body }) : await client.createPullRequest({ title, body, head: effectiveConfig.release.branch, base: repository.default_branch });
@@ -219,8 +316,35 @@ async function prepareRelease(client: GitHubClient, head: string, config: Shipki
   log(`${existing ? "Updated" : "Created"} release PR: ${releasePr.html_url}`);
 }
 
-function isShipkitReleasePullRequest(pr: GitHubPullRequest): boolean {
-  return pr.head.ref.startsWith("shipkit/") && /release/i.test(pr.title);
+function isShipkitReleasePullRequest(pr: GitHubPullRequest, config: ShipkitConfig): boolean {
+  return (pr.head.ref === config.release.branch || pr.head.ref.startsWith("shipkit/")) && /release/i.test(pr.title);
+}
+
+interface PublishedPackage {
+  id: string;
+  name: string;
+  directory: string;
+  version: string;
+  customerNotes?: string;
+  private?: boolean;
+  releaseable?: boolean;
+}
+
+interface ShipkitManifest {
+  schemaVersion?: number;
+  mode?: "single" | "fixed" | "independent";
+  version?: string;
+  readiness?: { passed?: boolean };
+  packages?: PublishedPackage[];
+}
+
+function independentTagName(config: ShipkitConfig, packageItem: PublishedPackage): string {
+  const safeName = packageItem.name.replace(/^@/, "").replace(/[\\/]/g, "-");
+  return `${config.release.independentTagPrefix}${safeName}@${packageItem.version}`;
+}
+
+function packageTagName(config: ShipkitConfig, mode: ShipkitManifest["mode"], packageItem: PublishedPackage): string {
+  return mode === "independent" ? independentTagName(config, packageItem) : releaseTagName(config.release.tagPrefix, packageItem.version);
 }
 
 function collectFiles(target: string, root: string): string[] {
@@ -243,34 +367,65 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
   if (!mergeSha) {
     throw new Error("The Shipkit release PR does not have a merge commit SHA.");
   }
-  const packageJson = await client.getFile("package.json", mergeSha);
-  if (!packageJson) {
-    throw new Error("The merged Shipkit release PR does not contain package.json.");
-  }
-  const version = readPackageVersion(packageJson);
   const manifestContent = await client.getFile(config.outputs.manifest, mergeSha);
-  if (manifestContent) {
-    const manifest = JSON.parse(manifestContent) as { readiness?: { passed?: boolean } };
-    if (manifest.readiness?.passed === false) {
-      throw new Error("Release readiness checks are incomplete; Shipkit did not publish the release.");
+  const manifest: ShipkitManifest = manifestContent ? JSON.parse(manifestContent) as ShipkitManifest : {};
+  if (manifest.readiness?.passed === false) {
+    throw new Error("Release readiness checks are incomplete; Shipkit did not publish the release.");
+  }
+
+  let packages = manifest.packages ?? [];
+  if (packages.length === 0) {
+    const packageJson = await client.getFile("package.json", mergeSha);
+    if (!packageJson) {
+      throw new Error("The merged Shipkit release PR does not contain a release manifest or package.json.");
+    }
+    const value: unknown = JSON.parse(packageJson);
+    if (!value || typeof value !== "object" || Array.isArray(value) || typeof (value as Record<string, unknown>).version !== "string") {
+      throw new Error("The merged package.json does not contain a valid version.");
+    }
+    packages = [{ id: "root", name: typeof (value as Record<string, unknown>).name === "string" ? (value as Record<string, unknown>).name as string : "root", directory: "", version: (value as Record<string, unknown>).version as string, customerNotes: config.outputs.customerNotes }];
+  }
+  const mode = manifest.mode ?? "single";
+  const publishablePackages = mode === "single" ? packages : packages.filter((packageItem) => !packageItem.private && packageItem.releaseable !== false);
+  const releasePackages = mode === "fixed" ? [publishablePackages[0] ?? packages[0]].filter((packageItem): packageItem is PublishedPackage => Boolean(packageItem)) : publishablePackages;
+  const releases: Array<{ tag: string; url: string }> = [];
+  for (const packageItem of releasePackages) {
+    const tag = packageTagName(config, mode, packageItem);
+    const existingTag = await client.getRef(`tags/${tag}`);
+    if (!existingTag) {
+      await client.createRef(`tags/${tag}`, mergeSha);
+    } else if (existingTag.object.sha !== mergeSha) {
+      throw new Error(`Release tag ${tag} already points to ${existingTag.object.sha}, not the merged release commit ${mergeSha}.`);
+    }
+    const existingRelease = await client.getReleaseByTag(tag);
+    const customerNotesPath = packageItem.customerNotes ?? (packageItem.directory ? `${packageItem.directory}/${config.outputs.customerNotes}` : config.outputs.customerNotes);
+    const customerNotes = await client.getFile(customerNotesPath, mergeSha) ?? `Release ${packageItem.version}`;
+    const release = existingRelease ?? await client.createRelease({
+      tag_name: tag,
+      target_commitish: mergeSha,
+      name: tag,
+      body: customerNotes,
+      prerelease: Boolean(packageItem.version.includes("-"))
+    });
+    releases.push({ tag, url: release.html_url });
+    log(`${existingRelease ? "Found" : "Published"} GitHub release for ${packageItem.name}: ${release.html_url}`);
+  }
+
+  if (mode === "independent") {
+    const versions = publishablePackages.map((packageItem) => packageItem.version).filter((version) => parseVersion(version));
+    const anchor = versions.sort((left, right) => (parseVersion(right)?.major ?? 0) - (parseVersion(left)?.major ?? 0) || (parseVersion(right)?.minor ?? 0) - (parseVersion(left)?.minor ?? 0) || (parseVersion(right)?.patch ?? 0) - (parseVersion(left)?.patch ?? 0))[0];
+    if (anchor) {
+      const anchorTag = releaseTagName(config.release.tagPrefix, anchor);
+      const existingAnchor = await client.getRef(`tags/${anchorTag}`);
+      if (!existingAnchor) {
+        await client.createRef(`tags/${anchorTag}`, mergeSha);
+      } else if (existingAnchor.object.sha !== mergeSha) {
+        throw new Error(`Release anchor tag ${anchorTag} already points to a different commit.`);
+      }
     }
   }
-  const tag = releaseTagName(config.release.tagPrefix, version);
-  if (!await client.getRef(`tags/${tag}`)) {
-    await client.createRef(`tags/${tag}`, mergeSha);
-  }
-  const existingRelease = await client.getReleaseByTag(tag);
-  const customerNotes = await client.getFile(config.outputs.customerNotes, mergeSha) ?? `Release ${version}`;
-  const release = existingRelease ?? await client.createRelease({
-    tag_name: tag,
-    target_commitish: mergeSha,
-    name: tag,
-    body: customerNotes,
-    prerelease: Boolean(version.includes("-"))
-  });
-  setOutput("version", version);
-  setOutput("release-url", release.html_url);
-  log(`${existingRelease ? "Found" : "Published"} GitHub release: ${release.html_url}`);
+  setOutput("version", manifest.version ?? packages.map((packageItem) => `${packageItem.name}@${packageItem.version}`).join(", "));
+  setOutput("release-url", JSON.stringify(releases));
 
   const artifactCommand = input("artifact-command") || config.artifacts.command;
   const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
@@ -279,9 +434,26 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
     await exec(artifactCommand, { cwd: workspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
   }
   const artifactFiles = config.artifacts.paths.flatMap((path) => collectFiles(path, workspace));
-  for (const file of artifactFiles) {
-    await client.uploadReleaseAsset(release, file);
-    log(`Uploaded release artifact: ${basename(file)}`);
+  for (const releaseInfo of releases) {
+    const release = await client.getReleaseByTag(releaseInfo.tag);
+    if (!release) {
+      continue;
+    }
+    for (const file of artifactFiles) {
+      if (release.assets?.some((asset) => asset.name === basename(file))) {
+        log(`Release artifact already attached for ${releaseInfo.tag}: ${basename(file)}`);
+        continue;
+      }
+      await client.uploadReleaseAsset(release, file);
+      log(`Uploaded release artifact for ${releaseInfo.tag}: ${basename(file)}`);
+    }
+  }
+  if (config.publishing.npm.enabled) {
+    for (const packageItem of publishablePackages) {
+      const packageWorkspace = packageItem.directory ? resolve(workspace, packageItem.directory) : workspace;
+      log(`Publishing ${packageItem.name} with npm command.`);
+      await exec(config.publishing.npm.command, { cwd: packageWorkspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
+    }
   }
 }
 
@@ -296,18 +468,23 @@ export async function run(): Promise<void> {
   const event = readEvent();
   const configPath = input("config") || ".shipkit.yml";
   const pullRequestMergeSha = "pull_request" in event ? event.pull_request?.merge_commit_sha ?? undefined : undefined;
-  const ref = pullRequestMergeSha || process.env.GITHUB_SHA || ("after" in event ? event.after : undefined) || "HEAD";
+  const releaseTarget = "release" in event ? event.release?.target_commitish ?? undefined : undefined;
+  const ref = pullRequestMergeSha || releaseTarget || process.env.GITHUB_SHA || ("after" in event ? event.after : undefined) || "HEAD";
   const config = withOverrides(await loadConfig(client, configPath, ref), {
     prerelease: input("prerelease"),
     artifactCommand: input("artifact-command")
   });
 
-  if (eventName === "pull_request" && "pull_request" in event && event.pull_request && event.action === "closed" && event.pull_request.merged && isShipkitReleasePullRequest(event.pull_request)) {
+  if (eventName === "release" && "release" in event && event.release && event.action === "published") {
+    await runReleaseHealth(client, event.release, config);
+    return;
+  }
+  if (eventName === "pull_request" && "pull_request" in event && event.pull_request && event.action === "closed" && event.pull_request.merged && isShipkitReleasePullRequest(event.pull_request, config)) {
     await publishRelease(client, event.pull_request, config);
     return;
   }
   if (eventName !== "push") {
-    log(`Ignoring event ${eventName || "unknown"}; Shipkit runs on pushes and merged pull requests.`);
+    log(`Ignoring event ${eventName || "unknown"}; Shipkit runs on pushes, merged pull requests, and published releases.`);
     return;
   }
   const repositoryInfo = await client.repositoryInfo();

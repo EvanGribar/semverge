@@ -95,7 +95,7 @@ export function parseShipkitMetadata(body = ""): ShipkitMetadata {
     } else if ((key === "breaking" || key === "skip") && typeof parsed === "boolean") {
       result[key] = parsed;
     } else if (key === "readiness") {
-      result.readiness = Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string") : typeof parsed === "string" ? [parsed] : [];
+      result.readiness = Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean) : typeof parsed === "string" ? parsed.split(",").map((item) => item.trim()).filter(Boolean) : [];
     }
   }
   return result;

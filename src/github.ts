@@ -58,6 +58,21 @@ export interface GitHubRelease {
   tag_name: string;
   html_url: string;
   upload_url: string;
+  target_commitish?: string;
+  published_at?: string | null;
+  created_at?: string;
+  assets?: Array<{ name: string; browser_download_url?: string }>;
+}
+
+export interface GitHubWorkflowRun {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  head_sha: string;
+  html_url: string;
+  created_at: string;
+  updated_at: string;
 }
 
 interface RequestOptions {
@@ -68,6 +83,15 @@ interface RequestOptions {
 
 interface CompareResult {
   commits: GitHubCommitSummary[];
+}
+
+interface GitTreeResult {
+  tree: Array<{ path: string; type: string; sha: string }>;
+  truncated: boolean;
+}
+
+interface WorkflowRunsResult {
+  workflow_runs: GitHubWorkflowRun[];
 }
 
 interface GitTreeEntry {
@@ -136,6 +160,14 @@ export class GitHubClient {
     return (await this.request<GitHubCommit>(`/git/commits/${encodeURIComponent(sha)}`)) as GitHubCommit;
   }
 
+  async getTree(treeSha: string): Promise<Array<{ path: string; type: string; sha: string }>> {
+    const result = (await this.request<GitTreeResult>(`/git/trees/${encodeURIComponent(treeSha)}?recursive=1`)) as GitTreeResult;
+    if (result.truncated) {
+      throw new Error("GitHub returned a truncated repository tree; configure explicit monorepo package paths for large repositories.");
+    }
+    return result.tree;
+  }
+
   async listTags(): Promise<GitHubTag[]> {
     return (await this.request<GitHubTag[]>("/tags?per_page=100")) ?? [];
   }
@@ -152,11 +184,25 @@ export class GitHubClient {
     return (await this.request<GitHubPullRequest[]>(`/commits/${encodeURIComponent(sha)}/pulls`)) ?? [];
   }
 
+  async listPullRequestFiles(number: number): Promise<string[]> {
+    const files = (await this.request<Array<{ filename?: string }>>(`/pulls/${number}/files?per_page=100`)) ?? [];
+    return files.flatMap((file) => typeof file.filename === "string" ? [file.filename] : []);
+  }
+
   async listPullRequests(params: { state: "open" | "closed"; head?: string; base?: string }): Promise<GitHubPullRequest[]> {
     const query = new URLSearchParams({ state: params.state, per_page: "100" });
     if (params.head) query.set("head", params.head);
     if (params.base) query.set("base", params.base);
     return (await this.request<GitHubPullRequest[]>(`/pulls?${query.toString()}`)) ?? [];
+  }
+
+  async listWorkflowRuns(headSha: string): Promise<GitHubWorkflowRun[]> {
+    const result = (await this.request<WorkflowRunsResult>(`/actions/runs?head_sha=${encodeURIComponent(headSha)}&per_page=100`)) as WorkflowRunsResult;
+    return result.workflow_runs ?? [];
+  }
+
+  async listReleases(): Promise<GitHubRelease[]> {
+    return (await this.request<GitHubRelease[]>("/releases?per_page=100")) ?? [];
   }
 
   async createTree(baseTree: string, entries: GitTreeEntry[]): Promise<{ sha: string }> {
