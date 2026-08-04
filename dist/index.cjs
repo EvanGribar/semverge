@@ -10876,7 +10876,7 @@ function manifestContent(plan) {
 `;
 }
 function buildWorkspaceReleasePlan(input2) {
-  const releaseable = input2.packages.filter((packageItem) => packageItem.releaseable || input2.mode === "fixed");
+  const releaseable = input2.packages.filter((packageItem) => packageItem.releaseable || input2.mode === "fixed" || input2.mode === "single");
   const skippedChanges = input2.changes.filter((change) => change.skipped);
   const plans = [];
   if (input2.mode === "fixed" || input2.mode === "single") {
