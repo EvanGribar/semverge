@@ -9362,8 +9362,8 @@ __export(action_exports, {
 });
 module.exports = __toCommonJS(action_exports);
 var import_node_fs = require("node:fs");
-var import_node_child_process2 = require("node:child_process");
-var import_node_util2 = require("node:util");
+var import_node_child_process3 = require("node:child_process");
+var import_node_util3 = require("node:util");
 var import_node_path3 = require("node:path");
 
 // src/metadata.ts
@@ -9625,7 +9625,8 @@ var DEFAULT_CONFIG = {
   publishing: {
     npm: {
       enabled: false,
-      command: "npm publish"
+      command: "npm publish",
+      idempotency: "registry"
     }
   }
 };
@@ -9700,6 +9701,8 @@ function mergeConfig(raw) {
   const health = object.health && typeof object.health === "object" ? object.health : {};
   const publishing = object.publishing && typeof object.publishing === "object" ? object.publishing : {};
   const npm = publishing.npm && typeof publishing.npm === "object" ? publishing.npm : {};
+  const npmCommand = typeof npm.command === "string" && npm.command.trim() ? npm.command.trim() : DEFAULT_CONFIG.publishing.npm.command;
+  const npmIdempotency = npm.idempotency === "registry" || npm.idempotency === "declared" ? npm.idempotency : npmCommand === DEFAULT_CONFIG.publishing.npm.command ? "registry" : void 0;
   const result = {
     release: {
       branch: typeof release.branch === "string" && release.branch.trim() ? release.branch.trim() : DEFAULT_CONFIG.release.branch,
@@ -9738,7 +9741,8 @@ function mergeConfig(raw) {
     publishing: {
       npm: {
         enabled: booleanValue(npm.enabled, DEFAULT_CONFIG.publishing.npm.enabled),
-        command: typeof npm.command === "string" && npm.command.trim() ? npm.command.trim() : DEFAULT_CONFIG.publishing.npm.command
+        command: npmCommand,
+        idempotency: npmIdempotency
       }
     }
   };
@@ -11066,10 +11070,60 @@ function postReleaseVerificationMarkdown(report) {
   ].join("\n");
 }
 
-// src/workspace-integrity.ts
+// src/npm.ts
 var import_node_child_process = require("node:child_process");
 var import_node_util = require("node:util");
-var exec = (0, import_node_util.promisify)(import_node_child_process.exec);
+var execFile = (0, import_node_util.promisify)(import_node_child_process.execFile);
+var defaultNpmViewRunner = async (executable, args, options) => {
+  const result = await execFile(executable, args, { cwd: options.cwd, encoding: "utf8", maxBuffer: 1024 * 1024 });
+  return { stdout: result.stdout, stderr: result.stderr };
+};
+function npmExecutable() {
+  return process.platform === "win32" ? "npm.cmd" : "npm";
+}
+function errorOutput(error) {
+  if (!error || typeof error !== "object") {
+    return String(error);
+  }
+  const record = error;
+  return [record.stdout, record.stderr, record.message].filter((value) => typeof value === "string").join("\n");
+}
+function isRegistryNotFound(error) {
+  return /\be404\b|\b404\s+not\s+found\b|\bno\s+match\s+found\b|\bversion\s+not\s+found\b/i.test(errorOutput(error));
+}
+function exactVersion(stdout, version) {
+  const value = stdout.trim();
+  if (value === version) {
+    return true;
+  }
+  try {
+    return JSON.parse(value) === version;
+  } catch {
+    return false;
+  }
+}
+async function npmVersionExists(name, version, cwd, runner = defaultNpmViewRunner) {
+  const packageName = name.trim();
+  const packageVersion = version.trim();
+  if (!packageName || !packageVersion) {
+    throw new Error("SemVerge cannot check npm idempotency without a package name and version.");
+  }
+  const spec = `${packageName}@${packageVersion}`;
+  try {
+    const result = await runner(npmExecutable(), ["view", spec, "version", "--json"], { cwd });
+    return exactVersion(result.stdout, packageVersion);
+  } catch (error) {
+    if (isRegistryNotFound(error)) {
+      return false;
+    }
+    throw new Error(`Could not verify ${spec} in the npm registry before publishing. Fix npm registry access and retry; SemVerge will not assume the version is absent.`);
+  }
+}
+
+// src/workspace-integrity.ts
+var import_node_child_process2 = require("node:child_process");
+var import_node_util2 = require("node:util");
+var exec = (0, import_node_util2.promisify)(import_node_child_process2.exec);
 async function readWorkspaceHead(workspace) {
   const result = await exec("git rev-parse HEAD", { cwd: workspace, shell: process.env.ComSpec ?? "/bin/sh" });
   return result.stdout.trim();
@@ -11093,7 +11147,7 @@ async function assertWorkspaceAtCommit(workspace, mergeSha, readHead = readWorks
 }
 
 // src/action.ts
-var exec2 = (0, import_node_util2.promisify)(import_node_child_process2.exec);
+var exec2 = (0, import_node_util3.promisify)(import_node_child_process3.exec);
 function input(name) {
   const normalized = name.toUpperCase().replace(/\s+/g, "_");
   return process.env[`INPUT_${normalized}`]?.trim() ?? process.env[`INPUT_${normalized.replace(/-/g, "_")}`]?.trim() ?? "";
@@ -11549,6 +11603,9 @@ async function publishRelease(client, pr, config) {
   if (releasePackages.length === 0) {
     throw new Error("SemVerge found no packages to publish.");
   }
+  if (config.publishing.npm.enabled && !config.publishing.npm.idempotency) {
+    throw new Error("SemVerge requires publishing.npm.idempotency for custom npm commands; choose registry or declared.");
+  }
   const artifactCommand = input("artifact-command") || config.artifacts.command;
   const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
   if (artifactCommand || config.artifacts.paths.length > 0 || config.publishing.npm.enabled) {
@@ -11604,6 +11661,12 @@ async function publishRelease(client, pr, config) {
       continue;
     }
     const packageWorkspace = packageItem.directory ? (0, import_node_path3.resolve)(workspace, packageItem.directory) : workspace;
+    if (config.publishing.npm.idempotency === "registry" && await npmVersionExists(packageItem.name, packageItem.version, packageWorkspace)) {
+      log(`Found ${packageItem.name}@${packageItem.version} in the npm registry; treating publication as already complete.`);
+      progress.publishedPackages = [.../* @__PURE__ */ new Set([...progress.publishedPackages, id])];
+      await persistReleaseProgress(client, executions, progress);
+      continue;
+    }
     log(`Publishing ${packageItem.name} with npm command.`);
     await exec2(config.publishing.npm.command, { cwd: packageWorkspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
     progress.publishedPackages = [.../* @__PURE__ */ new Set([...progress.publishedPackages, id])];
