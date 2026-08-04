@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 2,
+  "mode": "single",
+  "version": "0.1.5",
+  "generatedAt": "2026-08-04T20:49:22.524Z",
+  "packages": [
+    {
+      "id": "semverge",
+      "name": "semverge",
+      "directory": "",
+      "ecosystem": "node",
+      "previousVersion": "0.1.4",
+      "version": "0.1.5",
+      "bump": "patch",
+      "changelog": "CHANGELOG.md",
+      "customerNotes": "RELEASE_NOTES.md",
+      "private": false,
+      "releaseable": true,
+      "dependencyUpdate": false
+    }
+  ],
+  "readiness": {
+    "passed": true,
+    "missingLabels": [],
+    "missingFiles": [],
+    "failedCommands": [],
+    "missingTasks": [],
+    "requestedTasks": []
+  }
+}
