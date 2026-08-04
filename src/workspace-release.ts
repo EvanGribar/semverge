@@ -51,7 +51,17 @@ function packageNameMatches(packageItem: PackageDescriptor, scope: string | unde
   return [packageItem.id, packageItem.name, basename(packageItem.directory)].some((candidate) => candidate.toLowerCase() === cleanScope);
 }
 
-function affectsPackage(change: ReleaseChange, packageItem: PackageDescriptor, config: SemVergeConfig): boolean {
+function ownsFile(file: string, directory: string): boolean {
+  return file === directory || file.startsWith(`${directory}/`);
+}
+
+function packageOwner(file: string, workspaceDirectories: readonly string[]): string | undefined {
+  return [...workspaceDirectories]
+    .filter((directory) => ownsFile(file, directory))
+    .sort((left, right) => right.length - left.length)[0];
+}
+
+function affectsPackage(change: ReleaseChange, packageItem: PackageDescriptor, config: SemVergeConfig, workspaceDirectories: readonly string[]): boolean {
   if (packageNameMatches(packageItem, change.scope)) {
     return true;
   }
@@ -59,13 +69,7 @@ function affectsPackage(change: ReleaseChange, packageItem: PackageDescriptor, c
   if (files.length === 0) {
     return config.monorepo.unscopedChanges === "all";
   }
-  const directoryPrefix = packageItem.directory ? `${packageItem.directory}/` : "";
-  return files.some((file) => {
-    if (!packageItem.directory) {
-      return !file.startsWith("packages/") && !file.includes("/package.json");
-    }
-    return file === packageItem.manifestPath || file.startsWith(directoryPrefix) || file === "package.json";
-  });
+  return files.some((file) => packageOwner(file, workspaceDirectories) === (packageItem.directory || undefined));
 }
 
 function packageConfig(config: SemVergeConfig, packageItem: PackageDescriptor, mode: "single" | "fixed" | "independent"): SemVergeConfig {
@@ -236,8 +240,9 @@ export function buildWorkspaceReleasePlan(input: BuildWorkspaceReleasePlanInput)
     plans.push(...releaseable.map((releasePackage) => ({ package: releasePackage, plan })));
   } else {
     const packagePlans = new Map<string, PackageRelease>();
+    const workspaceDirectories = input.packages.flatMap((packageItem) => packageItem.directory ? [packageItem.directory] : []);
     for (const packageItem of releaseable) {
-      const packageChanges = input.changes.filter((change) => affectsPackage(change, packageItem, input.config));
+      const packageChanges = input.changes.filter((change) => affectsPackage(change, packageItem, input.config, workspaceDirectories));
       const plan = buildPackagePlan(input, packageItem, packageChanges);
       if (plan.hasRelease) {
         packagePlans.set(packageItem.id, { package: packageItem, plan });
@@ -256,7 +261,7 @@ export function buildWorkspaceReleasePlan(input: BuildWorkspaceReleasePlanInput)
         if (dependencyNames.length === 0) {
           continue;
         }
-        const packageChanges = input.changes.filter((change) => affectsPackage(change, packageItem, input.config));
+        const packageChanges = input.changes.filter((change) => affectsPackage(change, packageItem, input.config, workspaceDirectories));
         const plan = buildPackagePlan(input, packageItem, [...packageChanges, workspaceDependencyChange(packageItem, dependencyNames)]);
         if (plan.hasRelease) {
           packagePlans.set(packageItem.id, { package: packageItem, plan });

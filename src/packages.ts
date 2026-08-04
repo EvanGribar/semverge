@@ -127,7 +127,7 @@ function descriptor(path: string, content: string, releaseable: boolean): Packag
   };
 }
 
-function nodeWorkspaceDependencies(content: string): string[] {
+function nodeWorkspaceDependencies(content: string, internalPackageNames: ReadonlySet<string> = new Set<string>()): string[] {
   const value = jsonObject(content);
   if (!value) {
     return [];
@@ -139,7 +139,7 @@ function nodeWorkspaceDependencies(content: string): string[] {
       continue;
     }
     for (const [name, version] of Object.entries(dependencies)) {
-      if (typeof version === "string" && version.startsWith("workspace:")) {
+      if (typeof version === "string" && (version.startsWith("workspace:") || internalPackageNames.has(name))) {
         names.add(name);
       }
     }
@@ -188,6 +188,13 @@ export function discoverPackages(files: Record<string, string>, allPaths: string
   const unique = [...new Map(discovered.map((item) => [item.manifestPath, item])).values()];
   if (unique.length === 0) {
     throw new Error("SemVerge could not find a supported package manifest (package.json, pyproject.toml, or Cargo.toml).");
+  }
+  const internalPackageNames = new Set(unique.filter((item) => item.ecosystem === "node").map((item) => item.name));
+  for (const packageItem of unique.filter((item) => item.ecosystem === "node")) {
+    const content = normalizedFiles.get(packageItem.manifestPath);
+    if (content !== undefined) {
+      packageItem.workspaceDependencies = nodeWorkspaceDependencies(content, internalPackageNames);
+    }
   }
   return { mode: selectedMode(config, unique), packages: unique };
 }

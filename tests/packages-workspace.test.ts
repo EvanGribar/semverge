@@ -70,6 +70,25 @@ describe("package discovery and workspace releases", () => {
     expect(plan.outputs.some((output) => output.path === "packages/one/CHANGELOG.md")).toBe(true);
   });
 
+  it("uses discovered workspace directories for root package ownership", () => {
+    const files = {
+      "package.json": JSON.stringify({ name: "demo", version: "1.0.0", workspaces: ["apps/*"] }),
+      "apps/one/package.json": JSON.stringify({ name: "@demo/one", version: "1.0.0" }),
+      "apps/two/package.json": JSON.stringify({ name: "@demo/two", version: "2.0.0" })
+    };
+    const config = { ...DEFAULT_CONFIG, monorepo: { ...DEFAULT_CONFIG.monorepo, mode: "independent" as const } };
+    const discovered = discoverPackages(files, Object.keys(files), config);
+    const plan = buildWorkspaceReleasePlan({
+      packages: discovered.packages,
+      mode: "independent",
+      files,
+      config,
+      changes: [parseChange({ title: "fix(one): repair one", source: "pull_request", files: ["apps/one/src/index.ts"] })],
+      date: "2026-08-04"
+    });
+    expect(plan.packages.map((item) => item.package.name)).toEqual(["@demo/one"]);
+  });
+
   it("propagates independent releases to workspace dependents", () => {
     const files = {
       "package.json": JSON.stringify({ name: "demo", version: "1.0.0", private: true, workspaces: ["packages/*"] }),
@@ -93,6 +112,27 @@ describe("package discovery and workspace releases", () => {
     expect(two?.plan.releaseChanges.some((change) => change.dependencyUpdate)).toBe(true);
     expect(two?.plan.customerNotes).toContain("No customer-facing changes");
     expect(plan.manifest).toContain('"dependencyUpdate": true');
+  });
+
+  it("propagates independent releases to ordinary internal dependency ranges", () => {
+    const files = {
+      "package.json": JSON.stringify({ name: "demo", version: "1.0.0", private: true, workspaces: ["packages/*"] }),
+      "packages/one/package.json": JSON.stringify({ name: "@demo/one", version: "1.0.0" }),
+      "packages/two/package.json": JSON.stringify({ name: "@demo/two", version: "1.0.0", dependencies: { "@demo/one": "^1.0.0" } })
+    };
+    const config = { ...DEFAULT_CONFIG, monorepo: { ...DEFAULT_CONFIG.monorepo, mode: "independent" as const } };
+    const discovered = discoverPackages(files, Object.keys(files), config);
+    const plan = buildWorkspaceReleasePlan({
+      packages: discovered.packages,
+      mode: "independent",
+      files,
+      config,
+      changes: [parseChange({ title: "fix: repair shared export", source: "pull_request", files: ["packages/one/src/index.ts"] })],
+      date: "2026-08-04"
+    });
+    const two = plan.packages.find((item) => item.package.name === "@demo/two");
+    expect(two?.plan.version).toBe("1.0.1");
+    expect(two?.plan.releaseChanges.some((change) => change.dependencyUpdate)).toBe(true);
   });
 });
 
