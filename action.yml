@@ -1,0 +1,35 @@
+name: Shipkit
+description: Version, prepare, and publish GitHub releases with zero configuration.
+author: Evan Gribar
+branding:
+  color: blue
+  icon: package
+inputs:
+  github-token:
+    description: GitHub token used to read the repository and publish release changes.
+    required: false
+    default: ${{ github.token }}
+  config:
+    description: Optional Shipkit configuration file. Defaults to .shipkit.yml when present.
+    required: false
+    default: .shipkit.yml
+  prerelease:
+    description: Optional prerelease channel, such as beta or rc.
+    required: false
+  artifact-command:
+    description: Optional command that produces release artifacts in the runner workspace.
+    required: false
+  dry-run:
+    description: Calculate and print the release plan without writing branches, PRs, tags, or releases.
+    required: false
+    default: 'false'
+outputs:
+  version:
+    description: The version calculated or published by Shipkit.
+  release-pr:
+    description: URL of the maintained release pull request, when one is created.
+  release-url:
+    description: URL of the GitHub release, when one is published.
+runs:
+  using: node20
+  main: dist/index.js

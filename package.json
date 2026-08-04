@@ -1,0 +1,42 @@
+{
+  "name": "shipkit",
+  "version": "0.1.0",
+  "description": "The easiest way to version, prepare, and publish a software release on GitHub.",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/EvanGribar/ShipKit.git"
+  },
+  "bin": {
+    "shipkit": "lib/cli.js"
+  },
+  "exports": {
+    ".": "./lib/index.js"
+  },
+  "files": [
+    "lib",
+    "dist",
+    "action.yml",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "bundle": "esbuild src/action.ts --bundle --platform=node --target=node20 --outfile=dist/index.js --sourcemap",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "verify": "pnpm typecheck && pnpm test && pnpm build && pnpm bundle"
+  },
+  "dependencies": {
+    "yaml": "^2.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}
