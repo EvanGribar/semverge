@@ -1,0 +1,3 @@
+release:
+  branch: semverge/release
+  tagPrefix: v

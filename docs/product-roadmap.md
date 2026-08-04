@@ -17,7 +17,8 @@ SemVerge is the easiest way to version, prepare, and publish a software release 
 - Required-label and required-file readiness checks
 - Git tag and GitHub release publication
 - Prerelease channels, fixed/independent npm workspaces, Python and Rust version adapters
-- Configurable npm publishing, release artifacts, and lightweight post-release health checks
+- Configurable npm publishing, release artifacts, immediate post-release verification, and a local CLI (`init`, `plan`, `doctor`)
+- Checked-in single-package and independent-workspace fixture repositories for deterministic end-to-end proof
 
 ## Follow-on slices
 
@@ -25,6 +26,6 @@ SemVerge is the easiest way to version, prepare, and publish a software release 
 2. Python and Rust workspace discovery and publishing integrations.
 3. Independent-package dependency propagation based on workspace metadata.
 4. More artifact transports and registry-specific publishing adapters.
-5. Health history comments/check runs without growing into an analytics dashboard.
+5. Delayed release monitoring and history comments/check runs without growing into an analytics dashboard.
 
 Advanced behavior should remain opt-in. A standard repository should continue to need only one workflow file.
