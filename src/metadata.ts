@@ -1,4 +1,4 @@
-﻿import type { ReleaseKind, SemVergeMetadata } from "./types.js";
+import type { ReleaseKind, SemVergeMetadata } from "./types.js";
 
 const METADATA_BLOCK = /<!--\s*semverge(?:\s+release)?\s*([\s\S]*?)-->/i;
 const ALLOWED_TYPES = new Set<ReleaseKind>(["feature", "fix", "breaking", "docs", "internal", "other"]);

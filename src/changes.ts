@@ -1,4 +1,4 @@
-﻿import { parseSemVergeMetadata } from "./metadata.js";
+import { parseSemVergeMetadata } from "./metadata.js";
 import type { BumpLevel, ChangeInput, ReleaseChange, ReleaseKind } from "./types.js";
 
 const HEADER_PATTERN = /^(?<type>[a-z]+)(?:\((?<scope>[^)]+)\))?(?<breaking>!)?:\s*(?<description>.+)$/i;

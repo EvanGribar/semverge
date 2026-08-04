@@ -1,4 +1,4 @@
-﻿import { parse as parseYaml } from "yaml";
+import { parse as parseYaml } from "yaml";
 import type { ArtifactConfig, HealthWorkflow, OutputConfig, ReadinessCommand, ReadinessTask, SemVergeConfig } from "./types.js";
 
 export const DEFAULT_CONFIG: SemVergeConfig = {

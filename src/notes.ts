@@ -1,4 +1,4 @@
-﻿import { formatChangeReference } from "./changes.js";
+import { formatChangeReference } from "./changes.js";
 import type { ReleaseChange } from "./types.js";
 
 function section(title: string, changes: ReleaseChange[]): string[] {

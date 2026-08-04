@@ -1,4 +1,4 @@
-﻿export type ReleaseKind = "feature" | "fix" | "breaking" | "docs" | "internal" | "other";
+export type ReleaseKind = "feature" | "fix" | "breaking" | "docs" | "internal" | "other";
 
 export type BumpLevel = "none" | "patch" | "minor" | "major";
 

@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { parseChange } from "../src/changes.js";
 
 describe("release change parsing", () => {

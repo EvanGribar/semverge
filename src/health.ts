@@ -1,4 +1,4 @@
-﻿import { compareVersions, parseVersion } from "./semver.js";
+import { compareVersions, parseVersion } from "./semver.js";
 import type { HealthConfig } from "./types.js";
 
 export type HealthCheckStatus = "pass" | "warn" | "fail";

@@ -1,4 +1,4 @@
-﻿import { appendFileSync, existsSync, readFileSync, statSync, readdirSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, statSync, readdirSync } from "node:fs";
 import { exec as execCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve, relative, join, basename, sep } from "node:path";

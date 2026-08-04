@@ -1,4 +1,4 @@
-﻿import { basename, dirname, posix } from "node:path";
+import { basename, dirname, posix } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { parseVersion } from "./semver.js";
 import { readTargetName, readTargetVersion, type VersionTarget } from "./version-adapters.js";
