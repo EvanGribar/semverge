@@ -10,6 +10,7 @@ import { discoverPackages } from "./packages.js";
 import { buildWorkspaceReleasePlan, type WorkspaceReleasePlan } from "./workspace-release.js";
 import { evaluatePostReleaseVerification, postReleaseVerificationMarkdown, type PostReleaseVerificationObservation } from "./health.js";
 import { compareVersions, parseVersion } from "./semver.js";
+import { assertWorkspaceAtCommit } from "./workspace-integrity.js";
 import type { SemVergeConfig } from "./types.js";
 
 const exec = promisify(execCallback);
@@ -558,6 +559,9 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
   // build must not leave any release-side state behind for the next retry.
   const artifactCommand = input("artifact-command") || config.artifacts.command;
   const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
+  if (artifactCommand || config.artifacts.paths.length > 0 || config.publishing.npm.enabled) {
+    await assertWorkspaceAtCommit(workspace, mergeSha);
+  }
   if (artifactCommand) {
     log(`Running artifact command: ${artifactCommand}`);
     await exec(artifactCommand, { cwd: workspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
