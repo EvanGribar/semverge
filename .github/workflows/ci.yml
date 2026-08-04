@@ -13,6 +13,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Lint workflow files
+        uses: docker://rhysd/actionlint:latest
       - uses: pnpm/action-setup@v4
         with:
           version: 10
@@ -22,3 +24,4 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify
+      - run: git diff --exit-code -- dist/index.js dist/index.js.map
