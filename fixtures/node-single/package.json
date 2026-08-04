@@ -1,0 +1,7 @@
+{
+  "name": "semverge-fixture-node-single",
+  "version": "1.4.2",
+  "scripts": {
+    "test": "node --test"
+  }
+}
