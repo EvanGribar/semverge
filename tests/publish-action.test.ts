@@ -26,7 +26,7 @@ describe("merged release publication", () => {
         merged: true,
         merged_at: "2026-08-04T00:00:00Z",
         merge_commit_sha: "merge-sha",
-        head: { ref: "shipkit/release", sha: "release-sha", repo: { full_name: "demo/repo" } },
+        head: { ref: "release/bot", sha: "release-sha", repo: { full_name: "demo/repo" } },
         base: { ref: "main", sha: "main-sha" },
         labels: []
       }
@@ -37,7 +37,7 @@ describe("merged release publication", () => {
       const body = init?.body && typeof init.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : undefined;
       requests.push({ method: init?.method ?? "GET", path: `${url.pathname}${url.search}`, body });
       if (url.pathname.endsWith("/contents/.shipkit.yml")) {
-        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded("health:\n  enabled: false\n") }), { status: 200 });
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded("release:\n  branch: release/bot\nhealth:\n  enabled: false\n") }), { status: 200 });
       }
       if (url.pathname.endsWith("/contents/release-manifest.json")) {
         return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded(JSON.stringify({ schemaVersion: 2, mode: "single", version: "0.2.0", readiness: { passed: true }, packages: [{ id: "demo", name: "demo", directory: "", version: "0.2.0", customerNotes: "RELEASE_NOTES.md" }] })) }), { status: 200 });

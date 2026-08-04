@@ -9130,8 +9130,8 @@ async function prepareRelease(client, head, config) {
   setOutput("release-pr", releasePr.html_url);
   log(`${existing ? "Updated" : "Created"} release PR: ${releasePr.html_url}`);
 }
-function isShipkitReleasePullRequest(pr) {
-  return pr.head.ref.startsWith("shipkit/") && /release/i.test(pr.title);
+function isShipkitReleasePullRequest(pr, config) {
+  return (pr.head.ref === config.release.branch || pr.head.ref.startsWith("shipkit/")) && /release/i.test(pr.title);
 }
 function independentTagName(config, packageItem) {
   const safeName = packageItem.name.replace(/^@/, "").replace(/[\\/]/g, "-");
@@ -9266,7 +9266,7 @@ async function run() {
     await runReleaseHealth(client, event.release, config);
     return;
   }
-  if (eventName === "pull_request" && "pull_request" in event && event.pull_request && event.action === "closed" && event.pull_request.merged && isShipkitReleasePullRequest(event.pull_request)) {
+  if (eventName === "pull_request" && "pull_request" in event && event.pull_request && event.action === "closed" && event.pull_request.merged && isShipkitReleasePullRequest(event.pull_request, config)) {
     await publishRelease(client, event.pull_request, config);
     return;
   }

@@ -316,8 +316,8 @@ async function prepareRelease(client: GitHubClient, head: string, config: Shipki
   log(`${existing ? "Updated" : "Created"} release PR: ${releasePr.html_url}`);
 }
 
-function isShipkitReleasePullRequest(pr: GitHubPullRequest): boolean {
-  return pr.head.ref.startsWith("shipkit/") && /release/i.test(pr.title);
+function isShipkitReleasePullRequest(pr: GitHubPullRequest, config: ShipkitConfig): boolean {
+  return (pr.head.ref === config.release.branch || pr.head.ref.startsWith("shipkit/")) && /release/i.test(pr.title);
 }
 
 interface PublishedPackage {
@@ -479,7 +479,7 @@ export async function run(): Promise<void> {
     await runReleaseHealth(client, event.release, config);
     return;
   }
-  if (eventName === "pull_request" && "pull_request" in event && event.pull_request && event.action === "closed" && event.pull_request.merged && isShipkitReleasePullRequest(event.pull_request)) {
+  if (eventName === "pull_request" && "pull_request" in event && event.pull_request && event.action === "closed" && event.pull_request.merged && isShipkitReleasePullRequest(event.pull_request, config)) {
     await publishRelease(client, event.pull_request, config);
     return;
   }
