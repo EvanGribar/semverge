@@ -10601,7 +10601,10 @@ function affectsPackage(change, packageItem, config, workspaceDirectories) {
   if (files.length === 0) {
     return config.monorepo.unscopedChanges === "all";
   }
-  return files.some((file) => packageOwner(file, workspaceDirectories) === (packageItem.directory || void 0));
+  return files.some((file) => {
+    const owner = packageOwner(file, workspaceDirectories);
+    return owner === (packageItem.directory || void 0) || !owner && config.monorepo.unscopedChanges === "all";
+  });
 }
 function packageConfig(config, packageItem, mode) {
   const packageOutputs = {

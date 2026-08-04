@@ -108,6 +108,26 @@ describe("package discovery and workspace releases", () => {
     expect(plan.packages.map((item) => item.package.name)).toEqual(["@demo/one"]);
   });
 
+  it("releases all independent packages for an unscoped root change", () => {
+    const files = {
+      "package.json": JSON.stringify({ name: "demo", version: "1.0.0", private: true, workspaces: ["packages/*"] }),
+      "packages/one/package.json": JSON.stringify({ name: "@demo/one", version: "1.0.0" }),
+      "packages/two/package.json": JSON.stringify({ name: "@demo/two", version: "1.0.0" })
+    };
+    const config = { ...DEFAULT_CONFIG, monorepo: { ...DEFAULT_CONFIG.monorepo, mode: "independent" as const, unscopedChanges: "all" as const } };
+    const discovered = discoverPackages(files, Object.keys(files), config);
+    const plan = buildWorkspaceReleasePlan({
+      packages: discovered.packages,
+      mode: "independent",
+      files,
+      config,
+      changes: [parseChange({ title: "feat: document the workspace", source: "pull_request", files: ["README.md"] })],
+      date: "2026-08-04"
+    });
+    expect(plan.packages.map((item) => item.package.name)).toEqual(["@demo/one", "@demo/two"]);
+    expect(plan.packages.every((item) => item.plan.version === "1.1.0")).toBe(true);
+  });
+
   it("propagates independent releases to workspace dependents", () => {
     const files = {
       "package.json": JSON.stringify({ name: "demo", version: "1.0.0", private: true, workspaces: ["packages/*"] }),
