@@ -6,3 +6,4 @@ publishing:
   npm:
     enabled: true
     command: node scripts/publish-fixture.cjs
+    idempotency: declared

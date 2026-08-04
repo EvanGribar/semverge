@@ -10,6 +10,7 @@ import { discoverPackages } from "./packages.js";
 import { buildWorkspaceReleasePlan, type WorkspaceReleasePlan } from "./workspace-release.js";
 import { evaluatePostReleaseVerification, postReleaseVerificationMarkdown, type PostReleaseVerificationObservation } from "./health.js";
 import { compareVersions, parseVersion } from "./semver.js";
+import { npmVersionExists } from "./npm.js";
 import { assertWorkspaceAtCommit } from "./workspace-integrity.js";
 import type { SemVergeConfig } from "./types.js";
 
@@ -554,6 +555,9 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
   if (releasePackages.length === 0) {
     throw new Error("SemVerge found no packages to publish.");
   }
+  if (config.publishing.npm.enabled && !config.publishing.npm.idempotency) {
+    throw new Error("SemVerge requires publishing.npm.idempotency for custom npm commands; choose registry or declared.");
+  }
 
   // Build and validate every artifact before creating a tag or draft release. A failed
   // build must not leave any release-side state behind for the next retry.
@@ -619,6 +623,12 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
       continue;
     }
     const packageWorkspace = packageItem.directory ? resolve(workspace, packageItem.directory) : workspace;
+    if (config.publishing.npm.idempotency === "registry" && await npmVersionExists(packageItem.name, packageItem.version, packageWorkspace)) {
+      log(`Found ${packageItem.name}@${packageItem.version} in the npm registry; treating publication as already complete.`);
+      progress.publishedPackages = [...new Set([...progress.publishedPackages, id])];
+      await persistReleaseProgress(client, executions, progress);
+      continue;
+    }
     log(`Publishing ${packageItem.name} with npm command.`);
     await exec(config.publishing.npm.command, { cwd: packageWorkspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
     progress.publishedPackages = [...new Set([...progress.publishedPackages, id])];

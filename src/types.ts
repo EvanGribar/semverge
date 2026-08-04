@@ -118,6 +118,7 @@ export interface HealthConfig {
 export interface NpmPublishConfig {
   enabled: boolean;
   command: string;
+  idempotency?: "registry" | "declared";
 }
 
 export interface PublishingConfig {

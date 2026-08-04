@@ -2,6 +2,7 @@ export * from "./changes.js";
 export * from "./config.js";
 export * from "./health.js";
 export * from "./metadata.js";
+export * from "./npm.js";
 export * from "./notes.js";
 export * from "./packages.js";
 export * from "./readiness.js";

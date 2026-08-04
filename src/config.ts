@@ -1,5 +1,5 @@
 import { parse as parseYaml } from "yaml";
-import type { ArtifactConfig, HealthWorkflow, OutputConfig, ReadinessCommand, ReadinessTask, SemVergeConfig } from "./types.js";
+import type { ArtifactConfig, HealthWorkflow, NpmPublishConfig, OutputConfig, ReadinessCommand, ReadinessTask, SemVergeConfig } from "./types.js";
 
 export type ConfigValidationSeverity = "error" | "warning";
 
@@ -47,7 +47,8 @@ export const DEFAULT_CONFIG: SemVergeConfig = {
   publishing: {
     npm: {
       enabled: false,
-      command: "npm publish"
+      command: "npm publish",
+      idempotency: "registry"
     }
   }
 };
@@ -176,6 +177,11 @@ export function validateConfigContent(content: string, fileName = ".semverge.yml
     if (npm) {
       booleanField(npm, "enabled", "publishing.npm", issues);
       stringField(npm, "command", "publishing.npm", issues);
+      enumField(npm, "idempotency", "publishing.npm", ["registry", "declared"], issues);
+      const command = typeof npm.command === "string" ? npm.command.trim() : "";
+      if (npm.enabled === true && command && command !== DEFAULT_CONFIG.publishing.npm.command && npm.idempotency === undefined) {
+        issues.push({ path: "publishing.npm.idempotency", severity: "error", message: "is required for custom npm commands; choose registry or declared" });
+      }
     }
   }
   return issues;
@@ -188,6 +194,9 @@ export function validateConfig(config: SemVergeConfig): ConfigValidationIssue[] 
   }
   if (!config.release.tagPrefix) {
     issues.push({ path: "release.tagPrefix", severity: "warning", message: "is empty; generated release tags will not have a prefix" });
+  }
+  if (config.publishing.npm.enabled && !config.publishing.npm.idempotency) {
+    issues.push({ path: "publishing.npm.idempotency", severity: "error", message: "is required for custom npm commands; choose registry or declared" });
   }
   const workflowNames = new Set<string>();
   for (const workflow of config.health.workflows) {
@@ -276,6 +285,10 @@ function mergeConfig(raw: unknown): SemVergeConfig {
   const health = object.health && typeof object.health === "object" ? object.health as Record<string, unknown> : {};
   const publishing = object.publishing && typeof object.publishing === "object" ? object.publishing as Record<string, unknown> : {};
   const npm = publishing.npm && typeof publishing.npm === "object" ? publishing.npm as Record<string, unknown> : {};
+  const npmCommand = typeof npm.command === "string" && npm.command.trim() ? npm.command.trim() : DEFAULT_CONFIG.publishing.npm.command;
+  const npmIdempotency: NpmPublishConfig["idempotency"] = npm.idempotency === "registry" || npm.idempotency === "declared"
+    ? npm.idempotency
+    : npmCommand === DEFAULT_CONFIG.publishing.npm.command ? "registry" : undefined;
 
   const result: SemVergeConfig = {
     release: {
@@ -315,7 +328,8 @@ function mergeConfig(raw: unknown): SemVergeConfig {
     publishing: {
       npm: {
         enabled: booleanValue(npm.enabled, DEFAULT_CONFIG.publishing.npm.enabled),
-        command: typeof npm.command === "string" && npm.command.trim() ? npm.command.trim() : DEFAULT_CONFIG.publishing.npm.command
+        command: npmCommand,
+        idempotency: npmIdempotency
       }
     }
   };

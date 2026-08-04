@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseConfig } from "../src/config.js";
+import { parseConfig, validateConfig, validateConfigContent } from "../src/config.js";
 import { readPackageVersion, updateVersionFiles } from "../src/version-files.js";
 
 describe("configuration and version files", () => {
@@ -9,6 +9,16 @@ describe("configuration and version files", () => {
     expect(config.release.prerelease).toBe("beta");
     expect(config.readiness.requiredLabels).toEqual(["ship:ready"]);
     expect(config.outputs.customerNotes).toBe("docs/RELEASE.md");
+    expect(config.publishing.npm.idempotency).toBe("registry");
+  });
+
+  it("requires an explicit idempotency contract for custom npm commands", () => {
+    const content = "publishing:\n  npm:\n    enabled: true\n    command: pnpm publish\n";
+    const config = parseConfig(content);
+    expect(config.publishing.npm.idempotency).toBeUndefined();
+    expect(validateConfigContent(content).some((issue) => issue.path === "publishing.npm.idempotency" && issue.severity === "error")).toBe(true);
+    expect(validateConfig(config).some((issue) => issue.path === "publishing.npm.idempotency" && issue.severity === "error")).toBe(true);
+    expect(parseConfig(`${content}    idempotency: declared\n`).publishing.npm.idempotency).toBe("declared");
   });
 
   it("updates package.json and npm lockfile root versions", () => {
