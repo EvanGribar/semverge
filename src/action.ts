@@ -12,6 +12,7 @@ import { evaluatePostReleaseVerification, postReleaseVerificationMarkdown, type 
 import { compareVersions, parseVersion } from "./semver.js";
 import { npmVersionExists } from "./npm.js";
 import { assertWorkspaceAtCommit } from "./workspace-integrity.js";
+import { advanceReleaseTransaction, createReleaseTransaction, mergeReleaseTransactions, parseReleaseTransactionBody, recordReleaseTransactionEvent, releaseTransactionBody, updateReleaseTransactionBody, type ReleaseTransaction } from "./transaction.js";
 import type { SemVergeConfig } from "./types.js";
 
 const exec = promisify(execCallback);
@@ -30,10 +31,12 @@ interface PullRequestEvent {
 interface ReleaseEvent {
   action?: string;
   release?: {
+    id?: number;
     tag_name: string;
     target_commitish?: string;
     published_at?: string | null;
     html_url?: string;
+    body?: string | null;
     assets?: Array<{ name: string }>;
   };
 }
@@ -291,6 +294,41 @@ async function runPostReleaseVerification(client: GitHubClient, releaseEvent: No
   if (summaryFile) {
     appendFileSync(summaryFile, `${markdown}\n`, "utf8");
   }
+  const transactionBody = releaseDetails?.body ?? releaseEvent.body;
+  const transaction = parseReleaseTransactionBody(transactionBody);
+  const releaseId = releaseDetails?.id ?? releaseEvent.id;
+  if (transaction && typeof releaseId === "number") {
+    let next = transaction;
+    if (report.status === "failed") {
+      next = recordReleaseTransactionEvent(next, {
+        key: `verification:${releaseEvent.tag_name}`,
+        kind: "post-release-verification",
+        target: releaseEvent.tag_name,
+        status: "failed",
+        detail: "Post-release verification reported a failed check."
+      });
+    } else {
+      const verification = {
+        key: `verification:${releaseEvent.tag_name}`,
+        kind: "post-release-verification",
+        target: releaseEvent.tag_name,
+        detail: `Post-release verification completed with status ${report.status}.`
+      };
+      next = next.phase === "completed" ? recordReleaseTransactionEvent(next, verification) : advanceReleaseTransaction(next, "verified", verification);
+      if (next.phase !== "completed") {
+        next = advanceReleaseTransaction(next, "completed", {
+          key: `completion:${releaseEvent.tag_name}`,
+          kind: "release-completed",
+          target: releaseEvent.tag_name,
+          detail: "The release transaction has completed its configured verification steps."
+        });
+      }
+    }
+    await client.updateRelease(releaseId, {
+      body: updateReleaseTransactionBody(transactionBody ?? "", next)
+    });
+    setOutput("transaction", JSON.stringify(next));
+  }
   if (report.status === "failed") {
     throw new Error(`Post-release verification failed for ${releaseEvent.tag_name}.`);
   }
@@ -398,17 +436,7 @@ interface SemVergeManifest {
   packages?: PublishedPackage[];
 }
 
-interface ReleaseProgress {
-  schemaVersion: 1;
-  version: string;
-  packageIds: string[];
-  tagNames: string[];
-  npmEnabled: boolean;
-  publishedPackages: string[];
-  uploadedAssets: Record<string, string[]>;
-  ready: boolean;
-  published: boolean;
-}
+type ReleaseProgress = ReleaseTransaction;
 
 interface ReleaseExecution {
   packageItem: PublishedPackage;
@@ -416,8 +444,6 @@ interface ReleaseExecution {
   customerNotes: string;
   release: GitHubRelease;
 }
-
-const RELEASE_PROGRESS_MARKER = "<!-- semverge-progress ";
 
 function independentTagName(config: SemVergeConfig, packageItem: PublishedPackage): string {
   const safeName = packageItem.name.replace(/^@/, "").replace(/[\\/]/g, "-");
@@ -432,96 +458,24 @@ function packageKey(packageItem: PublishedPackage, index: number): string {
   return packageItem.id || packageItem.name || packageItem.directory || `package-${index + 1}`;
 }
 
-function initialReleaseProgress(version: string, publishablePackages: PublishedPackage[], releaseTags: string[], config: SemVergeConfig): ReleaseProgress {
+function initialReleaseProgress(version: string, sourceCommit: string, publishablePackages: PublishedPackage[], releaseTags: string[], config: SemVergeConfig): ReleaseProgress {
   const packageIds = publishablePackages.map(packageKey);
-  return {
-    schemaVersion: 1,
-    version,
-    packageIds,
-    tagNames: releaseTags,
-    npmEnabled: config.publishing.npm.enabled,
-    publishedPackages: config.publishing.npm.enabled ? [] : [...packageIds],
-    uploadedAssets: Object.fromEntries(releaseTags.map((tag) => [tag, []])),
-    ready: false,
-    published: false
-  };
+  let transaction = createReleaseTransaction({ version, sourceCommit, packageIds, tagNames: releaseTags, npmEnabled: config.publishing.npm.enabled });
+  transaction = advanceReleaseTransaction(transaction, "approved", { key: "approval", kind: "approval-verified", target: sourceCommit, detail: "Release PR merge commit verified." });
+  transaction = advanceReleaseTransaction(transaction, "prepared", { key: "release-inputs", kind: "release-plan-prepared", target: version, detail: "Release manifest, package set, and tags validated." });
+  return advanceReleaseTransaction(transaction, "built", { key: "artifact-build", kind: "artifacts-built", target: sourceCommit, detail: "Workspace and configured artifacts passed pre-publication validation." });
 }
 
 function parseReleaseProgress(body: string | null | undefined): ReleaseProgress | null {
-  const match = body?.match(/<!-- semverge-progress ([\s\S]*?) -->/);
-  if (!match) {
-    return null;
-  }
-  let value: unknown;
-  try {
-    value = JSON.parse(match[1] ?? "");
-  } catch (error) {
-    throw new Error(`SemVerge found an invalid release progress marker: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("SemVerge found an invalid release progress marker.");
-  }
-  const record = value as Record<string, unknown>;
-  const uploadedAssets = record.uploadedAssets;
-  if (record.schemaVersion !== 1 || typeof record.version !== "string" || !Array.isArray(record.packageIds) || !record.packageIds.every((item) => typeof item === "string") || !Array.isArray(record.tagNames) || !record.tagNames.every((item) => typeof item === "string") || typeof record.npmEnabled !== "boolean" || !Array.isArray(record.publishedPackages) || !record.publishedPackages.every((item) => typeof item === "string") || !uploadedAssets || typeof uploadedAssets !== "object" || Array.isArray(uploadedAssets) || typeof record.ready !== "boolean" || typeof record.published !== "boolean") {
-    throw new Error("SemVerge found an invalid release progress marker.");
-  }
-  const normalizedAssets: Record<string, string[]> = {};
-  for (const [tag, assets] of Object.entries(uploadedAssets as Record<string, unknown>)) {
-    if (!Array.isArray(assets) || !assets.every((asset) => typeof asset === "string")) {
-      throw new Error(`SemVerge found invalid uploaded asset state for ${tag}.`);
-    }
-    normalizedAssets[tag] = [...new Set(assets)];
-  }
-  return {
-    schemaVersion: 1,
-    version: record.version,
-    packageIds: [...new Set(record.packageIds as string[])],
-    tagNames: [...new Set(record.tagNames as string[])],
-    npmEnabled: record.npmEnabled,
-    publishedPackages: [...new Set(record.publishedPackages as string[])],
-    uploadedAssets: normalizedAssets,
-    ready: record.ready,
-    published: record.published
-  };
+  return parseReleaseTransactionBody(body);
 }
 
 function releaseBody(customerNotes: string, progress: ReleaseProgress): string {
-  return `${RELEASE_PROGRESS_MARKER}${JSON.stringify(progress)} -->\n\n${customerNotes.trim()}\n`;
-}
-
-function sameValues(left: string[], right: string[]): boolean {
-  return left.length === right.length && left.every((value) => right.includes(value));
-}
-
-function validateReleaseProgress(progress: ReleaseProgress, expected: ReleaseProgress): void {
-  if (progress.version !== expected.version || progress.npmEnabled !== expected.npmEnabled || !sameValues(progress.packageIds, expected.packageIds) || !sameValues(progress.tagNames, expected.tagNames)) {
-    throw new Error("SemVerge found release progress for a different release or publishing configuration; verify the draft releases before retrying.");
-  }
+  return releaseTransactionBody(customerNotes, progress);
 }
 
 function mergeReleaseProgress(states: Array<ReleaseProgress | null>, expected: ReleaseProgress): ReleaseProgress {
-  const present = states.filter((state): state is ReleaseProgress => state !== null);
-  const merged: ReleaseProgress = {
-    ...expected,
-    publishedPackages: [...expected.publishedPackages],
-    uploadedAssets: Object.fromEntries(expected.tagNames.map((tag) => [tag, [...(expected.uploadedAssets[tag] ?? [])]])),
-    ready: false,
-    published: false
-  };
-  for (const state of present) {
-    validateReleaseProgress(state, expected);
-    merged.publishedPackages = [...new Set([...merged.publishedPackages, ...state.publishedPackages])];
-    merged.ready ||= state.ready;
-    merged.published ||= state.published;
-    for (const tag of expected.tagNames) {
-      merged.uploadedAssets[tag] = [...new Set([...(merged.uploadedAssets[tag] ?? []), ...(state.uploadedAssets[tag] ?? [])])];
-    }
-  }
-  if (present.length === 0) {
-    return expected;
-  }
-  return merged;
+  return mergeReleaseTransactions(states, expected);
 }
 
 async function persistReleaseProgress(client: GitHubClient, executions: ReleaseExecution[], progress: ReleaseProgress, finalize = false): Promise<void> {
@@ -535,6 +489,16 @@ async function persistReleaseProgress(client: GitHubClient, executions: ReleaseE
       ...(finalize ? { draft: false } : {})
     });
     execution.release = { ...execution.release, ...updated, draft: finalize ? false : (updated.draft ?? execution.release.draft ?? true) };
+  }
+}
+
+async function persistFinalTransactionState(client: GitHubClient, executions: ReleaseExecution[], progress: ReleaseProgress): Promise<void> {
+  for (const execution of executions) {
+    const updated = await client.updateRelease(execution.release.id, {
+      body: updateReleaseTransactionBody(execution.release.body ?? releaseBody(execution.customerNotes, progress), progress),
+      tag_name: execution.tag
+    });
+    execution.release = { ...execution.release, ...updated, body: updated.body ?? execution.release.body };
   }
 }
 
@@ -619,8 +583,8 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
   }));
 
   const version = manifest.version ?? packages.map((packageItem) => `${packageItem.name}@${packageItem.version}`).join(", ");
-  const expectedProgress = initialReleaseProgress(version, publishablePackages, releaseInputs.map((item) => item.tag), config);
-  const progress = mergeReleaseProgress(releaseInputs.map((item) => item.existingProgress), expectedProgress);
+  const expectedProgress = initialReleaseProgress(version, mergeSha, publishablePackages, releaseInputs.map((item) => item.tag), config);
+  let progress = mergeReleaseProgress(releaseInputs.map((item) => item.existingProgress), expectedProgress);
   const executions: ReleaseExecution[] = [];
 
   for (const item of releaseInputs) {
@@ -637,6 +601,12 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
       release = { ...release, draft: true };
     }
     executions.push({ packageItem: item.packageItem, tag: item.tag, customerNotes: item.customerNotes, release });
+    progress = recordReleaseTransactionEvent(progress, {
+      key: `draft:${item.tag}`,
+      kind: "release-draft-prepared",
+      target: item.tag,
+      detail: item.existingRelease ? "Existing SemVerge draft detected; resume is safe." : "Draft GitHub release created for transactional publication."
+    });
     log(`${item.existingRelease ? "Resuming" : "Prepared draft"} GitHub release for ${item.packageItem.name}: ${release.html_url}`);
   }
 
@@ -653,12 +623,20 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
     if (config.publishing.npm.idempotency === "registry" && await npmVersionExists(packageItem.name, packageItem.version, packageWorkspace)) {
       log(`Found ${packageItem.name}@${packageItem.version} in the npm registry; treating publication as already complete.`);
       progress.publishedPackages = [...new Set([...progress.publishedPackages, id])];
+      progress = recordReleaseTransactionEvent(progress, { key: `package:${id}`, kind: "package-published", target: packageItem.name, detail: "Registry already contains the requested version; no duplicate publish was attempted." });
       await persistReleaseProgress(client, executions, progress);
       continue;
     }
     log(`Publishing ${packageItem.name} with npm command.`);
-    await exec(config.publishing.npm.command, { cwd: packageWorkspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
+    try {
+      await exec(config.publishing.npm.command, { cwd: packageWorkspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
+    } catch (error) {
+      progress = recordReleaseTransactionEvent(progress, { key: `package:${id}`, kind: "package-published", target: packageItem.name, status: "failed", detail: "Package publication failed; inspect runner logs before retrying." });
+      await persistReleaseProgress(client, executions, progress);
+      throw error;
+    }
     progress.publishedPackages = [...new Set([...progress.publishedPackages, id])];
+    progress = recordReleaseTransactionEvent(progress, { key: `package:${id}`, kind: "package-published", target: packageItem.name });
     await persistReleaseProgress(client, executions, progress);
   }
 
@@ -672,21 +650,31 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
       const assetName = basename(file);
       if (existingAssets.has(assetName)) {
         uploaded.add(assetName);
+        progress = recordReleaseTransactionEvent(progress, { key: `asset:${execution.tag}:${assetName}`, kind: "asset-detected", target: assetName, detail: "Release already contains this asset; no duplicate upload was attempted." });
         log(`Release artifact already attached for ${execution.tag}: ${assetName}`);
         continue;
       }
-      await client.uploadReleaseAsset(execution.release, file);
+      try {
+        await client.uploadReleaseAsset(execution.release, file);
+      } catch (error) {
+        progress = recordReleaseTransactionEvent(progress, { key: `asset:${execution.tag}:${assetName}`, kind: "asset-uploaded", target: assetName, status: "failed", detail: "Release asset upload failed; inspect runner logs before retrying." });
+        await persistReleaseProgress(client, executions, progress);
+        throw error;
+      }
       uploaded.add(assetName);
       log(`Uploaded release artifact for ${execution.tag}: ${assetName}`);
       progress.uploadedAssets[execution.tag] = [...uploaded];
+      progress = recordReleaseTransactionEvent(progress, { key: `asset:${execution.tag}:${assetName}`, kind: "asset-uploaded", target: assetName });
       await persistReleaseProgress(client, executions, progress);
     }
     progress.uploadedAssets[execution.tag] = [...uploaded];
   }
 
   progress.ready = true;
+  progress = recordReleaseTransactionEvent(progress, { key: "release-ready", kind: "release-ready", target: version, detail: "All package publication and release asset steps completed." });
   await persistReleaseProgress(client, executions, progress);
   progress.published = true;
+  progress = advanceReleaseTransaction(progress, "published", { key: "release-published", kind: "release-published", target: version, detail: "All transactional side effects completed; GitHub release drafts are being finalized." });
   await persistReleaseProgress(client, executions, progress, true);
 
   if (mode === "independent") {
@@ -694,13 +682,38 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
     const anchor = versions.sort((left, right) => (parseVersion(right)?.major ?? 0) - (parseVersion(left)?.major ?? 0) || (parseVersion(right)?.minor ?? 0) - (parseVersion(left)?.minor ?? 0) || (parseVersion(right)?.patch ?? 0) - (parseVersion(left)?.patch ?? 0))[0];
     if (anchor) {
       const anchorTag = releaseTagName(config.release.tagPrefix, anchor);
-      const existingAnchor = await client.getRef(`tags/${anchorTag}`);
-      if (!existingAnchor) {
-        await client.createRef(`tags/${anchorTag}`, mergeSha);
-      } else if (existingAnchor.object.sha !== mergeSha) {
-        throw new Error(`Release anchor tag ${anchorTag} already points to a different commit.`);
+      try {
+        const existingAnchor = await client.getRef(`tags/${anchorTag}`);
+        if (!existingAnchor) {
+          await client.createRef(`tags/${anchorTag}`, mergeSha);
+          progress = recordReleaseTransactionEvent(progress, { key: `tag:${anchorTag}`, kind: "anchor-tag-created", target: anchorTag, detail: "Independent release anchor tag created at the merged release commit." });
+        } else if (existingAnchor.object.sha !== mergeSha) {
+          throw new Error(`Release anchor tag ${anchorTag} already points to a different commit.`);
+        } else {
+          progress = recordReleaseTransactionEvent(progress, { key: `tag:${anchorTag}`, kind: "anchor-tag-detected", target: anchorTag, detail: "Independent release anchor tag already points to the merged release commit." });
+        }
+      } catch (error) {
+        progress = recordReleaseTransactionEvent(progress, { key: `tag:${anchorTag}`, kind: "anchor-tag-created", target: anchorTag, status: "failed", detail: "Independent release anchor tag could not be created or did not point to the merged release commit." });
+        try {
+          await persistFinalTransactionState(client, executions, progress);
+        } catch {
+          log(`Could not persist the failed anchor-tag state for ${anchorTag}; inspect the release body and runner logs before retrying.`);
+        }
+        throw error;
       }
+      await persistFinalTransactionState(client, executions, progress);
     }
+  }
+
+  if (!config.health.enabled) {
+    progress = advanceReleaseTransaction(progress, "completed", {
+      key: "transaction-completed",
+      kind: "release-completed",
+      target: version,
+      detail: "Post-release verification is disabled; all configured transactional steps completed."
+    });
+    await persistFinalTransactionState(client, executions, progress);
+    setOutput("transaction", JSON.stringify(progress));
   }
 
   // GITHUB_TOKEN-created releases do not recursively trigger a release event.
