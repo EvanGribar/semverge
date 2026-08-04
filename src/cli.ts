@@ -7,7 +7,7 @@ import { parseConfig } from "./config.js";
 import { readPackageVersion } from "./version-files.js";
 
 const packageJson = await readFile("package.json", "utf8");
-const configContent = await readFile(".shipkit.yml", "utf8").catch(() => "");
+const configContent = await readFile(".releaserail.yml", "utf8").catch(() => "");
 const config = parseConfig(configContent);
 const currentVersion = readPackageVersion(packageJson);
 const title = process.argv.slice(2).join(" ") || "fix: generated local preview";

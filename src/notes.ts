@@ -74,13 +74,13 @@ export function renderInternalSummary(version: string, changes: ReleaseChange[])
 export function renderAnnouncement(version: string, changes: ReleaseChange[]): string {
   const announcements = uniqueLines(changes.flatMap((change) => change.announcement ? [change.announcement] : []));
   const customerChanges = changes.filter((change) => change.kind === "feature" || change.kind === "fix" || change.kind === "breaking" || change.breaking);
-  const lines = [`# Shipkit release announcement: ${version}`, ""];
+  const lines = [`# ReleaseRail release announcement: ${version}`, ""];
   if (announcements.length > 0) {
     lines.push(...announcements, "");
   } else if (customerChanges.length > 0) {
-    lines.push(`Shipkit ${version} includes:`, "", ...customerChanges.map((change) => `- ${change.customerSummary}`), "");
+    lines.push(`ReleaseRail ${version} includes:`, "", ...customerChanges.map((change) => `- ${change.customerSummary}`), "");
   } else {
-    lines.push(`Shipkit ${version} is now available.`, "");
+    lines.push(`ReleaseRail ${version} is now available.`, "");
   }
   return lines.join("\n");
 }

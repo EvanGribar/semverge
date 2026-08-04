@@ -124,7 +124,7 @@ export function detectRapidHotfix(releaseVersion: string | undefined, publishedA
 export function healthMarkdown(report: ReleaseHealthReport): string {
   const icon = report.status === "healthy" ? "✅" : report.status === "degraded" ? "⚠️" : report.status === "failed" ? "❌" : "ℹ️";
   return [
-    `## Shipkit release health: ${icon} ${report.status}`,
+    `## ReleaseRail release health: ${icon} ${report.status}`,
     "",
     ...report.checks.map((check) => `${check.status === "pass" ? "✅" : check.status === "warn" ? "⚠️" : "❌"} **${check.name}** — ${check.detail}`),
     ""
