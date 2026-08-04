@@ -11618,6 +11618,11 @@ async function publishRelease(client, pr, config) {
       }
     }
   }
+  if (config.health.enabled) {
+    for (const execution of executions) {
+      await runPostReleaseVerification(client, execution.release, config);
+    }
+  }
   setOutput("version", version);
   setOutput("release-url", JSON.stringify(executions.map((execution) => ({ tag: execution.tag, url: execution.release.html_url }))));
   log("Published all transactional release drafts.");

@@ -662,6 +662,15 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
     }
   }
 
+  // GITHUB_TOKEN-created releases do not recursively trigger a release event.
+  // Verify the published release in this transaction as well, while retaining
+  // the release event path for providers or manually published releases.
+  if (config.health.enabled) {
+    for (const execution of executions) {
+      await runPostReleaseVerification(client, execution.release, config);
+    }
+  }
+
   setOutput("version", version);
   setOutput("release-url", JSON.stringify(executions.map((execution) => ({ tag: execution.tag, url: execution.release.html_url }))));
   log("Published all transactional release drafts.");
