@@ -58,6 +58,8 @@ export interface GitHubRelease {
   tag_name: string;
   html_url: string;
   upload_url: string;
+  body?: string | null;
+  draft?: boolean;
   target_commitish?: string;
   published_at?: string | null;
   created_at?: string;
@@ -241,8 +243,12 @@ export class GitHubClient {
     return (await this.request<GitHubPullRequest>(`/pulls/${number}`, { method: "PATCH", body: input })) as GitHubPullRequest;
   }
 
-  async createRelease(input: { tag_name: string; target_commitish: string; name: string; body: string; prerelease: boolean }): Promise<GitHubRelease> {
+  async createRelease(input: { tag_name: string; target_commitish: string; name: string; body: string; prerelease: boolean; draft?: boolean }): Promise<GitHubRelease> {
     return (await this.request<GitHubRelease>("/releases", { method: "POST", body: input })) as GitHubRelease;
+  }
+
+  async updateRelease(id: number, input: { body?: string; draft?: boolean }): Promise<GitHubRelease> {
+    return (await this.request<GitHubRelease>(`/releases/${id}`, { method: "PATCH", body: input })) as GitHubRelease;
   }
 
   async getReleaseByTag(tag: string): Promise<GitHubRelease | null> {
