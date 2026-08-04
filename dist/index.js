@@ -10333,7 +10333,7 @@ function descriptor(path, content, releaseable) {
     ...target
   };
 }
-function nodeWorkspaceDependencies(content) {
+function nodeWorkspaceDependencies(content, internalPackageNames = /* @__PURE__ */ new Set()) {
   const value = jsonObject2(content);
   if (!value) {
     return [];
@@ -10345,7 +10345,7 @@ function nodeWorkspaceDependencies(content) {
       continue;
     }
     for (const [name, version] of Object.entries(dependencies)) {
-      if (typeof version === "string" && version.startsWith("workspace:")) {
+      if (typeof version === "string" && (version.startsWith("workspace:") || internalPackageNames.has(name))) {
         names.add(name);
       }
     }
@@ -10390,6 +10390,13 @@ function discoverPackages(files, allPaths, config) {
   const unique = [...new Map(discovered.map((item) => [item.manifestPath, item])).values()];
   if (unique.length === 0) {
     throw new Error("SemVerge could not find a supported package manifest (package.json, pyproject.toml, or Cargo.toml).");
+  }
+  const internalPackageNames = new Set(unique.filter((item) => item.ecosystem === "node").map((item) => item.name));
+  for (const packageItem of unique.filter((item) => item.ecosystem === "node")) {
+    const content = normalizedFiles.get(packageItem.manifestPath);
+    if (content !== void 0) {
+      packageItem.workspaceDependencies = nodeWorkspaceDependencies(content, internalPackageNames);
+    }
   }
   return { mode: selectedMode(config, unique), packages: unique };
 }
@@ -10578,7 +10585,13 @@ function packageNameMatches(packageItem, scope) {
   const cleanScope = scope.trim().toLowerCase();
   return [packageItem.id, packageItem.name, (0, import_node_path2.basename)(packageItem.directory)].some((candidate) => candidate.toLowerCase() === cleanScope);
 }
-function affectsPackage(change, packageItem, config) {
+function ownsFile(file, directory) {
+  return file === directory || file.startsWith(`${directory}/`);
+}
+function packageOwner(file, workspaceDirectories) {
+  return [...workspaceDirectories].filter((directory) => ownsFile(file, directory)).sort((left, right) => right.length - left.length)[0];
+}
+function affectsPackage(change, packageItem, config, workspaceDirectories) {
   if (packageNameMatches(packageItem, change.scope)) {
     return true;
   }
@@ -10586,13 +10599,7 @@ function affectsPackage(change, packageItem, config) {
   if (files.length === 0) {
     return config.monorepo.unscopedChanges === "all";
   }
-  const directoryPrefix = packageItem.directory ? `${packageItem.directory}/` : "";
-  return files.some((file) => {
-    if (!packageItem.directory) {
-      return !file.startsWith("packages/") && !file.includes("/package.json");
-    }
-    return file === packageItem.manifestPath || file.startsWith(directoryPrefix) || file === "package.json";
-  });
+  return files.some((file) => packageOwner(file, workspaceDirectories) === (packageItem.directory || void 0));
 }
 function packageConfig(config, packageItem, mode) {
   const packageOutputs = {
@@ -10757,8 +10764,9 @@ function buildWorkspaceReleasePlan(input2) {
     plans.push(...releaseable.map((releasePackage) => ({ package: releasePackage, plan })));
   } else {
     const packagePlans = /* @__PURE__ */ new Map();
+    const workspaceDirectories = input2.packages.flatMap((packageItem) => packageItem.directory ? [packageItem.directory] : []);
     for (const packageItem of releaseable) {
-      const packageChanges = input2.changes.filter((change) => affectsPackage(change, packageItem, input2.config));
+      const packageChanges = input2.changes.filter((change) => affectsPackage(change, packageItem, input2.config, workspaceDirectories));
       const plan = buildPackagePlan(input2, packageItem, packageChanges);
       if (plan.hasRelease) {
         packagePlans.set(packageItem.id, { package: packageItem, plan });
@@ -10776,7 +10784,7 @@ function buildWorkspaceReleasePlan(input2) {
         if (dependencyNames.length === 0) {
           continue;
         }
-        const packageChanges = input2.changes.filter((change) => affectsPackage(change, packageItem, input2.config));
+        const packageChanges = input2.changes.filter((change) => affectsPackage(change, packageItem, input2.config, workspaceDirectories));
         const plan = buildPackagePlan(input2, packageItem, [...packageChanges, workspaceDependencyChange(packageItem, dependencyNames)]);
         if (plan.hasRelease) {
           packagePlans.set(packageItem.id, { package: packageItem, plan });
