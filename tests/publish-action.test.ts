@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { run } from "../src/action.js";
+import { parseReleaseTransactionBody } from "../src/transaction.js";
 
 const npmVersionExistsMock = vi.hoisted(() => vi.fn(async () => false));
 vi.mock("../src/npm.js", () => ({ npmVersionExists: npmVersionExistsMock }));
@@ -147,6 +148,7 @@ describe("merged release publication", () => {
     expect(requests.some((request) => request.method === "POST" && request.path.endsWith("/git/refs"))).toBe(false);
     expect(requests.some((request) => request.path.endsWith("/actions/runs?head_sha=merge-sha&per_page=100&page=1"))).toBe(true);
     expect(output).toContain("post-release-verification");
+    expect(output).toContain('"phase":"completed"');
     expect(output).toContain("https://github.com/demo/repo/releases/tag/v0.2.0");
   });
 
@@ -290,5 +292,7 @@ describe("merged release publication", () => {
 
     expect(npmVersionExistsMock).toHaveBeenCalledWith("demo", "0.2.0", workspace.directory);
     expect(requests.some((request) => request.method === "PATCH" && request.path.endsWith("/releases/3") && request.body?.draft === false)).toBe(true);
+    const finalBody = requests.filter((request) => request.method === "PATCH" && request.path.endsWith("/releases/3")).at(-1)?.body?.body;
+    expect(parseReleaseTransactionBody(typeof finalBody === "string" ? finalBody : null)?.phase).toBe("completed");
   });
 });

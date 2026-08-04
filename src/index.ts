@@ -8,6 +8,7 @@ export * from "./packages.js";
 export * from "./readiness.js";
 export * from "./release.js";
 export * from "./semver.js";
+export * from "./transaction.js";
 export * from "./types.js";
 export * from "./version-adapters.js";
 export * from "./version-files.js";

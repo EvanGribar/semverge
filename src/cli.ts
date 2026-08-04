@@ -7,7 +7,9 @@ import { join, resolve } from "node:path";
 import { buildReleasePlan } from "./release.js";
 import { parseChange } from "./changes.js";
 import { parseConfig, validateConfig, validateConfigContent, type ConfigValidationIssue } from "./config.js";
+import { GitHubClient } from "./github.js";
 import { parseVersion } from "./semver.js";
+import { parseReleaseTransaction, parseReleaseTransactionBody, releaseTransactionSummaryMarkdown } from "./transaction.js";
 import { readPackageVersion } from "./version-files.js";
 
 export const DEFAULT_CONFIG_TEMPLATE = `# SemVerge configuration. Remove this file to use zero-configuration defaults.
@@ -35,9 +37,11 @@ function usage(): string {
     "  init                 Create a starter .semverge.yml without overwriting it",
     "  plan [title]         Print a deterministic local release plan",
     "  doctor               Validate repository files and SemVerge configuration",
+    "  recover <release-id> Inspect durable release state and print the safe next action",
     "",
     "Options:",
     "  --config <path>      Read a different configuration file",
+    "  --state <path>       Read a local transaction state file for recover",
     "  --force              Allow init to replace an existing configuration file",
     "  --help               Show this help"
   ].join("\n");
@@ -142,8 +146,51 @@ async function doctor(cwd: string, configPath: string, io: CliIo): Promise<numbe
   return 0;
 }
 
+async function recover(cwd: string, id: string, statePath: string | undefined, io: CliIo): Promise<number> {
+  if (!id || id.startsWith("-")) {
+    io.stderr("recover requires a release transaction id, such as release_01J...");
+    return 1;
+  }
+
+  const repository = process.env.GITHUB_REPOSITORY;
+  const token = process.env.GITHUB_TOKEN ?? process.env.INPUT_GITHUB_TOKEN ?? "";
+  if (repository) {
+    const client = new GitHubClient(token, repository);
+    const releases = await client.listReleases();
+    for (const release of releases) {
+      const transaction = parseReleaseTransactionBody(release.body);
+      if (transaction?.id === id) {
+        io.stdout(`${release.html_url}\n${releaseTransactionSummaryMarkdown(transaction)}`);
+        return 0;
+      }
+    }
+    io.stderr(`No SemVerge release transaction named ${id} was found in ${repository}.`);
+    return 1;
+  }
+
+  const path = statePath ? resolve(cwd, statePath) : join(cwd, ".semverge", "release-state", `${id}.json`);
+  const content = await readOptional(path);
+  if (content === undefined) {
+    io.stderr(`Could not find ${id}. Set GITHUB_REPOSITORY for remote recovery or provide --state <path>.`);
+    return 1;
+  }
+  let transaction;
+  try {
+    const value: unknown = JSON.parse(content);
+    transaction = parseReleaseTransaction(value);
+  } catch {
+    transaction = parseReleaseTransactionBody(content);
+  }
+  if (!transaction || transaction.id !== id) {
+    io.stderr(`The transaction state at ${path} does not contain ${id}.`);
+    return 1;
+  }
+  io.stdout(releaseTransactionSummaryMarkdown(transaction));
+  return 0;
+}
+
 export async function runCli(argv = process.argv.slice(2), cwd = process.cwd(), io: CliIo = defaultIo): Promise<number> {
-  const commandNames = new Set(["init", "plan", "doctor", "help"]);
+  const commandNames = new Set(["init", "plan", "doctor", "recover", "help"]);
   const command = argv[0] && commandNames.has(argv[0]) ? argv[0] : "plan";
   const commandArgs = command === "plan" && argv[0] !== "plan" ? argv : argv.slice(1);
   if (command === "help" || command === "--help" || argv.includes("--help")) {
@@ -152,8 +199,9 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd(), 
   }
   const configOption = option(commandArgs, "--config");
   const configPath = configOption.value || ".semverge.yml";
+  const stateOption = option(configOption.rest, "--state");
   const force = commandArgs.includes("--force");
-  const remaining = configOption.rest.filter((arg) => arg !== "--force");
+  const remaining = stateOption.rest.filter((arg) => arg !== "--force");
 
   try {
     if (command === "init") {
@@ -161,6 +209,9 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd(), 
     }
     if (command === "doctor") {
       return await doctor(cwd, configPath, io);
+    }
+    if (command === "recover") {
+      return await recover(cwd, remaining[0] ?? "", stateOption.value, io);
     }
     if (command === "plan") {
       return await plan(cwd, configPath, remaining.join(" "), io);

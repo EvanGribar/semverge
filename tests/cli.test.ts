@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { runCli } from "../src/cli.js";
+import { createReleaseTransaction } from "../src/transaction.js";
 
 function capture() {
   const stdout: string[] = [];
@@ -58,6 +59,30 @@ describe("SemVerge CLI", () => {
       const output = capture();
       expect(await runCli(["fix: repair release notes"], directory, output.io)).toBe(0);
       expect(JSON.parse(output.stdout[0] ?? "{}").version).toBe("1.0.1");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("recovers a durable transaction from a local state file", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "semverge-cli-recover-"));
+    try {
+      const state = createReleaseTransaction({
+        id: "release_01JLOCAL",
+        version: "2.0.0",
+        sourceCommit: "merge-sha",
+        packageIds: ["demo"],
+        tagNames: ["v2.0.0"],
+        npmEnabled: true,
+        now: "2026-08-04T00:00:00.000Z"
+      });
+      const statePath = join(directory, "state.json");
+      writeFileSync(statePath, JSON.stringify(state));
+      const output = capture();
+
+      expect(await runCli(["recover", state.id, "--state", "state.json"], directory, output.io)).toBe(0);
+      expect(output.stdout.join("\n")).toContain("State: **planned**");
+      expect(output.stdout.join("\n")).toContain("Safe next action:");
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }

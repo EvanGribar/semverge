@@ -46,7 +46,7 @@ jobs:
         # - uses: EvanGribar/semverge@c0a62caddd16e581b5a1bd3577540c54e0102739
 ```
 
-On pushes to `main`, SemVerge reads conventional commits and merged pull requests, calculates the next semantic version, and maintains a release pull request. When that pull request merges, SemVerge verifies that the runner workspace is checked out at the exact merge commit, builds artifacts, prepares a draft release, publishes configured npm packages, uploads assets, and only then publishes the GitHub release. A durable progress marker in the draft release lets retries resume completed steps, including a registry check that recognizes an already-published npm version.
+On pushes to `main`, SemVerge reads conventional commits and merged pull requests, calculates the next semantic version, and maintains a release pull request. When that pull request merges, SemVerge verifies that the runner workspace is checked out at the exact merge commit, builds artifacts, prepares a draft release, publishes configured npm packages, uploads assets, and only then publishes the GitHub release. A durable transaction marker in the release body records explicit phases and side effects, so retries resume completed steps, including a registry check that recognizes an already-published npm version. The action's `transaction` output exposes the same state as JSON.
 
 The default repository needs no configuration. SemVerge also understands product-oriented labels:
 
@@ -68,9 +68,11 @@ The package includes a small deterministic local workflow for setup and troubles
 npx semverge init       # create .semverge.yml without overwriting it
 npx semverge plan "feat: add bulk export"
 npx semverge doctor     # validate package.json and configuration
+npx semverge recover release_01J... --state .semverge/release-state.json
 ```
 
 `init` is safe by default and requires `--force` to replace an existing file. `plan` prints the same release-plan shape used by the action, while `doctor` reports configuration type errors before a hosted run.
+`recover` prints the durable transaction state and safe next action. With `GITHUB_REPOSITORY` and a token it searches GitHub releases; `--state` is useful for a local exported marker or fixture.
 
 Structured pull-request metadata is optional. Add this hidden block to a pull-request body when the conventional commit is not expressive enough:
 

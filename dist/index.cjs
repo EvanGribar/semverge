@@ -3110,7 +3110,7 @@ var require_timestamp = __commonJS({
       resolve: (str) => parseSexagesimal(str, false),
       stringify: stringifySexagesimal
     };
-    var timestamp = {
+    var timestamp2 = {
       identify: (value) => value instanceof Date,
       default: true,
       tag: "tag:yaml.org,2002:timestamp",
@@ -3119,7 +3119,7 @@ var require_timestamp = __commonJS({
       // assumed to be 00:00:00Z (start of day, UTC).
       test: RegExp("^([0-9]{4})-([0-9]{1,2})-([0-9]{1,2})(?:(?:t|T|[ \\t]+)([0-9]{1,2}):([0-9]{1,2}):([0-9]{1,2}(\\.[0-9]+)?)(?:[ \\t]*(Z|[-+][012]?[0-9](?::[0-9]{2})?))?)?$"),
       resolve(str) {
-        const match = str.match(timestamp.test);
+        const match = str.match(timestamp2.test);
         if (!match)
           throw new Error("!!timestamp expects a date, starting with yyyy-mm-dd");
         const [, year, month, day, hour, minute, second] = match.map(Number);
@@ -3138,7 +3138,7 @@ var require_timestamp = __commonJS({
     };
     exports2.floatTime = floatTime;
     exports2.intTime = intTime;
-    exports2.timestamp = timestamp;
+    exports2.timestamp = timestamp2;
   }
 });
 
@@ -3158,7 +3158,7 @@ var require_schema3 = __commonJS({
     var omap = require_omap();
     var pairs = require_pairs();
     var set = require_set();
-    var timestamp = require_timestamp();
+    var timestamp2 = require_timestamp();
     var schema = [
       map.map,
       seq.seq,
@@ -3178,9 +3178,9 @@ var require_schema3 = __commonJS({
       omap.omap,
       pairs.pairs,
       set.set,
-      timestamp.intTime,
-      timestamp.floatTime,
-      timestamp.timestamp
+      timestamp2.intTime,
+      timestamp2.floatTime,
+      timestamp2.timestamp
     ];
     exports2.schema = schema;
   }
@@ -3205,7 +3205,7 @@ var require_tags = __commonJS({
     var pairs = require_pairs();
     var schema$2 = require_schema3();
     var set = require_set();
-    var timestamp = require_timestamp();
+    var timestamp2 = require_timestamp();
     var schemas = /* @__PURE__ */ new Map([
       ["core", schema.schema],
       ["failsafe", [map.map, seq.seq, string.string]],
@@ -3219,11 +3219,11 @@ var require_tags = __commonJS({
       float: float.float,
       floatExp: float.floatExp,
       floatNaN: float.floatNaN,
-      floatTime: timestamp.floatTime,
+      floatTime: timestamp2.floatTime,
       int: int.int,
       intHex: int.intHex,
       intOct: int.intOct,
-      intTime: timestamp.intTime,
+      intTime: timestamp2.intTime,
       map: map.map,
       merge: merge.merge,
       null: _null.nullTag,
@@ -3231,7 +3231,7 @@ var require_tags = __commonJS({
       pairs: pairs.pairs,
       seq: seq.seq,
       set: set.set,
-      timestamp: timestamp.timestamp
+      timestamp: timestamp2.timestamp
     };
     var coreKnownTags = {
       "tag:yaml.org,2002:binary": binary.binary,
@@ -3239,7 +3239,7 @@ var require_tags = __commonJS({
       "tag:yaml.org,2002:omap": omap.omap,
       "tag:yaml.org,2002:pairs": pairs.pairs,
       "tag:yaml.org,2002:set": set.set,
-      "tag:yaml.org,2002:timestamp": timestamp.timestamp
+      "tag:yaml.org,2002:timestamp": timestamp2.timestamp
     };
     function getTags(customTags, schemaName, addMergeTag) {
       const schemaTags = schemas.get(schemaName);
@@ -10392,18 +10392,18 @@ function discoverPackages(files, allPaths, config) {
   } else if (rootRust) {
     discovered.push(descriptor("Cargo.toml", rootRust, true));
   }
-  const unique = [...new Map(discovered.map((item) => [item.manifestPath, item])).values()];
-  if (unique.length === 0) {
+  const unique2 = [...new Map(discovered.map((item) => [item.manifestPath, item])).values()];
+  if (unique2.length === 0) {
     throw new Error("SemVerge could not find a supported package manifest (package.json, pyproject.toml, or Cargo.toml).");
   }
-  const internalPackageNames = new Set(unique.filter((item) => item.ecosystem === "node").map((item) => item.name));
-  for (const packageItem of unique.filter((item) => item.ecosystem === "node")) {
+  const internalPackageNames = new Set(unique2.filter((item) => item.ecosystem === "node").map((item) => item.name));
+  for (const packageItem of unique2.filter((item) => item.ecosystem === "node")) {
     const content = normalizedFiles.get(packageItem.manifestPath);
     if (content !== void 0) {
       packageItem.workspaceDependencies = nodeWorkspaceDependencies(content, internalPackageNames);
     }
   }
-  return { mode: selectedMode(config, unique), packages: unique };
+  return { mode: selectedMode(config, unique2), packages: unique2 };
 }
 
 // src/workspace-release.ts
@@ -11190,6 +11190,313 @@ async function assertWorkspaceAtCommit(workspace, mergeSha, readHead = readWorks
   }
 }
 
+// src/transaction.ts
+var import_node_crypto = require("node:crypto");
+var RELEASE_TRANSACTION_SCHEMA_VERSION = 2;
+var RELEASE_TRANSACTION_MARKER = "<!-- semverge-progress ";
+var RELEASE_PHASES = [
+  "planned",
+  "approved",
+  "prepared",
+  "built",
+  "published",
+  "verified",
+  "completed"
+];
+function phaseIndex(phase) {
+  return RELEASE_PHASES.indexOf(phase);
+}
+function timestamp(value) {
+  return value ?? (/* @__PURE__ */ new Date()).toISOString();
+}
+function unique(values) {
+  return [...new Set(values)];
+}
+function sameValues(left, right) {
+  return left.length === right.length && left.every((value) => right.includes(value));
+}
+function objectValue2(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function stringArray(value, field) {
+  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
+    throw new Error(`SemVerge transaction field ${field} must be an array of strings.`);
+  }
+  return unique(value);
+}
+function phaseValue(value, field = "phase") {
+  if (typeof value !== "string" || !RELEASE_PHASES.includes(value)) {
+    throw new Error(`SemVerge transaction field ${field} must be a valid release phase.`);
+  }
+  return value;
+}
+function assetMap(value) {
+  const object = objectValue2(value);
+  if (!object) {
+    throw new Error("SemVerge transaction field uploadedAssets must be an object.");
+  }
+  return Object.fromEntries(Object.entries(object).map(([tag, assets]) => [tag, stringArray(assets, `uploadedAssets.${tag}`)]));
+}
+function eventValue(value) {
+  const object = objectValue2(value);
+  if (!object || typeof object.key !== "string" || typeof object.phase !== "string" || typeof object.kind !== "string" || typeof object.target !== "string" || object.status !== "completed" && object.status !== "failed" || typeof object.attempt !== "number" || !Number.isInteger(object.attempt) || object.attempt < 1 || typeof object.at !== "string") {
+    throw new Error("SemVerge transaction contains an invalid event.");
+  }
+  return {
+    key: object.key,
+    phase: phaseValue(object.phase, "events.phase"),
+    kind: object.kind,
+    target: object.target,
+    status: object.status,
+    attempt: object.attempt,
+    at: object.at,
+    ...typeof object.detail === "string" ? { detail: object.detail } : {}
+  };
+}
+function normalizeAssets(value) {
+  return Object.fromEntries(Object.entries(value).map(([tag, assets]) => [tag, unique(assets)]));
+}
+function createReleaseTransaction(input2) {
+  const now = timestamp(input2.now);
+  return {
+    schemaVersion: RELEASE_TRANSACTION_SCHEMA_VERSION,
+    id: input2.id ?? `release_${(0, import_node_crypto.randomUUID)().replace(/-/g, "")}`,
+    version: input2.version,
+    sourceCommit: input2.sourceCommit,
+    phase: "planned",
+    packageIds: unique(input2.packageIds),
+    tagNames: unique(input2.tagNames),
+    npmEnabled: input2.npmEnabled,
+    publishedPackages: input2.npmEnabled ? [] : unique(input2.packageIds),
+    uploadedAssets: Object.fromEntries(unique(input2.tagNames).map((tag) => [tag, []])),
+    ready: false,
+    published: false,
+    events: [],
+    updatedAt: now
+  };
+}
+function recordReleaseTransactionEvent(state, input2) {
+  const status = input2.status ?? "completed";
+  if (status === "completed" && state.events.some((event2) => event2.key === input2.key && event2.status === "completed")) {
+    return state;
+  }
+  const attempt = Math.max(0, ...state.events.filter((event2) => event2.key === input2.key).map((event2) => event2.attempt)) + 1;
+  const at = timestamp(input2.now);
+  const event = {
+    key: input2.key,
+    phase: state.phase,
+    kind: input2.kind,
+    target: input2.target,
+    status,
+    attempt,
+    at,
+    ...input2.detail ? { detail: input2.detail } : {}
+  };
+  return {
+    ...state,
+    events: [...state.events, event],
+    ...status === "failed" ? { failure: { key: input2.key, phase: state.phase, message: input2.detail ?? "The transaction step failed.", at } } : state.failure?.key === input2.key ? { failure: void 0 } : {},
+    updatedAt: at
+  };
+}
+function advanceReleaseTransaction(state, phase, input2) {
+  if (phaseIndex(phase) < phaseIndex(state.phase)) {
+    throw new Error(`SemVerge cannot move a release transaction from ${state.phase} back to ${phase}.`);
+  }
+  const next = { ...state, phase };
+  return recordReleaseTransactionEvent(next, { ...input2, now: input2.now });
+}
+function mergeReleaseTransactions(states, expected) {
+  const present = states.filter((state) => state !== null);
+  if (present.length === 0) {
+    return expected;
+  }
+  if (new Set(present.map((state) => state.id)).size > 1) {
+    throw new Error("SemVerge found multiple release transaction IDs for the same release; verify the draft releases before retrying.");
+  }
+  let merged = {
+    ...expected,
+    id: present[0]?.id ?? expected.id,
+    sourceCommit: present.find((state) => state.sourceCommit !== "unknown")?.sourceCommit ?? expected.sourceCommit,
+    packageIds: [...expected.packageIds],
+    tagNames: [...expected.tagNames],
+    publishedPackages: [...expected.publishedPackages],
+    uploadedAssets: normalizeAssets(expected.uploadedAssets),
+    events: [...expected.events],
+    ready: false,
+    published: false
+  };
+  for (const state of present) {
+    if (state.version !== expected.version || state.npmEnabled !== expected.npmEnabled || state.sourceCommit !== "unknown" && expected.sourceCommit !== "unknown" && state.sourceCommit !== expected.sourceCommit || !sameValues(state.packageIds, expected.packageIds) || !sameValues(state.tagNames, expected.tagNames)) {
+      throw new Error("SemVerge found release transaction state for a different release or publishing configuration; verify the draft releases before retrying.");
+    }
+    if (phaseIndex(state.phase) > phaseIndex(merged.phase)) {
+      merged.phase = state.phase;
+    }
+    merged.publishedPackages = unique([...merged.publishedPackages, ...state.publishedPackages]);
+    merged.ready ||= state.ready;
+    merged.published ||= state.published;
+    for (const tag of expected.tagNames) {
+      merged.uploadedAssets[tag] = unique([...merged.uploadedAssets[tag] ?? [], ...state.uploadedAssets[tag] ?? []]);
+    }
+    const events = new Map(merged.events.map((event) => [`${event.key}:${event.status}:${event.attempt}`, event]));
+    for (const event of state.events) {
+      events.set(`${event.key}:${event.status}:${event.attempt}`, event);
+    }
+    merged.events = [...events.values()].sort((left, right) => left.at.localeCompare(right.at));
+    if (state.failure && (!merged.failure || state.failure.at > merged.failure.at)) {
+      merged.failure = state.failure;
+    }
+    if (state.updatedAt > merged.updatedAt) {
+      merged.updatedAt = state.updatedAt;
+    }
+  }
+  return merged;
+}
+function upgradeLegacyTransaction(record) {
+  if (typeof record.version !== "string" || typeof record.npmEnabled !== "boolean") {
+    throw new Error("SemVerge found an invalid legacy release transaction marker.");
+  }
+  const packageIds = stringArray(record.packageIds, "packageIds");
+  const tagNames = stringArray(record.tagNames, "tagNames");
+  const uploadedAssets = assetMap(record.uploadedAssets);
+  const publishedPackages = stringArray(record.publishedPackages, "publishedPackages");
+  if (typeof record.ready !== "boolean" || typeof record.published !== "boolean") {
+    throw new Error("SemVerge found an invalid legacy release transaction marker.");
+  }
+  const phase = record.published ? "published" : record.ready ? "built" : "prepared";
+  return {
+    ...createReleaseTransaction({
+      id: `release_legacy_${record.version.replace(/[^0-9A-Za-z.-]/g, "-")}`,
+      version: record.version,
+      sourceCommit: "unknown",
+      packageIds,
+      tagNames,
+      npmEnabled: record.npmEnabled,
+      now: typeof record.updatedAt === "string" ? record.updatedAt : void 0
+    }),
+    phase,
+    publishedPackages,
+    uploadedAssets,
+    ready: record.ready,
+    published: record.published
+  };
+}
+function parseReleaseTransaction(value) {
+  const record = objectValue2(value);
+  if (!record) {
+    throw new Error("SemVerge found an invalid release transaction marker.");
+  }
+  if (record.schemaVersion === 1) {
+    return upgradeLegacyTransaction(record);
+  }
+  if (record.schemaVersion !== RELEASE_TRANSACTION_SCHEMA_VERSION || typeof record.id !== "string" || typeof record.version !== "string" || typeof record.sourceCommit !== "string" || typeof record.npmEnabled !== "boolean" || typeof record.ready !== "boolean" || typeof record.published !== "boolean" || typeof record.updatedAt !== "string" || !Array.isArray(record.events)) {
+    throw new Error("SemVerge found an invalid release transaction marker.");
+  }
+  const failure = record.failure === void 0 ? void 0 : objectValue2(record.failure);
+  if (failure && (typeof failure.phase !== "string" || typeof failure.message !== "string" || typeof failure.at !== "string")) {
+    throw new Error("SemVerge found an invalid release transaction failure.");
+  }
+  const normalizedFailure = failure ? { ...typeof failure.key === "string" ? { key: failure.key } : {}, phase: phaseValue(failure.phase, "failure.phase"), message: failure.message, at: failure.at } : void 0;
+  return {
+    schemaVersion: RELEASE_TRANSACTION_SCHEMA_VERSION,
+    id: record.id,
+    version: record.version,
+    sourceCommit: record.sourceCommit,
+    phase: phaseValue(record.phase),
+    packageIds: stringArray(record.packageIds, "packageIds"),
+    tagNames: stringArray(record.tagNames, "tagNames"),
+    npmEnabled: record.npmEnabled,
+    publishedPackages: stringArray(record.publishedPackages, "publishedPackages"),
+    uploadedAssets: normalizeAssets(assetMap(record.uploadedAssets)),
+    ready: record.ready,
+    published: record.published,
+    events: record.events.map(eventValue),
+    ...normalizedFailure ? { failure: normalizedFailure } : {},
+    updatedAt: record.updatedAt
+  };
+}
+function parseReleaseTransactionBody(body) {
+  const match = body?.match(/<!-- semverge-progress ([\s\S]*?) -->/);
+  if (!match) {
+    return null;
+  }
+  let value;
+  try {
+    value = JSON.parse(match[1] ?? "");
+  } catch (error) {
+    throw new Error(`SemVerge found an invalid release transaction marker: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return parseReleaseTransaction(value);
+}
+function releaseTransactionMarker(state) {
+  return `${RELEASE_TRANSACTION_MARKER}${JSON.stringify(state)} -->`;
+}
+function releaseTransactionBody(customerNotes, state) {
+  return `${releaseTransactionMarker(state)}
+
+${customerNotes.trim()}
+
+${releaseTransactionSummaryMarkdown(state)}
+`;
+}
+function updateReleaseTransactionBody(body, state) {
+  const marker = releaseTransactionMarker(state);
+  const markerMatch = body.match(/<!-- semverge-progress [\s\S]*? -->/);
+  if (!markerMatch || markerMatch.index === void 0) {
+    return `${marker}
+
+${body.trim()}
+
+${releaseTransactionSummaryMarkdown(state)}
+`;
+  }
+  const afterMarker = body.slice(markerMatch.index + markerMatch[0].length).replace(/\n*### SemVerge transaction[\s\S]*$/, "").trimEnd();
+  return `${body.slice(0, markerMatch.index)}${marker}${afterMarker}
+
+${releaseTransactionSummaryMarkdown(state)}
+`;
+}
+function summarizeReleaseTransaction(state) {
+  const uploadedAssets = Object.values(state.uploadedAssets).reduce((total, assets) => total + assets.length, 0);
+  let safeNextAction;
+  if (state.failure) {
+    safeNextAction = `Resolve the recorded failure, then rerun the release workflow for ${state.id}.`;
+  } else if (state.phase === "completed") {
+    safeNextAction = "No action required; the release transaction is complete.";
+  } else if (state.phase === "verified") {
+    safeNextAction = `Finalize ${state.id} after verification completes.`;
+  } else {
+    safeNextAction = `Resume ${state.id}; completed side effects will be skipped safely.`;
+  }
+  return {
+    id: state.id,
+    version: state.version,
+    sourceCommit: state.sourceCommit,
+    phase: state.phase,
+    publishedPackages: `${state.publishedPackages.length}/${state.packageIds.length}`,
+    uploadedAssets,
+    recordedEvents: state.events.length,
+    safeNextAction,
+    ...state.failure ? { failure: state.failure.message } : {}
+  };
+}
+function releaseTransactionSummaryMarkdown(state) {
+  const summary = summarizeReleaseTransaction(state);
+  return [
+    "### SemVerge transaction",
+    `- ID: \`${summary.id}\``,
+    `- Version: \`${summary.version}\``,
+    `- Source commit: \`${summary.sourceCommit}\``,
+    `- State: **${summary.phase}**`,
+    `- Packages published: **${summary.publishedPackages}**`,
+    `- Uploaded assets recorded: **${summary.uploadedAssets}**`,
+    `- Recorded side effects: **${summary.recordedEvents}**`,
+    ...summary.failure ? [`- Recorded failure: ${summary.failure}`] : [],
+    `- Safe next action: ${summary.safeNextAction}`
+  ].join("\n");
+}
+
 // src/action.ts
 var exec2 = (0, import_node_util3.promisify)(import_node_child_process3.exec);
 function input(name) {
@@ -11408,6 +11715,41 @@ async function runPostReleaseVerification(client, releaseEvent, config) {
     (0, import_node_fs.appendFileSync)(summaryFile, `${markdown}
 `, "utf8");
   }
+  const transactionBody = releaseDetails?.body ?? releaseEvent.body;
+  const transaction = parseReleaseTransactionBody(transactionBody);
+  const releaseId = releaseDetails?.id ?? releaseEvent.id;
+  if (transaction && typeof releaseId === "number") {
+    let next = transaction;
+    if (report.status === "failed") {
+      next = recordReleaseTransactionEvent(next, {
+        key: `verification:${releaseEvent.tag_name}`,
+        kind: "post-release-verification",
+        target: releaseEvent.tag_name,
+        status: "failed",
+        detail: "Post-release verification reported a failed check."
+      });
+    } else {
+      const verification = {
+        key: `verification:${releaseEvent.tag_name}`,
+        kind: "post-release-verification",
+        target: releaseEvent.tag_name,
+        detail: `Post-release verification completed with status ${report.status}.`
+      };
+      next = next.phase === "completed" ? recordReleaseTransactionEvent(next, verification) : advanceReleaseTransaction(next, "verified", verification);
+      if (next.phase !== "completed") {
+        next = advanceReleaseTransaction(next, "completed", {
+          key: `completion:${releaseEvent.tag_name}`,
+          kind: "release-completed",
+          target: releaseEvent.tag_name,
+          detail: "The release transaction has completed its configured verification steps."
+        });
+      }
+    }
+    await client.updateRelease(releaseId, {
+      body: updateReleaseTransactionBody(transactionBody ?? "", next)
+    });
+    setOutput("transaction", JSON.stringify(next));
+  }
   if (report.status === "failed") {
     throw new Error(`Post-release verification failed for ${releaseEvent.tag_name}.`);
   }
@@ -11492,7 +11834,6 @@ async function prepareRelease(client, head, config) {
 function isSemVergeReleasePullRequest(pr, config) {
   return (pr.head.ref === config.release.branch || pr.head.ref.startsWith("semverge/")) && /release/i.test(pr.title);
 }
-var RELEASE_PROGRESS_MARKER = "<!-- semverge-progress ";
 function independentTagName(config, packageItem) {
   const safeName = packageItem.name.replace(/^@/, "").replace(/[\\/]/g, "-");
   return `${config.release.independentTagPrefix}${safeName}@${packageItem.version}`;
@@ -11503,94 +11844,21 @@ function packageTagName(config, mode, packageItem) {
 function packageKey(packageItem, index) {
   return packageItem.id || packageItem.name || packageItem.directory || `package-${index + 1}`;
 }
-function initialReleaseProgress(version, publishablePackages, releaseTags, config) {
+function initialReleaseProgress(version, sourceCommit, publishablePackages, releaseTags, config) {
   const packageIds = publishablePackages.map(packageKey);
-  return {
-    schemaVersion: 1,
-    version,
-    packageIds,
-    tagNames: releaseTags,
-    npmEnabled: config.publishing.npm.enabled,
-    publishedPackages: config.publishing.npm.enabled ? [] : [...packageIds],
-    uploadedAssets: Object.fromEntries(releaseTags.map((tag) => [tag, []])),
-    ready: false,
-    published: false
-  };
+  let transaction = createReleaseTransaction({ version, sourceCommit, packageIds, tagNames: releaseTags, npmEnabled: config.publishing.npm.enabled });
+  transaction = advanceReleaseTransaction(transaction, "approved", { key: "approval", kind: "approval-verified", target: sourceCommit, detail: "Release PR merge commit verified." });
+  transaction = advanceReleaseTransaction(transaction, "prepared", { key: "release-inputs", kind: "release-plan-prepared", target: version, detail: "Release manifest, package set, and tags validated." });
+  return advanceReleaseTransaction(transaction, "built", { key: "artifact-build", kind: "artifacts-built", target: sourceCommit, detail: "Workspace and configured artifacts passed pre-publication validation." });
 }
 function parseReleaseProgress(body) {
-  const match = body?.match(/<!-- semverge-progress ([\s\S]*?) -->/);
-  if (!match) {
-    return null;
-  }
-  let value;
-  try {
-    value = JSON.parse(match[1] ?? "");
-  } catch (error) {
-    throw new Error(`SemVerge found an invalid release progress marker: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("SemVerge found an invalid release progress marker.");
-  }
-  const record = value;
-  const uploadedAssets = record.uploadedAssets;
-  if (record.schemaVersion !== 1 || typeof record.version !== "string" || !Array.isArray(record.packageIds) || !record.packageIds.every((item) => typeof item === "string") || !Array.isArray(record.tagNames) || !record.tagNames.every((item) => typeof item === "string") || typeof record.npmEnabled !== "boolean" || !Array.isArray(record.publishedPackages) || !record.publishedPackages.every((item) => typeof item === "string") || !uploadedAssets || typeof uploadedAssets !== "object" || Array.isArray(uploadedAssets) || typeof record.ready !== "boolean" || typeof record.published !== "boolean") {
-    throw new Error("SemVerge found an invalid release progress marker.");
-  }
-  const normalizedAssets = {};
-  for (const [tag, assets] of Object.entries(uploadedAssets)) {
-    if (!Array.isArray(assets) || !assets.every((asset) => typeof asset === "string")) {
-      throw new Error(`SemVerge found invalid uploaded asset state for ${tag}.`);
-    }
-    normalizedAssets[tag] = [...new Set(assets)];
-  }
-  return {
-    schemaVersion: 1,
-    version: record.version,
-    packageIds: [...new Set(record.packageIds)],
-    tagNames: [...new Set(record.tagNames)],
-    npmEnabled: record.npmEnabled,
-    publishedPackages: [...new Set(record.publishedPackages)],
-    uploadedAssets: normalizedAssets,
-    ready: record.ready,
-    published: record.published
-  };
+  return parseReleaseTransactionBody(body);
 }
 function releaseBody(customerNotes, progress) {
-  return `${RELEASE_PROGRESS_MARKER}${JSON.stringify(progress)} -->
-
-${customerNotes.trim()}
-`;
-}
-function sameValues(left, right) {
-  return left.length === right.length && left.every((value) => right.includes(value));
-}
-function validateReleaseProgress(progress, expected) {
-  if (progress.version !== expected.version || progress.npmEnabled !== expected.npmEnabled || !sameValues(progress.packageIds, expected.packageIds) || !sameValues(progress.tagNames, expected.tagNames)) {
-    throw new Error("SemVerge found release progress for a different release or publishing configuration; verify the draft releases before retrying.");
-  }
+  return releaseTransactionBody(customerNotes, progress);
 }
 function mergeReleaseProgress(states, expected) {
-  const present = states.filter((state) => state !== null);
-  const merged = {
-    ...expected,
-    publishedPackages: [...expected.publishedPackages],
-    uploadedAssets: Object.fromEntries(expected.tagNames.map((tag) => [tag, [...expected.uploadedAssets[tag] ?? []]])),
-    ready: false,
-    published: false
-  };
-  for (const state of present) {
-    validateReleaseProgress(state, expected);
-    merged.publishedPackages = [.../* @__PURE__ */ new Set([...merged.publishedPackages, ...state.publishedPackages])];
-    merged.ready ||= state.ready;
-    merged.published ||= state.published;
-    for (const tag of expected.tagNames) {
-      merged.uploadedAssets[tag] = [.../* @__PURE__ */ new Set([...merged.uploadedAssets[tag] ?? [], ...state.uploadedAssets[tag] ?? []])];
-    }
-  }
-  if (present.length === 0) {
-    return expected;
-  }
-  return merged;
+  return mergeReleaseTransactions(states, expected);
 }
 async function persistReleaseProgress(client, executions, progress, finalize = false) {
   for (const execution of executions) {
@@ -11603,6 +11871,15 @@ async function persistReleaseProgress(client, executions, progress, finalize = f
       ...finalize ? { draft: false } : {}
     });
     execution.release = { ...execution.release, ...updated, draft: finalize ? false : updated.draft ?? execution.release.draft ?? true };
+  }
+}
+async function persistFinalTransactionState(client, executions, progress) {
+  for (const execution of executions) {
+    const updated = await client.updateRelease(execution.release.id, {
+      body: updateReleaseTransactionBody(execution.release.body ?? releaseBody(execution.customerNotes, progress), progress),
+      tag_name: execution.tag
+    });
+    execution.release = { ...execution.release, ...updated, body: updated.body ?? execution.release.body };
   }
 }
 function collectFiles(target, root) {
@@ -11679,8 +11956,8 @@ async function publishRelease(client, pr, config) {
     return { packageItem, tag, customerNotes, existingRelease, existingProgress };
   }));
   const version = manifest.version ?? packages.map((packageItem) => `${packageItem.name}@${packageItem.version}`).join(", ");
-  const expectedProgress = initialReleaseProgress(version, publishablePackages, releaseInputs.map((item) => item.tag), config);
-  const progress = mergeReleaseProgress(releaseInputs.map((item) => item.existingProgress), expectedProgress);
+  const expectedProgress = initialReleaseProgress(version, mergeSha, publishablePackages, releaseInputs.map((item) => item.tag), config);
+  let progress = mergeReleaseProgress(releaseInputs.map((item) => item.existingProgress), expectedProgress);
   const executions = [];
   for (const item of releaseInputs) {
     let release = item.existingRelease;
@@ -11696,6 +11973,12 @@ async function publishRelease(client, pr, config) {
       release = { ...release, draft: true };
     }
     executions.push({ packageItem: item.packageItem, tag: item.tag, customerNotes: item.customerNotes, release });
+    progress = recordReleaseTransactionEvent(progress, {
+      key: `draft:${item.tag}`,
+      kind: "release-draft-prepared",
+      target: item.tag,
+      detail: item.existingRelease ? "Existing SemVerge draft detected; resume is safe." : "Draft GitHub release created for transactional publication."
+    });
     log(`${item.existingRelease ? "Resuming" : "Prepared draft"} GitHub release for ${item.packageItem.name}: ${release.html_url}`);
   }
   await persistReleaseProgress(client, executions, progress);
@@ -11708,12 +11991,20 @@ async function publishRelease(client, pr, config) {
     if (config.publishing.npm.idempotency === "registry" && await npmVersionExists(packageItem.name, packageItem.version, packageWorkspace)) {
       log(`Found ${packageItem.name}@${packageItem.version} in the npm registry; treating publication as already complete.`);
       progress.publishedPackages = [.../* @__PURE__ */ new Set([...progress.publishedPackages, id])];
+      progress = recordReleaseTransactionEvent(progress, { key: `package:${id}`, kind: "package-published", target: packageItem.name, detail: "Registry already contains the requested version; no duplicate publish was attempted." });
       await persistReleaseProgress(client, executions, progress);
       continue;
     }
     log(`Publishing ${packageItem.name} with npm command.`);
-    await exec2(config.publishing.npm.command, { cwd: packageWorkspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
+    try {
+      await exec2(config.publishing.npm.command, { cwd: packageWorkspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
+    } catch (error) {
+      progress = recordReleaseTransactionEvent(progress, { key: `package:${id}`, kind: "package-published", target: packageItem.name, status: "failed", detail: "Package publication failed; inspect runner logs before retrying." });
+      await persistReleaseProgress(client, executions, progress);
+      throw error;
+    }
     progress.publishedPackages = [.../* @__PURE__ */ new Set([...progress.publishedPackages, id])];
+    progress = recordReleaseTransactionEvent(progress, { key: `package:${id}`, kind: "package-published", target: packageItem.name });
     await persistReleaseProgress(client, executions, progress);
   }
   for (const execution of executions) {
@@ -11726,33 +12017,67 @@ async function publishRelease(client, pr, config) {
       const assetName = (0, import_node_path3.basename)(file);
       if (existingAssets.has(assetName)) {
         uploaded.add(assetName);
+        progress = recordReleaseTransactionEvent(progress, { key: `asset:${execution.tag}:${assetName}`, kind: "asset-detected", target: assetName, detail: "Release already contains this asset; no duplicate upload was attempted." });
         log(`Release artifact already attached for ${execution.tag}: ${assetName}`);
         continue;
       }
-      await client.uploadReleaseAsset(execution.release, file);
+      try {
+        await client.uploadReleaseAsset(execution.release, file);
+      } catch (error) {
+        progress = recordReleaseTransactionEvent(progress, { key: `asset:${execution.tag}:${assetName}`, kind: "asset-uploaded", target: assetName, status: "failed", detail: "Release asset upload failed; inspect runner logs before retrying." });
+        await persistReleaseProgress(client, executions, progress);
+        throw error;
+      }
       uploaded.add(assetName);
       log(`Uploaded release artifact for ${execution.tag}: ${assetName}`);
       progress.uploadedAssets[execution.tag] = [...uploaded];
+      progress = recordReleaseTransactionEvent(progress, { key: `asset:${execution.tag}:${assetName}`, kind: "asset-uploaded", target: assetName });
       await persistReleaseProgress(client, executions, progress);
     }
     progress.uploadedAssets[execution.tag] = [...uploaded];
   }
   progress.ready = true;
+  progress = recordReleaseTransactionEvent(progress, { key: "release-ready", kind: "release-ready", target: version, detail: "All package publication and release asset steps completed." });
   await persistReleaseProgress(client, executions, progress);
   progress.published = true;
+  progress = advanceReleaseTransaction(progress, "published", { key: "release-published", kind: "release-published", target: version, detail: "All transactional side effects completed; GitHub release drafts are being finalized." });
   await persistReleaseProgress(client, executions, progress, true);
   if (mode === "independent") {
     const versions = publishablePackages.map((packageItem) => packageItem.version).filter((value) => parseVersion(value));
     const anchor = versions.sort((left, right) => (parseVersion(right)?.major ?? 0) - (parseVersion(left)?.major ?? 0) || (parseVersion(right)?.minor ?? 0) - (parseVersion(left)?.minor ?? 0) || (parseVersion(right)?.patch ?? 0) - (parseVersion(left)?.patch ?? 0))[0];
     if (anchor) {
       const anchorTag = releaseTagName(config.release.tagPrefix, anchor);
-      const existingAnchor = await client.getRef(`tags/${anchorTag}`);
-      if (!existingAnchor) {
-        await client.createRef(`tags/${anchorTag}`, mergeSha);
-      } else if (existingAnchor.object.sha !== mergeSha) {
-        throw new Error(`Release anchor tag ${anchorTag} already points to a different commit.`);
+      try {
+        const existingAnchor = await client.getRef(`tags/${anchorTag}`);
+        if (!existingAnchor) {
+          await client.createRef(`tags/${anchorTag}`, mergeSha);
+          progress = recordReleaseTransactionEvent(progress, { key: `tag:${anchorTag}`, kind: "anchor-tag-created", target: anchorTag, detail: "Independent release anchor tag created at the merged release commit." });
+        } else if (existingAnchor.object.sha !== mergeSha) {
+          throw new Error(`Release anchor tag ${anchorTag} already points to a different commit.`);
+        } else {
+          progress = recordReleaseTransactionEvent(progress, { key: `tag:${anchorTag}`, kind: "anchor-tag-detected", target: anchorTag, detail: "Independent release anchor tag already points to the merged release commit." });
+        }
+      } catch (error) {
+        progress = recordReleaseTransactionEvent(progress, { key: `tag:${anchorTag}`, kind: "anchor-tag-created", target: anchorTag, status: "failed", detail: "Independent release anchor tag could not be created or did not point to the merged release commit." });
+        try {
+          await persistFinalTransactionState(client, executions, progress);
+        } catch {
+          log(`Could not persist the failed anchor-tag state for ${anchorTag}; inspect the release body and runner logs before retrying.`);
+        }
+        throw error;
       }
+      await persistFinalTransactionState(client, executions, progress);
     }
+  }
+  if (!config.health.enabled) {
+    progress = advanceReleaseTransaction(progress, "completed", {
+      key: "transaction-completed",
+      kind: "release-completed",
+      target: version,
+      detail: "Post-release verification is disabled; all configured transactional steps completed."
+    });
+    await persistFinalTransactionState(client, executions, progress);
+    setOutput("transaction", JSON.stringify(progress));
   }
   if (config.health.enabled) {
     for (const execution of executions) {
