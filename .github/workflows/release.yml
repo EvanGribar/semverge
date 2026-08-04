@@ -36,4 +36,5 @@ jobs:
         if: github.event_name == 'push'
         run: pnpm install --frozen-lockfile
       - uses: EvanGribar/semverge@main
-
+        with:
+          github-token: ${{ github.token }}
