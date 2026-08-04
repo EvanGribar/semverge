@@ -1,3 +1,4 @@
+import { compare as compareSemVer, parse as parseSemVer } from "semver";
 import type { BumpLevel } from "./types.js";
 
 export interface SemVer {
@@ -8,25 +9,18 @@ export interface SemVer {
   build: string[];
 }
 
-const VERSION_PATTERN = /^v?(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
-
 export function parseVersion(value: string): SemVer | null {
-  const match = VERSION_PATTERN.exec(value.trim());
-  if (!match) {
-    return null;
-  }
-
-  const prerelease = match[4] ? match[4].split(".") : [];
-  if (prerelease.some((identifier) => identifier.length > 1 && identifier.startsWith("0") && /^\d+$/.test(identifier))) {
+  const parsed = parseSemVer(value.trim());
+  if (!parsed) {
     return null;
   }
 
   return {
-    major: Number(match[1]),
-    minor: Number(match[2]),
-    patch: Number(match[3]),
-    prerelease,
-    build: match[5] ? match[5].split(".") : []
+    major: parsed.major,
+    minor: parsed.minor,
+    patch: parsed.patch,
+    prerelease: parsed.prerelease.map(String),
+    build: [...parsed.build]
   };
 }
 
@@ -38,50 +32,12 @@ export function formatVersion(version: SemVer, includeBuild = false): string {
 }
 
 export function compareVersions(left: string | SemVer, right: string | SemVer): number {
-  const a = typeof left === "string" ? parseVersion(left) : left;
-  const b = typeof right === "string" ? parseVersion(right) : right;
+  const a = parseSemVer(typeof left === "string" ? left.trim() : formatVersion(left, true));
+  const b = parseSemVer(typeof right === "string" ? right.trim() : formatVersion(right, true));
   if (!a || !b) {
     throw new Error(`Cannot compare invalid semantic versions: ${String(left)} and ${String(right)}`);
   }
-
-  for (const key of ["major", "minor", "patch"] as const) {
-    if (a[key] !== b[key]) {
-      return a[key] > b[key] ? 1 : -1;
-    }
-  }
-
-  if (a.prerelease.length === 0 && b.prerelease.length > 0) {
-    return 1;
-  }
-  if (a.prerelease.length > 0 && b.prerelease.length === 0) {
-    return -1;
-  }
-
-  const length = Math.max(a.prerelease.length, b.prerelease.length);
-  for (let index = 0; index < length; index += 1) {
-    const leftIdentifier = a.prerelease[index];
-    const rightIdentifier = b.prerelease[index];
-    if (leftIdentifier === undefined) {
-      return -1;
-    }
-    if (rightIdentifier === undefined) {
-      return 1;
-    }
-    if (leftIdentifier === rightIdentifier) {
-      continue;
-    }
-    const leftNumber = /^\d+$/.test(leftIdentifier);
-    const rightNumber = /^\d+$/.test(rightIdentifier);
-    if (leftNumber && rightNumber) {
-      return Number(leftIdentifier) > Number(rightIdentifier) ? 1 : -1;
-    }
-    if (leftNumber !== rightNumber) {
-      return leftNumber ? -1 : 1;
-    }
-    return leftIdentifier > rightIdentifier ? 1 : -1;
-  }
-
-  return 0;
+  return compareSemVer(a, b);
 }
 
 export function highestBump(levels: Iterable<BumpLevel>): BumpLevel {
