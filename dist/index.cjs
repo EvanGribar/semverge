@@ -11093,9 +11093,9 @@ function readEvent() {
 function isDryRun() {
   return input("dry-run").toLowerCase() === "true";
 }
-function localWorkspaceFile(path) {
+function localWorkspaceFile(path, ref) {
   const workspace = process.env.GITHUB_WORKSPACE;
-  if (!workspace) {
+  if (!workspace || ref !== void 0 && !/^[0-9a-f]{7,40}$/i.test(ref)) {
     return void 0;
   }
   const absolute = (0, import_node_path3.resolve)(workspace, path);
@@ -11110,7 +11110,7 @@ function localWorkspaceFile(path) {
   }
 }
 async function fileAtHead(client, path, ref) {
-  return localWorkspaceFile(path) ?? await client.getFile(path, ref);
+  return localWorkspaceFile(path, ref) ?? await client.getFile(path, ref);
 }
 async function localCommitFiles(sha) {
   const workspace = process.env.GITHUB_WORKSPACE;
@@ -11150,9 +11150,6 @@ function commitChange(commit, files) {
     files
   });
 }
-function isConventionalCommit(message) {
-  return /^(?:feat|feature|fix|bugfix|perf|docs|chore|ci|build|refactor|revert|style|test)(?:\([^\r\n)]+\))?!?:\s+\S/i.test(message.trim());
-}
 async function limitedMap(values, limit, mapper) {
   const results = [];
   for (let index = 0; index < values.length; index += limit) {
@@ -11164,15 +11161,8 @@ async function changesSinceTag(client, head, tag) {
   const commits = tag ? (await client.compare(tag, head)).commits : await client.listCommits(head);
   const pullRequests = /* @__PURE__ */ new Map();
   const changes = [];
-  const associationCandidates = commits.filter((commit) => !isConventionalCommit(commit.commit.message));
-  const associations = await limitedMap(associationCandidates, 8, async (commit) => ({ commit, pullRequests: await client.commitPullRequests(commit.sha) }));
-  const associationMap = new Map(associations.map(({ commit, pullRequests: associated }) => [commit.sha, associated]));
-  for (const commit of commits) {
-    if (isConventionalCommit(commit.commit.message)) {
-      changes.push(commitChange(commit, await localCommitFiles(commit.sha)));
-      continue;
-    }
-    const associated = associationMap.get(commit.sha) ?? [];
+  const associations = await limitedMap(commits, 8, async (commit) => ({ commit, pullRequests: await client.commitPullRequests(commit.sha) }));
+  for (const { commit, pullRequests: associated } of associations) {
     if (associated.length === 0) {
       changes.push(commitChange(commit, await localCommitFiles(commit.sha)));
       continue;

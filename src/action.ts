@@ -65,9 +65,9 @@ function isDryRun(): boolean {
   return input("dry-run").toLowerCase() === "true";
 }
 
-function localWorkspaceFile(path: string): string | undefined {
+function localWorkspaceFile(path: string, ref?: string): string | undefined {
   const workspace = process.env.GITHUB_WORKSPACE;
-  if (!workspace) {
+  if (!workspace || (ref !== undefined && !/^[0-9a-f]{7,40}$/i.test(ref))) {
     return undefined;
   }
   const absolute = resolve(workspace, path);
@@ -83,7 +83,7 @@ function localWorkspaceFile(path: string): string | undefined {
 }
 
 async function fileAtHead(client: GitHubClient, path: string, ref: string): Promise<string | null> {
-  return localWorkspaceFile(path) ?? await client.getFile(path, ref);
+  return localWorkspaceFile(path, ref) ?? await client.getFile(path, ref);
 }
 
 async function localCommitFiles(sha: string | null | undefined): Promise<string[] | undefined> {
@@ -127,10 +127,6 @@ function commitChange(commit: GitHubCommitSummary, files?: string[]) {
   });
 }
 
-function isConventionalCommit(message: string): boolean {
-  return /^(?:feat|feature|fix|bugfix|perf|docs|chore|ci|build|refactor|revert|style|test)(?:\([^\r\n)]+\))?!?:\s+\S/i.test(message.trim());
-}
-
 async function limitedMap<T, R>(values: T[], limit: number, mapper: (value: T) => Promise<R>): Promise<R[]> {
   const results: R[] = [];
   for (let index = 0; index < values.length; index += limit) {
@@ -143,15 +139,8 @@ async function changesSinceTag(client: GitHubClient, head: string, tag: string |
   const commits = tag ? (await client.compare(tag, head)).commits : await client.listCommits(head);
   const pullRequests = new Map<number, GitHubPullRequest>();
   const changes = [];
-  const associationCandidates = commits.filter((commit) => !isConventionalCommit(commit.commit.message));
-  const associations = await limitedMap(associationCandidates, 8, async (commit) => ({ commit, pullRequests: await client.commitPullRequests(commit.sha) }));
-  const associationMap = new Map(associations.map(({ commit, pullRequests: associated }) => [commit.sha, associated]));
-  for (const commit of commits) {
-    if (isConventionalCommit(commit.commit.message)) {
-      changes.push(commitChange(commit, await localCommitFiles(commit.sha)));
-      continue;
-    }
-    const associated = associationMap.get(commit.sha) ?? [];
+  const associations = await limitedMap(commits, 8, async (commit) => ({ commit, pullRequests: await client.commitPullRequests(commit.sha) }));
+  for (const { commit, pullRequests: associated } of associations) {
     if (associated.length === 0) {
       changes.push(commitChange(commit, await localCommitFiles(commit.sha)));
       continue;
