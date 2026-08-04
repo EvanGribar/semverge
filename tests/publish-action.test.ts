@@ -81,7 +81,7 @@ describe("merged release publication", () => {
       const body = init?.body && typeof init.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : undefined;
       requests.push({ method: init?.method ?? "GET", path: `${url.pathname}${url.search}`, body });
       if (url.pathname.endsWith("/contents/.semverge.yml")) {
-        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded("release:\n  branch: release/bot\nhealth:\n  enabled: false\n") }), { status: 200 });
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded("release:\n  branch: release/bot\nhealth:\n  enabled: true\n") }), { status: 200 });
       }
       if (url.pathname.endsWith("/contents/release-manifest.json")) {
         return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded(manifest()) }), { status: 200 });
@@ -94,6 +94,9 @@ describe("merged release publication", () => {
       }
       if (url.pathname.endsWith("/releases/tags/v0.2.0")) {
         return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
+      }
+      if (url.pathname.endsWith("/actions/runs")) {
+        return new Response(JSON.stringify({ workflow_runs: [] }), { status: 200 });
       }
       if (url.pathname.endsWith("/releases") && init?.method === "POST") {
         return new Response(JSON.stringify({ id: 3, tag_name: "v0.2.0", html_url: "https://github.com/demo/repo/releases/tag/v0.2.0", upload_url: "https://uploads.github.com/repos/demo/repo/releases/3/assets{?name,label}", body: body?.body, draft: true, assets: [] }), { status: 201 });
@@ -122,6 +125,8 @@ describe("merged release publication", () => {
     expect(requests[finalizeIndex]?.body?.tag_name).toBe("v0.2.0");
     expect(requests[createIndex]?.body?.body).toContain("semverge-progress");
     expect(requests.some((request) => request.method === "POST" && request.path.endsWith("/git/refs"))).toBe(false);
+    expect(requests.some((request) => request.path.endsWith("/actions/runs?head_sha=merge-sha&per_page=100&page=1"))).toBe(true);
+    expect(output).toContain("post-release-verification");
     expect(output).toContain("https://github.com/demo/repo/releases/tag/v0.2.0");
   });
 
