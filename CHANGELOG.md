@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.1.8] - 2026-08-04
+
+### Bug Fixes
+
+- [apply unscoped changes to independent packages](https://github.com/EvanGribar/semverge/pull/39) (#39)
+
 ## [0.1.7] - 2026-08-04
 
 ### Bug Fixes

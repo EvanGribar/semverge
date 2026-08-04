@@ -1,5 +1,5 @@
-# SemVerge release announcement: 0.1.7
+# SemVerge release announcement: 0.1.8
 
-SemVerge 0.1.7 includes:
+SemVerge 0.1.8 includes:
 
-- release explicitly included private roots in single mode
+- apply unscoped changes to independent packages
