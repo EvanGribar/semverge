@@ -68,12 +68,13 @@ The package includes a small deterministic local workflow for setup and troubles
 npx semverge init       # create .semverge.yml without overwriting it
 npx semverge plan "feat: add bulk export"
 npx semverge explain "feat: add bulk export"
+npx semverge migrate changesets  # inspect an existing release tool
 npx semverge doctor     # validate package.json and configuration
 npx semverge recover release_01J... --state .semverge/release-state.json
 ```
 
 `init` is safe by default and requires `--force` to replace an existing file. `plan` prints the same release-plan shape used by the action, `explain` turns that plan into a human-readable decision and recovery guide, while `doctor` reports configuration type errors before a hosted run.
-`recover` prints the durable transaction state and safe next action. With `GITHUB_REPOSITORY` and a token it searches GitHub releases; `--state` is useful for a local exported marker or fixture.
+`migrate` detects Release Please, Changesets, and semantic-release configuration and produces a conservative report; add `--write` only after reviewing it. `recover` prints the durable transaction state and safe next action. With `GITHUB_REPOSITORY` and a token it searches GitHub releases; `--state` is useful for a local exported marker or fixture. See [docs/migration.md](docs/migration.md).
 
 For independent workspaces, the plan and release PR include a release graph for every bumped package: direct changes, dependent-package propagation, and packages left unreleased by the current strategy are shown explicitly.
 

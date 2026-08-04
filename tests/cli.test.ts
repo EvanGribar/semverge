@@ -57,6 +57,19 @@ describe("SemVerge CLI", () => {
     }
   });
 
+  it("prints a conservative migration report", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "semverge-cli-migrate-"));
+    try {
+      writeFileSync(join(directory, "package.json"), JSON.stringify({ devDependencies: { "semantic-release": "^24.0.0" } }));
+      const output = capture();
+      expect(await runCli(["migrate", "semantic-release"], directory, output.io)).toBe(0);
+      expect(output.stdout.join("\n")).toContain("SemVerge migration report");
+      expect(output.stdout.join("\n")).toContain("Publication is disabled");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("keeps the original title-only plan invocation working", async () => {
     const directory = mkdtempSync(join(tmpdir(), "semverge-cli-title-"));
     try {

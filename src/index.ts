@@ -3,6 +3,7 @@ export * from "./config.js";
 export * from "./explain.js";
 export * from "./health.js";
 export * from "./metadata.js";
+export * from "./migrate.js";
 export * from "./npm.js";
 export * from "./notes.js";
 export * from "./packages.js";
