@@ -13,7 +13,15 @@ describe("semantic versions", () => {
     expect(bumpVersion("1.3.1-beta.0", "none", "beta")).toBe("1.3.1-beta.1");
   });
 
-  it("rejects malformed leading-zero prerelease identifiers", () => {
+  it("rejects malformed leading-zero core and prerelease identifiers", () => {
+    expect(parseVersion("01.0.0")).toBeNull();
+    expect(parseVersion("1.01.0")).toBeNull();
+    expect(parseVersion("1.0.01")).toBeNull();
     expect(parseVersion("1.0.0-beta.01")).toBeNull();
+    expect(parseVersion("v1.0.0")).not.toBeNull();
+  });
+
+  it("uses SemVer precedence and ignores build metadata", () => {
+    expect(compareVersions("1.0.0+build.1", "1.0.0+build.2")).toBe(0);
   });
 });
