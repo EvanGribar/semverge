@@ -1,3 +1,3 @@
-# Internal release summary for 0.1.11
+# Internal release summary for 0.1.12
 
-No internal-only changes were recorded.
+- align release communication and v0 usage

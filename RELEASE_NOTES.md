@@ -1,7 +1,7 @@
-# What's new in 0.1.11
+# What's new in 0.1.12
 
-A clear summary of the changes included in this release.
+This release includes 1 fix. Highest-impact change: quote release action metadata.
 
 ### Improvements and Fixes
 
-- [make npm publication retries idempotent](https://github.com/EvanGribar/semverge/pull/45) (#45)
+- [quote release action metadata](https://github.com/EvanGribar/semverge/pull/48) (#48)

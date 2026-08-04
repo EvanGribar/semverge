@@ -1,5 +1,5 @@
-# SemVerge release announcement: 0.1.11
+# SemVerge release announcement: 0.1.12
 
-SemVerge 0.1.11 includes:
+SemVerge 0.1.12 includes:
 
-- make npm publication retries idempotent
+- quote release action metadata

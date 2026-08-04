@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.12] - 2026-08-04
+
+### Bug Fixes
+
+- [quote release action metadata](https://github.com/EvanGribar/semverge/pull/48) (#48)
+
+### Internal Changes
+
+- [align release communication and v0 usage](https://github.com/EvanGribar/semverge/pull/47) (#47)
+
 ## [0.1.11] - 2026-08-04
 
 ### Bug Fixes
