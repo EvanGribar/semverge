@@ -1,6 +1,14 @@
 import { parse as parseYaml } from "yaml";
 import type { ArtifactConfig, HealthWorkflow, OutputConfig, ReadinessCommand, ReadinessTask, SemVergeConfig } from "./types.js";
 
+export type ConfigValidationSeverity = "error" | "warning";
+
+export interface ConfigValidationIssue {
+  path: string;
+  severity: ConfigValidationSeverity;
+  message: string;
+}
+
 export const DEFAULT_CONFIG: SemVergeConfig = {
   release: {
     branch: "semverge/release",
@@ -43,6 +51,154 @@ export const DEFAULT_CONFIG: SemVergeConfig = {
     }
   }
 };
+
+function record(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function section(root: Record<string, unknown>, key: string, issues: ConfigValidationIssue[]): Record<string, unknown> | undefined {
+  const value = root[key];
+  if (value === undefined) {
+    return undefined;
+  }
+  if (!record(value)) {
+    issues.push({ path: key, severity: "error", message: "must be an object" });
+    return undefined;
+  }
+  return value;
+}
+
+function stringField(value: Record<string, unknown>, key: string, path: string, issues: ConfigValidationIssue[]): void {
+  if (value[key] !== undefined && typeof value[key] !== "string") {
+    issues.push({ path: `${path}.${key}`, severity: "error", message: "must be a string" });
+  }
+}
+
+function booleanField(value: Record<string, unknown>, key: string, path: string, issues: ConfigValidationIssue[]): void {
+  if (value[key] !== undefined && typeof value[key] !== "boolean") {
+    issues.push({ path: `${path}.${key}`, severity: "error", message: "must be a boolean" });
+  }
+}
+
+function stringArrayField(value: Record<string, unknown>, key: string, path: string, issues: ConfigValidationIssue[]): void {
+  const field = value[key];
+  if (field === undefined) {
+    return;
+  }
+  if (!Array.isArray(field) || field.some((item) => typeof item !== "string")) {
+    issues.push({ path: `${path}.${key}`, severity: "error", message: "must be an array of strings" });
+  }
+}
+
+function enumField(value: Record<string, unknown>, key: string, path: string, choices: string[], issues: ConfigValidationIssue[]): void {
+  const field = value[key];
+  if (field === undefined) {
+    return;
+  }
+  if (typeof field !== "string" || !choices.includes(field)) {
+    issues.push({ path: `${path}.${key}`, severity: "error", message: `must be one of: ${choices.join(", ")}` });
+  }
+}
+
+export function validateConfigContent(content: string, fileName = ".semverge.yml"): ConfigValidationIssue[] {
+  if (!content.trim()) {
+    return [];
+  }
+  let raw: unknown;
+  try {
+    raw = fileName.toLowerCase().endsWith(".json") ? JSON.parse(content) : parseYaml(content);
+  } catch (error) {
+    return [{ path: fileName, severity: "error", message: `could not parse: ${error instanceof Error ? error.message : String(error)}` }];
+  }
+  if (!record(raw)) {
+    return [{ path: fileName, severity: "error", message: "must contain a configuration object" }];
+  }
+
+  const issues: ConfigValidationIssue[] = [];
+  const release = section(raw, "release", issues);
+  if (release) {
+    stringField(release, "branch", "release", issues);
+    stringField(release, "tagPrefix", "release", issues);
+    stringField(release, "independentTagPrefix", "release", issues);
+    stringField(release, "prerelease", "release", issues);
+  }
+  const readiness = section(raw, "readiness", issues);
+  if (readiness) {
+    stringArrayField(readiness, "requiredLabels", "readiness", issues);
+    stringArrayField(readiness, "requiredFiles", "readiness", issues);
+    if (readiness.commands !== undefined && (!Array.isArray(readiness.commands) || readiness.commands.some((item) => !record(item) || typeof item.name !== "string" || typeof item.run !== "string"))) {
+      issues.push({ path: "readiness.commands", severity: "error", message: "must be an array of objects with name and run strings" });
+    }
+    if (readiness.tasks !== undefined && (!Array.isArray(readiness.tasks) || readiness.tasks.some((item) => !record(item) || typeof item.name !== "string"))) {
+      issues.push({ path: "readiness.tasks", severity: "error", message: "must be an array of objects with a name string" });
+    }
+  }
+  const outputs = section(raw, "outputs", issues);
+  if (outputs) {
+    for (const key of ["changelog", "customerNotes", "migrationGuide", "internalSummary", "manifest", "announcement"]) {
+      stringField(outputs, key, "outputs", issues);
+    }
+  }
+  const artifacts = section(raw, "artifacts", issues);
+  if (artifacts) {
+    stringField(artifacts, "command", "artifacts", issues);
+    stringArrayField(artifacts, "paths", "artifacts", issues);
+  }
+  const monorepo = section(raw, "monorepo", issues);
+  if (monorepo) {
+    enumField(monorepo, "mode", "monorepo", ["auto", "single", "fixed", "independent"], issues);
+    stringArrayField(monorepo, "packages", "monorepo", issues);
+    booleanField(monorepo, "includeRoot", "monorepo", issues);
+    enumField(monorepo, "unscopedChanges", "monorepo", ["all", "root"], issues);
+  }
+  const health = section(raw, "health", issues);
+  if (health) {
+    booleanField(health, "enabled", "health", issues);
+    stringArrayField(health, "expectedArtifacts", "health", issues);
+    stringArrayField(health, "requiredLinks", "health", issues);
+    if (health.workflows !== undefined && (!Array.isArray(health.workflows) || health.workflows.some((item) => !record(item) || typeof item.name !== "string" || (item.purpose !== undefined && !["package", "deployment", "custom", "rollback"].includes(String(item.purpose))) || (item.required !== undefined && typeof item.required !== "boolean")))) {
+      issues.push({ path: "health.workflows", severity: "error", message: "must be an array of workflow objects with valid name, purpose, and required fields" });
+    }
+    if (health.workflows && Array.isArray(health.workflows)) {
+      health.workflows.forEach((item, index) => {
+        if (record(item) && item.purpose === "rollback") {
+          issues.push({ path: `health.workflows[${index}].purpose`, severity: "warning", message: "rollback is deprecated and is treated as a custom verification workflow" });
+        }
+      });
+    }
+    if (health.hotfixWindowHours !== undefined) {
+      issues.push({ path: "health.hotfixWindowHours", severity: "warning", message: "hotfix detection is no longer performed during immediate post-release verification" });
+    }
+  }
+  const publishing = section(raw, "publishing", issues);
+  if (publishing) {
+    const npm = section(publishing, "npm", issues);
+    if (npm) {
+      booleanField(npm, "enabled", "publishing.npm", issues);
+      stringField(npm, "command", "publishing.npm", issues);
+    }
+  }
+  return issues;
+}
+
+export function validateConfig(config: SemVergeConfig): ConfigValidationIssue[] {
+  const issues: ConfigValidationIssue[] = [];
+  if (!config.release.branch.trim()) {
+    issues.push({ path: "release.branch", severity: "error", message: "must not be empty" });
+  }
+  if (!config.release.tagPrefix) {
+    issues.push({ path: "release.tagPrefix", severity: "warning", message: "is empty; generated release tags will not have a prefix" });
+  }
+  const workflowNames = new Set<string>();
+  for (const workflow of config.health.workflows) {
+    const key = workflow.name.toLowerCase();
+    if (workflowNames.has(key)) {
+      issues.push({ path: "health.workflows", severity: "warning", message: `workflow ${workflow.name} is configured more than once` });
+    }
+    workflowNames.add(key);
+  }
+  return issues;
+}
 
 function strings(value: unknown): string[] {
   if (!Array.isArray(value)) {
