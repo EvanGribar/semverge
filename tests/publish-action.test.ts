@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+﻿import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -12,7 +12,7 @@ describe("merged release publication", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("creates a tag and GitHub release from the merged release PR", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "releaserail-publish-"));
+    const directory = mkdtempSync(join(tmpdir(), "semverge-publish-"));
     const eventPath = join(directory, "event.json");
     const outputPath = join(directory, "outputs.txt");
     writeFileSync(eventPath, JSON.stringify({
@@ -36,7 +36,7 @@ describe("merged release publication", () => {
       const url = new URL(String(input));
       const body = init?.body && typeof init.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : undefined;
       requests.push({ method: init?.method ?? "GET", path: `${url.pathname}${url.search}`, body });
-      if (url.pathname.endsWith("/contents/.releaserail.yml")) {
+      if (url.pathname.endsWith("/contents/.semverge.yml")) {
         return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded("release:\n  branch: release/bot\nhealth:\n  enabled: false\n") }), { status: 200 });
       }
       if (url.pathname.endsWith("/contents/release-manifest.json")) {
@@ -61,7 +61,7 @@ describe("merged release publication", () => {
     }));
 
     const previous = new Map<string, string | undefined>();
-    for (const [key, value] of Object.entries({ GITHUB_API_URL: "https://api.github.test", GITHUB_REPOSITORY: "demo/repo", GITHUB_EVENT_NAME: "pull_request", GITHUB_SHA: "merge-sha", GITHUB_EVENT_PATH: eventPath, GITHUB_OUTPUT: outputPath, INPUT_GITHUB_TOKEN: "test-token", INPUT_CONFIG: ".releaserail.yml" })) {
+    for (const [key, value] of Object.entries({ GITHUB_API_URL: "https://api.github.test", GITHUB_REPOSITORY: "demo/repo", GITHUB_EVENT_NAME: "pull_request", GITHUB_SHA: "merge-sha", GITHUB_EVENT_PATH: eventPath, GITHUB_OUTPUT: outputPath, INPUT_GITHUB_TOKEN: "test-token", INPUT_CONFIG: ".semverge.yml" })) {
       previous.set(key, process.env[key]);
       process.env[key] = value;
     }

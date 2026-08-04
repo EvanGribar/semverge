@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import { detectRapidHotfix, evaluateReleaseHealth, healthMarkdown } from "../src/health.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 
@@ -6,7 +6,7 @@ describe("release health", () => {
   it("reports missing assets, failed workflows, and broken docs links", () => {
     const config = {
       ...DEFAULT_CONFIG.health,
-      expectedArtifacts: ["releaserail.tgz"],
+      expectedArtifacts: ["semverge.tgz"],
       requiredLinks: ["https://docs.example.com/release"],
       workflows: [
         { name: "publish", purpose: "package" as const, required: true },
@@ -23,7 +23,7 @@ describe("release health", () => {
     });
     expect(report.status).toBe("failed");
     expect(report.checks.some((check) => check.name.startsWith("artifact:") && check.status === "fail")).toBe(true);
-    expect(healthMarkdown(report)).toContain("ReleaseRail release health");
+    expect(healthMarkdown(report)).toContain("SemVerge release health");
   });
 
   it("treats a patch release shortly afterward as a warning signal", () => {

@@ -1,10 +1,10 @@
-# ReleaseRail
+﻿# SemVerge
 
-ReleaseRail is the easiest way to version, prepare, and publish a software release on GitHub.
+SemVerge is the easiest way to version, prepare, and publish a software release on GitHub.
 
 It owns the complete release path:
 
-`detect changes → choose version → prepare release → verify readiness → generate communication → publish`
+`detect changes â†’ choose version â†’ prepare release â†’ verify readiness â†’ generate communication â†’ publish`
 
 ## Quick start
 
@@ -27,15 +27,15 @@ permissions:
   actions: read
 
 jobs:
-  releaserail:
+  semverge:
     runs-on: ubuntu-latest
     steps:
-      - uses: EvanGribar/ReleaseRail@v0.1.1
+      - uses: EvanGribar/semverge@v0.1.2
 ```
 
-On pushes to `main`, ReleaseRail reads conventional commits and merged pull requests, calculates the next semantic version, and maintains a release pull request. When that pull request merges, ReleaseRail creates the tag and GitHub release.
+On pushes to `main`, SemVerge reads conventional commits and merged pull requests, calculates the next semantic version, and maintains a release pull request. When that pull request merges, SemVerge creates the tag and GitHub release.
 
-The default repository needs no configuration. ReleaseRail also understands product-oriented labels:
+The default repository needs no configuration. SemVerge also understands product-oriented labels:
 
 | Label | Meaning |
 | --- | --- |
@@ -50,7 +50,7 @@ The default repository needs no configuration. ReleaseRail also understands prod
 Structured pull-request metadata is optional. Add this hidden block to a pull-request body when the conventional commit is not expressive enough:
 
 ```md
-<!-- releaserail
+<!-- semverge
 type: feature
 customer: Add bulk export for projects.
 migration: Existing exports continue to work without changes.
@@ -59,11 +59,11 @@ migration: Existing exports continue to work without changes.
 
 ## Optional configuration
 
-Create `.releaserail.yml` only when the defaults need changing:
+Create `.semverge.yml` only when the defaults need changing:
 
 ```yaml
 release:
-  branch: releaserail/release
+  branch: semverge/release
   tagPrefix: v
   independentTagPrefix: pkg-
   prerelease: beta
@@ -88,7 +88,7 @@ outputs:
   changelog: CHANGELOG.md
   customerNotes: RELEASE_NOTES.md
   migrationGuide: MIGRATION.md
-  internalSummary: .releaserail/internal-release.md
+  internalSummary: .semverge/internal-release.md
   manifest: release-manifest.json
 
 artifacts:
@@ -115,7 +115,7 @@ health:
 
 Readiness checks are reported in the release PR. A missing required label or file blocks publication but does not hide the proposed version or generated communication.
 
-Configured commands and artifact commands run in the runner workspace. The zero-configuration API path does not need a checkout; add `actions/checkout` before ReleaseRail when a command needs the repository files.
+Configured commands and artifact commands run in the runner workspace. The zero-configuration API path does not need a checkout; add `actions/checkout` before SemVerge when a command needs the repository files.
 
 ## Current scope
 
@@ -130,4 +130,4 @@ pnpm verify
 
 The action bundle in `dist/` is generated with `pnpm bundle` and is committed because GitHub executes JavaScript actions from the repository contents.
 
-ReleaseRail does not use AI to create release communication. It uses explicit PR metadata, labels, and conventional commits with deterministic templates.
+SemVerge does not use AI to create release communication. It uses explicit PR metadata, labels, and conventional commits with deterministic templates.

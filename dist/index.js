@@ -7369,7 +7369,7 @@ var import_node_util = require("node:util");
 var import_node_path3 = require("node:path");
 
 // src/metadata.ts
-var METADATA_BLOCK = /<!--\s*releaserail(?:\s+release)?\s*([\s\S]*?)-->/i;
+var METADATA_BLOCK = /<!--\s*semverge(?:\s+release)?\s*([\s\S]*?)-->/i;
 var ALLOWED_TYPES = /* @__PURE__ */ new Set(["feature", "fix", "breaking", "docs", "internal", "other"]);
 function parseBoolean(value) {
   const normalized = value.trim().toLowerCase();
@@ -7422,7 +7422,7 @@ function parseJsonMetadata(value) {
     return null;
   }
 }
-function parseReleaseRailMetadata(body = "") {
+function parseSemVergeMetadata(body = "") {
   const match = METADATA_BLOCK.exec(body);
   if (!match) {
     return {};
@@ -7541,7 +7541,7 @@ function parseChange(input2) {
   const body = input2.body ?? "";
   const labels = normalizeLabels(input2.labels);
   const parsed = parseTitle(input2.title);
-  const metadata = parseReleaseRailMetadata(body);
+  const metadata = parseSemVergeMetadata(body);
   const overriddenKind = labelKind(labels);
   const kind = metadata.type ?? overriddenKind ?? parsed.kind;
   const breaking = metadata.breaking ?? (labels.includes("ship:breaking") || parsed.breaking || hasBreakingFooter(body) || kind === "breaking");
@@ -7591,7 +7591,7 @@ function formatChangeReference(change) {
 var import_yaml = __toESM(require_dist(), 1);
 var DEFAULT_CONFIG = {
   release: {
-    branch: "releaserail/release",
+    branch: "semverge/release",
     tagPrefix: "v",
     independentTagPrefix: "pkg-"
   },
@@ -7605,7 +7605,7 @@ var DEFAULT_CONFIG = {
     changelog: "CHANGELOG.md",
     customerNotes: "RELEASE_NOTES.md",
     migrationGuide: "MIGRATION.md",
-    internalSummary: ".releaserail/internal-release.md",
+    internalSummary: ".semverge/internal-release.md",
     manifest: "release-manifest.json",
     announcement: "RELEASE_ANNOUNCEMENT.md"
   },
@@ -7757,7 +7757,7 @@ function mergeConfig(raw) {
   }
   return result;
 }
-function parseConfig(content, fileName = ".releaserail.yml") {
+function parseConfig(content, fileName = ".semverge.yml") {
   if (!content.trim()) {
     return DEFAULT_CONFIG;
   }
@@ -8384,7 +8384,7 @@ function discoverPackages(files, allPaths, config) {
   }
   const unique = [...new Map(discovered.map((item) => [item.manifestPath, item])).values()];
   if (unique.length === 0) {
-    throw new Error("ReleaseRail could not find a supported package manifest (package.json, pyproject.toml, or Cargo.toml).");
+    throw new Error("SemVerge could not find a supported package manifest (package.json, pyproject.toml, or Cargo.toml).");
   }
   return { mode: selectedMode(config, unique), packages: unique };
 }
@@ -8468,13 +8468,13 @@ function renderInternalSummary(version, changes) {
 function renderAnnouncement(version, changes) {
   const announcements = uniqueLines(changes.flatMap((change) => change.announcement ? [change.announcement] : []));
   const customerChanges = changes.filter((change) => change.kind === "feature" || change.kind === "fix" || change.kind === "breaking" || change.breaking);
-  const lines = [`# ReleaseRail release announcement: ${version}`, ""];
+  const lines = [`# SemVerge release announcement: ${version}`, ""];
   if (announcements.length > 0) {
     lines.push(...announcements, "");
   } else if (customerChanges.length > 0) {
-    lines.push(`ReleaseRail ${version} includes:`, "", ...customerChanges.map((change) => `- ${change.customerSummary}`), "");
+    lines.push(`SemVerge ${version} includes:`, "", ...customerChanges.map((change) => `- ${change.customerSummary}`), "");
   } else {
-    lines.push(`ReleaseRail ${version} is now available.`, "");
+    lines.push(`SemVerge ${version} is now available.`, "");
   }
   return lines.join("\n");
 }
@@ -8734,7 +8734,7 @@ function buildWorkspaceReleasePlan(input2) {
   if (input2.mode === "fixed" || input2.mode === "single") {
     const packageItem = releaseable[0] ?? input2.packages[0];
     if (!packageItem) {
-      throw new Error("ReleaseRail found no releaseable package.");
+      throw new Error("SemVerge found no releaseable package.");
     }
     const packageConfig2 = {
       ...input2.config,
@@ -8933,11 +8933,11 @@ function detectRapidHotfix(releaseVersion, publishedAt, laterReleases, tagPrefix
   });
 }
 function healthMarkdown(report) {
-  const icon = report.status === "healthy" ? "\u2705" : report.status === "degraded" ? "\u26A0\uFE0F" : report.status === "failed" ? "\u274C" : "\u2139\uFE0F";
+  const icon = report.status === "healthy" ? "\xE2\u0153\u2026" : report.status === "degraded" ? "\xE2\u0161\xA0\xEF\xB8\x8F" : report.status === "failed" ? "\xE2\x9D\u0152" : "\xE2\u201E\xB9\xEF\xB8\x8F";
   return [
-    `## ReleaseRail release health: ${icon} ${report.status}`,
+    `## SemVerge release health: ${icon} ${report.status}`,
     "",
-    ...report.checks.map((check) => `${check.status === "pass" ? "\u2705" : check.status === "warn" ? "\u26A0\uFE0F" : "\u274C"} **${check.name}** \u2014 ${check.detail}`),
+    ...report.checks.map((check) => `${check.status === "pass" ? "\xE2\u0153\u2026" : check.status === "warn" ? "\xE2\u0161\xA0\xEF\xB8\x8F" : "\xE2\x9D\u0152"} **${check.name}** \xE2\u20AC\u201D ${check.detail}`),
     ""
   ].join("\n");
 }
@@ -8952,14 +8952,14 @@ function setOutput(name, value) {
   if (!outputFile) {
     return;
   }
-  const delimiter = `RELEASERAIL_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  const delimiter = `SEMVERGE_${Date.now()}_${Math.random().toString(16).slice(2)}`;
   (0, import_node_fs.appendFileSync)(outputFile, `${name}<<${delimiter}
 ${value}
 ${delimiter}
 `, "utf8");
 }
 function log(message) {
-  process.stdout.write(`[releaserail] ${message}
+  process.stdout.write(`[semverge] ${message}
 `);
 }
 function readEvent() {
@@ -9046,8 +9046,8 @@ function releasePrBody(plan, config) {
 
 ${packagePlan.customerNotes.trim()}`).join("\n\n");
   const lines = [
-    `<!-- releaserail-release ${marker} -->`,
-    `# ReleaseRail release ${plan.version}`,
+    `<!-- semverge-release ${marker} -->`,
+    `# SemVerge release ${plan.version}`,
     "",
     `This ${plan.mode} release prepares version changes and release communication for ${plan.packages.length} package(s).`,
     "",
@@ -9062,7 +9062,7 @@ ${packagePlan.customerNotes.trim()}`).join("\n\n");
     notes || "No customer-facing changes were marked for this release.",
     "",
     "---",
-    "Generated by ReleaseRail. Merge this pull request to publish the tag and GitHub release."
+    "Generated by SemVerge. Merge this pull request to publish the tag and GitHub release."
   ];
   return `${lines.join("\n").trim()}
 `;
@@ -9212,8 +9212,8 @@ async function prepareRelease(client, head, config) {
   setOutput("release-pr", releasePr.html_url);
   log(`${existing ? "Updated" : "Created"} release PR: ${releasePr.html_url}`);
 }
-function isReleaseRailReleasePullRequest(pr, config) {
-  return (pr.head.ref === config.release.branch || pr.head.ref.startsWith("releaserail/")) && /release/i.test(pr.title);
+function isSemVergeReleasePullRequest(pr, config) {
+  return (pr.head.ref === config.release.branch || pr.head.ref.startsWith("semverge/")) && /release/i.test(pr.title);
 }
 function independentTagName(config, packageItem) {
   const safeName = packageItem.name.replace(/^@/, "").replace(/[\\/]/g, "-");
@@ -9239,18 +9239,18 @@ function collectFiles(target, root) {
 async function publishRelease(client, pr, config) {
   const mergeSha = pr.merge_commit_sha;
   if (!mergeSha) {
-    throw new Error("The ReleaseRail release PR does not have a merge commit SHA.");
+    throw new Error("The SemVerge release PR does not have a merge commit SHA.");
   }
   const manifestContent2 = await client.getFile(config.outputs.manifest, mergeSha);
   const manifest = manifestContent2 ? JSON.parse(manifestContent2) : {};
   if (manifest.readiness?.passed === false) {
-    throw new Error("Release readiness checks are incomplete; ReleaseRail did not publish the release.");
+    throw new Error("Release readiness checks are incomplete; SemVerge did not publish the release.");
   }
   let packages = manifest.packages ?? [];
   if (packages.length === 0) {
     const packageJson = await client.getFile("package.json", mergeSha);
     if (!packageJson) {
-      throw new Error("The merged ReleaseRail release PR does not contain a release manifest or package.json.");
+      throw new Error("The merged SemVerge release PR does not contain a release manifest or package.json.");
     }
     const value = JSON.parse(packageJson);
     if (!value || typeof value !== "object" || Array.isArray(value) || typeof value.version !== "string") {
@@ -9336,7 +9336,7 @@ async function run() {
   const client = new GitHubClient(token, repository);
   const eventName = process.env.GITHUB_EVENT_NAME ?? "";
   const event = readEvent();
-  const configPath = input("config") || ".releaserail.yml";
+  const configPath = input("config") || ".semverge.yml";
   const pullRequestMergeSha = "pull_request" in event ? event.pull_request?.merge_commit_sha ?? void 0 : void 0;
   const releaseTarget = "release" in event ? event.release?.target_commitish ?? void 0 : void 0;
   const ref = pullRequestMergeSha || releaseTarget || process.env.GITHUB_SHA || ("after" in event ? event.after : void 0) || "HEAD";
@@ -9348,12 +9348,12 @@ async function run() {
     await runReleaseHealth(client, event.release, config);
     return;
   }
-  if (eventName === "pull_request" && "pull_request" in event && event.pull_request && event.action === "closed" && event.pull_request.merged && isReleaseRailReleasePullRequest(event.pull_request, config)) {
+  if (eventName === "pull_request" && "pull_request" in event && event.pull_request && event.action === "closed" && event.pull_request.merged && isSemVergeReleasePullRequest(event.pull_request, config)) {
     await publishRelease(client, event.pull_request, config);
     return;
   }
   if (eventName !== "push") {
-    log(`Ignoring event ${eventName || "unknown"}; ReleaseRail runs on pushes, merged pull requests, and published releases.`);
+    log(`Ignoring event ${eventName || "unknown"}; SemVerge runs on pushes, merged pull requests, and published releases.`);
     return;
   }
   const repositoryInfo = await client.repositoryInfo();
@@ -9367,7 +9367,7 @@ async function run() {
 }
 if (process.env.NODE_ENV !== "test") {
   run().catch((error) => {
-    process.stderr.write(`[releaserail] ${error instanceof Error ? error.stack ?? error.message : String(error)}
+    process.stderr.write(`[semverge] ${error instanceof Error ? error.stack ?? error.message : String(error)}
 `);
     process.exitCode = 1;
   });

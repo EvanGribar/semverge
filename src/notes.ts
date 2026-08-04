@@ -1,4 +1,4 @@
-import { formatChangeReference } from "./changes.js";
+﻿import { formatChangeReference } from "./changes.js";
 import type { ReleaseChange } from "./types.js";
 
 function section(title: string, changes: ReleaseChange[]): string[] {
@@ -74,13 +74,13 @@ export function renderInternalSummary(version: string, changes: ReleaseChange[])
 export function renderAnnouncement(version: string, changes: ReleaseChange[]): string {
   const announcements = uniqueLines(changes.flatMap((change) => change.announcement ? [change.announcement] : []));
   const customerChanges = changes.filter((change) => change.kind === "feature" || change.kind === "fix" || change.kind === "breaking" || change.breaking);
-  const lines = [`# ReleaseRail release announcement: ${version}`, ""];
+  const lines = [`# SemVerge release announcement: ${version}`, ""];
   if (announcements.length > 0) {
     lines.push(...announcements, "");
   } else if (customerChanges.length > 0) {
-    lines.push(`ReleaseRail ${version} includes:`, "", ...customerChanges.map((change) => `- ${change.customerSummary}`), "");
+    lines.push(`SemVerge ${version} includes:`, "", ...customerChanges.map((change) => `- ${change.customerSummary}`), "");
   } else {
-    lines.push(`ReleaseRail ${version} is now available.`, "");
+    lines.push(`SemVerge ${version} is now available.`, "");
   }
   return lines.join("\n");
 }

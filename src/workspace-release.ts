@@ -1,8 +1,8 @@
-import { basename, dirname, posix } from "node:path";
+﻿import { basename, dirname, posix } from "node:path";
 import { buildReleasePlan } from "./release.js";
 import { type PackageDescriptor } from "./packages.js";
 import { targetFromDescriptor, updateTargetVersion } from "./version-adapters.js";
-import type { ReadinessReport, ReleaseChange, ReleaseOutput, ReleaseRailConfig } from "./types.js";
+import type { ReadinessReport, ReleaseChange, ReleaseOutput, SemVergeConfig } from "./types.js";
 import type { VersionFileChange } from "./version-files.js";
 
 export interface PackageRelease {
@@ -28,7 +28,7 @@ export interface BuildWorkspaceReleasePlanInput {
   packages: PackageDescriptor[];
   mode: "single" | "fixed" | "independent";
   changes: ReleaseChange[];
-  config: ReleaseRailConfig;
+  config: SemVergeConfig;
   files: Record<string, string>;
   date?: string;
   readinessContext?: Parameters<typeof buildReleasePlan>[0]["readinessContext"];
@@ -51,7 +51,7 @@ function packageNameMatches(packageItem: PackageDescriptor, scope: string | unde
   return [packageItem.id, packageItem.name, basename(packageItem.directory)].some((candidate) => candidate.toLowerCase() === cleanScope);
 }
 
-function affectsPackage(change: ReleaseChange, packageItem: PackageDescriptor, config: ReleaseRailConfig): boolean {
+function affectsPackage(change: ReleaseChange, packageItem: PackageDescriptor, config: SemVergeConfig): boolean {
   if (packageNameMatches(packageItem, change.scope)) {
     return true;
   }
@@ -68,8 +68,8 @@ function affectsPackage(change: ReleaseChange, packageItem: PackageDescriptor, c
   });
 }
 
-function packageConfig(config: ReleaseRailConfig, packageItem: PackageDescriptor, mode: "single" | "fixed" | "independent"): ReleaseRailConfig {
-  const packageOutputs: ReleaseRailConfig["outputs"] = {
+function packageConfig(config: SemVergeConfig, packageItem: PackageDescriptor, mode: "single" | "fixed" | "independent"): SemVergeConfig {
+  const packageOutputs: SemVergeConfig["outputs"] = {
     changelog: outputPath(packageItem, config.outputs.changelog, mode),
     customerNotes: outputPath(packageItem, config.outputs.customerNotes, mode),
     migrationGuide: outputPath(packageItem, config.outputs.migrationGuide, mode),
@@ -218,9 +218,9 @@ export function buildWorkspaceReleasePlan(input: BuildWorkspaceReleasePlanInput)
   if (input.mode === "fixed" || input.mode === "single") {
     const packageItem = releaseable[0] ?? input.packages[0];
     if (!packageItem) {
-      throw new Error("ReleaseRail found no releaseable package.");
+      throw new Error("SemVerge found no releaseable package.");
     }
-    const packageConfig: ReleaseRailConfig = {
+    const packageConfig: SemVergeConfig = {
       ...input.config,
       outputs: { ...input.config.outputs },
       readiness: { ...input.config.readiness, requiredLabels: [...input.config.readiness.requiredLabels], requiredFiles: [...input.config.readiness.requiredFiles], commands: [...input.config.readiness.commands], tasks: [...input.config.readiness.tasks] }

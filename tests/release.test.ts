@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+﻿import { describe, expect, it } from "vitest";
 import { parseChange } from "../src/changes.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 import { buildReleasePlan } from "../src/release.js";
@@ -25,7 +25,7 @@ describe("release planning", () => {
       "CHANGELOG.md",
       "RELEASE_NOTES.md",
       "MIGRATION.md",
-      ".releaserail/internal-release.md",
+      ".semverge/internal-release.md",
       "RELEASE_ANNOUNCEMENT.md",
       "release-manifest.json"
     ]);
@@ -67,7 +67,7 @@ describe("release planning", () => {
         ...DEFAULT_CONFIG,
         readiness: { ...DEFAULT_CONFIG.readiness, tasks: [{ name: "docs", file: "docs/migration.md" }] }
       },
-      changes: [parseChange({ title: "feat: add import", source: "pull_request", body: "<!-- releaserail\nreadiness: [docs]\n-->" })],
+      changes: [parseChange({ title: "feat: add import", source: "pull_request", body: "<!-- semverge\nreadiness: [docs]\n-->" })],
       readinessContext: { availableFiles: [] }
     });
     expect(plan.readiness.passed).toBe(false);
