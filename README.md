@@ -72,6 +72,8 @@ npx semverge doctor     # validate package.json and configuration
 
 `init` is safe by default and requires `--force` to replace an existing file. `plan` prints the same release-plan shape used by the action, while `doctor` reports configuration type errors before a hosted run.
 
+For independent workspaces, the plan and release PR include a release graph for every bumped package: direct changes, dependent-package propagation, and packages left unreleased by the current strategy are shown explicitly.
+
 Structured pull-request metadata is optional. Add this hidden block to a pull-request body when the conventional commit is not expressive enough:
 
 ```md
@@ -145,7 +147,7 @@ Configured commands and artifact commands run in the runner workspace. When arti
 
 ## Current scope
 
-SemVerge is intentionally Node.js and GitHub first. The dependable path covers single packages, fixed and independent npm/pnpm workspaces, conventional commits, PR label overrides, version and lockfile updates, changelog and release notes, readiness rules, idempotent npm publishing, artifacts, GitHub releases, and immediate post-release verification.
+SemVerge is intentionally Node.js and GitHub first. The dependable path covers single packages, fixed and independent npm/pnpm workspaces, conventional commits, PR label overrides, version and lockfile updates, dependency-aware release graphs, changelog and release notes, readiness rules, idempotent npm publishing, artifacts, GitHub releases, and immediate post-release verification.
 
 Python `pyproject.toml` and Rust `Cargo.toml` version adapters are available, but registry-specific publishing and delayed release monitoring are not claimed as finished product capabilities. This keeps the headline aligned with what the repository currently proves.
 

@@ -44,6 +44,8 @@ describe("package discovery and workspace releases", () => {
     expect(plan.versionChanges).toHaveLength(4);
     expect(plan.versionChanges.map((change) => change.path)).toEqual(expect.arrayContaining(["package.json", "packages/one/package.json", "packages/two/package.json", "package-lock.json"]));
     expect(plan.manifest).toContain('"mode": "fixed"');
+    expect(plan.packages[0]?.explanation.reasons).toEqual(["direct-change", "fixed-workspace"]);
+    expect(plan.unchangedPackages).toEqual([]);
   });
 
   it("releases an explicitly included private root in single mode", () => {
@@ -85,6 +87,7 @@ describe("package discovery and workspace releases", () => {
     expect(plan.packages).toHaveLength(1);
     expect(plan.packages[0]?.package.name).toBe("@demo/one");
     expect(plan.packages[0]?.plan.version).toBe("1.0.1");
+    expect(plan.packages[0]?.explanation).toEqual({ reasons: ["direct-change"], directChanges: ["fix(one): repair one"], dependencies: [] });
     expect(plan.versionChanges.some((change) => change.path === "packages/one/package-lock.json" && change.content.includes('"version": "1.0.1"'))).toBe(true);
     expect(plan.outputs.some((output) => output.path === "packages/one/CHANGELOG.md")).toBe(true);
   });
@@ -148,9 +151,13 @@ describe("package discovery and workspace releases", () => {
     const two = plan.packages.find((item) => item.package.name === "@demo/two");
     expect(one?.plan.version).toBe("1.0.1");
     expect(two?.plan.version).toBe("1.0.1");
+    expect(one?.explanation).toEqual({ reasons: ["direct-change"], directChanges: ["fix: repair shared export"], dependencies: [] });
+    expect(two?.explanation).toEqual({ reasons: ["dependency-update"], directChanges: [], dependencies: ["@demo/one"] });
     expect(two?.plan.releaseChanges.some((change) => change.dependencyUpdate)).toBe(true);
     expect(two?.plan.customerNotes).toContain("No customer-facing changes");
     expect(plan.manifest).toContain('"dependencyUpdate": true');
+    expect(JSON.parse(plan.manifest).packages[1]).toMatchObject({ reasons: ["dependency-update"], dependencies: ["@demo/one"] });
+    expect(plan.unchangedPackages.map((packageItem) => packageItem.name)).toEqual(["demo"]);
   });
 
   it("propagates independent releases to ordinary internal dependency ranges", () => {
@@ -172,9 +179,34 @@ describe("package discovery and workspace releases", () => {
     });
     const two = plan.packages.find((item) => item.package.name === "@demo/two");
     expect(two?.plan.version).toBe("1.0.1");
+    expect(two?.explanation.dependencies).toEqual(["@demo/one"]);
     expect(two?.plan.releaseChanges.some((change) => change.dependencyUpdate)).toBe(true);
     expect(plan.versionChanges.some((change) => change.path === "packages/two/package.json" && change.content.includes('"@demo/one": "^1.0.1"'))).toBe(true);
     expect(plan.versionChanges.some((change) => change.path === "pnpm-lock.yaml" && change.content.includes("version: 1.0.1"))).toBe(true);
+  });
+
+  it("explains transitive independent dependency propagation", () => {
+    const files = {
+      "package.json": JSON.stringify({ name: "demo", version: "1.0.0", private: true, workspaces: ["packages/*"] }),
+      "packages/one/package.json": JSON.stringify({ name: "@demo/one", version: "1.0.0" }),
+      "packages/two/package.json": JSON.stringify({ name: "@demo/two", version: "1.0.0", dependencies: { "@demo/one": "^1.0.0" } }),
+      "packages/three/package.json": JSON.stringify({ name: "@demo/three", version: "1.0.0", dependencies: { "@demo/two": "^1.0.0" } })
+    };
+    const config = { ...DEFAULT_CONFIG, monorepo: { ...DEFAULT_CONFIG.monorepo, mode: "independent" as const } };
+    const discovered = discoverPackages(files, Object.keys(files), config);
+    const plan = buildWorkspaceReleasePlan({
+      packages: discovered.packages,
+      mode: "independent",
+      files,
+      config,
+      changes: [parseChange({ title: "fix: repair the foundation", source: "pull_request", files: ["packages/one/src/index.ts"] })],
+      date: "2026-08-04"
+    });
+
+    expect(plan.packages.map((item) => item.package.name)).toEqual(["@demo/one", "@demo/two", "@demo/three"]);
+    expect(plan.packages.map((item) => item.explanation.dependencies)).toEqual([[], ["@demo/one"], ["@demo/two"]]);
+    expect(plan.packages.map((item) => item.plan.version)).toEqual(["1.0.1", "1.0.1", "1.0.1"]);
+    expect(plan.unchangedPackages.map((packageItem) => packageItem.name)).toEqual(["demo"]);
   });
 });
 
