@@ -1,5 +1,5 @@
 name: SemVerge
-description: Version, prepare, and publish GitHub releases with zero configuration.
+description: Release-readiness automation for GitHub: version, prepare, communicate, and publish dependable releases.
 author: Evan Gribar
 branding:
   color: blue
