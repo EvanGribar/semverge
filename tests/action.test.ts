@@ -14,7 +14,7 @@ describe("GitHub Action orchestration", () => {
   });
 
   it("creates a release branch and PR from a zero-config push", async () => {
-    const directory = mkdtempSync(join(tmpdir(), "shipkit-action-"));
+    const directory = mkdtempSync(join(tmpdir(), "releaserail-action-"));
     const eventPath = join(directory, "event.json");
     const outputPath = join(directory, "outputs.txt");
     writeFileSync(eventPath, JSON.stringify({ ref: "refs/heads/main", after: "head-sha" }));
@@ -51,14 +51,14 @@ describe("GitHub Action orchestration", () => {
       if (url.pathname.includes("/contents/") && init?.method !== "POST") {
         return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
       }
-      if (url.pathname.endsWith("/git/ref/heads/shipkit/release")) {
+      if (url.pathname.endsWith("/git/ref/heads/releaserail/release")) {
         return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
       }
       if (url.pathname.endsWith("/git/trees")) {
         return new Response(JSON.stringify({ sha: "release-tree" }), { status: 201 });
       }
       if (url.pathname.endsWith("/git/refs")) {
-        return new Response(JSON.stringify({ ref: "refs/heads/shipkit/release", object: { sha: "release-commit", type: "commit" } }), { status: 201 });
+        return new Response(JSON.stringify({ ref: "refs/heads/releaserail/release", object: { sha: "release-commit", type: "commit" } }), { status: 201 });
       }
       if (url.pathname.endsWith("/pulls") && init?.method === "POST") {
         return new Response(JSON.stringify({ number: 7, html_url: "https://github.com/demo/repo/pull/7" }), { status: 201 });
@@ -70,7 +70,7 @@ describe("GitHub Action orchestration", () => {
     }));
 
     const previous = new Map<string, string | undefined>();
-    for (const [key, value] of Object.entries({ GITHUB_API_URL: "https://api.github.test", GITHUB_REPOSITORY: "demo/repo", GITHUB_EVENT_NAME: "push", GITHUB_SHA: "head-sha", GITHUB_EVENT_PATH: eventPath, GITHUB_OUTPUT: outputPath, INPUT_GITHUB_TOKEN: "test-token", INPUT_CONFIG: ".shipkit.yml" })) {
+    for (const [key, value] of Object.entries({ GITHUB_API_URL: "https://api.github.test", GITHUB_REPOSITORY: "demo/repo", GITHUB_EVENT_NAME: "push", GITHUB_SHA: "head-sha", GITHUB_EVENT_PATH: eventPath, GITHUB_OUTPUT: outputPath, INPUT_GITHUB_TOKEN: "test-token", INPUT_CONFIG: ".releaserail.yml" })) {
       previous.set(key, process.env[key]);
       process.env[key] = value;
     }

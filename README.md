@@ -1,6 +1,6 @@
-# Shipkit
+# ReleaseRail
 
-Shipkit is the easiest way to version, prepare, and publish a software release on GitHub.
+ReleaseRail is the easiest way to version, prepare, and publish a software release on GitHub.
 
 It owns the complete release path:
 
@@ -27,15 +27,15 @@ permissions:
   actions: read
 
 jobs:
-  shipkit:
+  releaserail:
     runs-on: ubuntu-latest
     steps:
-      - uses: EvanGribar/ShipKit@v0.1.0
+      - uses: EvanGribar/ReleaseRail@v0.1.1
 ```
 
-On pushes to `main`, Shipkit reads conventional commits and merged pull requests, calculates the next semantic version, and maintains a release pull request. When that pull request merges, Shipkit creates the tag and GitHub release.
+On pushes to `main`, ReleaseRail reads conventional commits and merged pull requests, calculates the next semantic version, and maintains a release pull request. When that pull request merges, ReleaseRail creates the tag and GitHub release.
 
-The default repository needs no configuration. Shipkit also understands product-oriented labels:
+The default repository needs no configuration. ReleaseRail also understands product-oriented labels:
 
 | Label | Meaning |
 | --- | --- |
@@ -50,7 +50,7 @@ The default repository needs no configuration. Shipkit also understands product-
 Structured pull-request metadata is optional. Add this hidden block to a pull-request body when the conventional commit is not expressive enough:
 
 ```md
-<!-- shipkit
+<!-- releaserail
 type: feature
 customer: Add bulk export for projects.
 migration: Existing exports continue to work without changes.
@@ -59,11 +59,11 @@ migration: Existing exports continue to work without changes.
 
 ## Optional configuration
 
-Create `.shipkit.yml` only when the defaults need changing:
+Create `.releaserail.yml` only when the defaults need changing:
 
 ```yaml
 release:
-  branch: shipkit/release
+  branch: releaserail/release
   tagPrefix: v
   independentTagPrefix: pkg-
   prerelease: beta
@@ -88,7 +88,7 @@ outputs:
   changelog: CHANGELOG.md
   customerNotes: RELEASE_NOTES.md
   migrationGuide: MIGRATION.md
-  internalSummary: .shipkit/internal-release.md
+  internalSummary: .releaserail/internal-release.md
   manifest: release-manifest.json
 
 artifacts:
@@ -115,7 +115,7 @@ health:
 
 Readiness checks are reported in the release PR. A missing required label or file blocks publication but does not hide the proposed version or generated communication.
 
-Configured commands and artifact commands run in the runner workspace. The zero-configuration API path does not need a checkout; add `actions/checkout` before Shipkit when a command needs the repository files.
+Configured commands and artifact commands run in the runner workspace. The zero-configuration API path does not need a checkout; add `actions/checkout` before ReleaseRail when a command needs the repository files.
 
 ## Current scope
 
@@ -130,4 +130,4 @@ pnpm verify
 
 The action bundle in `dist/` is generated with `pnpm bundle` and is committed because GitHub executes JavaScript actions from the repository contents.
 
-Shipkit does not use AI to create release communication. It uses explicit PR metadata, labels, and conventional commits with deterministic templates.
+ReleaseRail does not use AI to create release communication. It uses explicit PR metadata, labels, and conventional commits with deterministic templates.

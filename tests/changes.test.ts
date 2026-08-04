@@ -8,7 +8,7 @@ describe("release change parsing", () => {
       source: "pull_request",
       labels: ["ship:feature"],
       number: 42,
-      url: "https://github.com/EvanGribar/ShipKit/pull/42"
+      url: "https://github.com/EvanGribar/ReleaseRail/pull/42"
     });
     expect(change.kind).toBe("feature");
     expect(change.customerSummary).toBe("improve export pipeline");
@@ -18,7 +18,7 @@ describe("release change parsing", () => {
     const change = parseChange({
       title: "fix(api): normalize an old response",
       source: "pull_request",
-      body: `<!-- shipkit\ntype: breaking\ncustomer: API responses now use the normalized shape.\nmigration: Update clients to read data.items.\n-->`
+      body: `<!-- releaserail\ntype: breaking\ncustomer: API responses now use the normalized shape.\nmigration: Update clients to read data.items.\n-->`
     });
     expect(change.kind).toBe("breaking");
     expect(change.breaking).toBe(true);

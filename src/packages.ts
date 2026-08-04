@@ -2,7 +2,7 @@ import { basename, dirname, posix } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { parseVersion } from "./semver.js";
 import { readTargetName, readTargetVersion, type VersionTarget } from "./version-adapters.js";
-import type { Ecosystem, MonorepoMode, ShipkitConfig } from "./types.js";
+import type { Ecosystem, MonorepoMode, ReleaseRailConfig } from "./types.js";
 
 export interface PackageDescriptor extends VersionTarget {
   id: string;
@@ -31,7 +31,7 @@ function jsonObject(content: string): Record<string, unknown> | null {
   }
 }
 
-function workspacePatterns(rootContent: string, pnpmWorkspaceContent: string | undefined, config: ShipkitConfig): string[] {
+function workspacePatterns(rootContent: string, pnpmWorkspaceContent: string | undefined, config: ReleaseRailConfig): string[] {
   if (config.monorepo.packages.length > 0) {
     return config.monorepo.packages.map(normalize);
   }
@@ -147,7 +147,7 @@ function nodeWorkspaceDependencies(content: string): string[] {
   return [...names];
 }
 
-function selectedMode(config: ShipkitConfig, packages: PackageDescriptor[]): Exclude<MonorepoMode, "auto"> {
+function selectedMode(config: ReleaseRailConfig, packages: PackageDescriptor[]): Exclude<MonorepoMode, "auto"> {
   if (config.monorepo.mode !== "auto") {
     return config.monorepo.mode;
   }
@@ -158,7 +158,7 @@ function selectedMode(config: ShipkitConfig, packages: PackageDescriptor[]): Exc
   return versions.size === 1 ? "fixed" : "independent";
 }
 
-export function discoverPackages(files: Record<string, string>, allPaths: string[], config: ShipkitConfig): PackageDiscoveryResult {
+export function discoverPackages(files: Record<string, string>, allPaths: string[], config: ReleaseRailConfig): PackageDiscoveryResult {
   const normalizedFiles = new Map(Object.entries(files).map(([path, content]) => [normalize(path), content]));
   const rootNode = normalizedFiles.get("package.json");
   const pnpmWorkspace = normalizedFiles.get("pnpm-workspace.yaml");
@@ -187,7 +187,7 @@ export function discoverPackages(files: Record<string, string>, allPaths: string
 
   const unique = [...new Map(discovered.map((item) => [item.manifestPath, item])).values()];
   if (unique.length === 0) {
-    throw new Error("Shipkit could not find a supported package manifest (package.json, pyproject.toml, or Cargo.toml).");
+    throw new Error("ReleaseRail could not find a supported package manifest (package.json, pyproject.toml, or Cargo.toml).");
   }
   return { mode: selectedMode(config, unique), packages: unique };
 }

@@ -6,7 +6,7 @@ export type Ecosystem = "node" | "python" | "rust";
 
 export type MonorepoMode = "auto" | "single" | "fixed" | "independent";
 
-export interface ShipkitMetadata {
+export interface ReleaseRailMetadata {
   type?: ReleaseKind;
   customer?: string;
   migration?: string;
@@ -125,7 +125,7 @@ export interface PublishingConfig {
   npm: NpmPublishConfig;
 }
 
-export interface ShipkitConfig {
+export interface ReleaseRailConfig {
   release: ReleaseConfig;
   readiness: ReadinessConfig;
   outputs: OutputConfig;

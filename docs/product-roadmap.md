@@ -1,8 +1,8 @@
-# Shipkit product roadmap
+# ReleaseRail product roadmap
 
 ## Positioning
 
-Shipkit is the easiest way to version, prepare, and publish a software release on GitHub. It is a release path, not a launch-management workspace.
+ReleaseRail is the easiest way to version, prepare, and publish a software release on GitHub. It is a release path, not a launch-management workspace.
 
 ## Delivered foundation
 
