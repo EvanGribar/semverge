@@ -6,6 +6,14 @@ export type Ecosystem = "node" | "python" | "rust";
 
 export type MonorepoMode = "auto" | "single" | "fixed" | "independent";
 
+export type PackageReleaseReason = "direct-change" | "dependency-update" | "fixed-workspace";
+
+export interface PackageReleaseExplanation {
+  reasons: PackageReleaseReason[];
+  directChanges: string[];
+  dependencies: string[];
+}
+
 export interface SemVergeMetadata {
   type?: ReleaseKind;
   customer?: string;
