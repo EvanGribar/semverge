@@ -1,0 +1,26 @@
+name: Bug report
+description: Report a reproducible SemVerge problem
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: Please remove secrets and private repository data before submitting.
+  - type: input
+    id: version
+    attributes:
+      label: SemVerge version or commit
+      placeholder: v0.1.4 or abc1234
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Include the smallest fixture, configuration, and observed versus expected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Include relevant redacted logs and hosted run links.
