@@ -302,7 +302,7 @@ export class GitHubClient {
     return (await this.request<GitHubRelease>("/releases", { method: "POST", body: input })) as GitHubRelease;
   }
 
-  async updateRelease(id: number, input: { body?: string; draft?: boolean }): Promise<GitHubRelease> {
+  async updateRelease(id: number, input: { body?: string; draft?: boolean; tag_name?: string }): Promise<GitHubRelease> {
     return (await this.request<GitHubRelease>(`/releases/${id}`, { method: "PATCH", body: input })) as GitHubRelease;
   }
 

@@ -119,6 +119,7 @@ describe("merged release publication", () => {
     expect(createIndex).toBeGreaterThanOrEqual(0);
     expect(finalizeIndex).toBeGreaterThan(createIndex);
     expect(requests[createIndex]?.body).toMatchObject({ draft: true, tag_name: "v0.2.0" });
+    expect(requests[finalizeIndex]?.body?.tag_name).toBe("v0.2.0");
     expect(requests[createIndex]?.body?.body).toContain("semverge-progress");
     expect(requests.some((request) => request.method === "POST" && request.path.endsWith("/git/refs"))).toBe(false);
     expect(output).toContain("https://github.com/demo/repo/releases/tag/v0.2.0");
