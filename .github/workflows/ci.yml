@@ -24,4 +24,4 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify
-      - run: git diff --exit-code -- dist/index.js dist/index.js.map
+      - run: git diff --exit-code -- dist/index.cjs dist/index.cjs.map

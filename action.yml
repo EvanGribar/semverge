@@ -36,4 +36,4 @@ outputs:
     description: Deprecated alias for the post-release-verification output.
 runs:
   using: node20
-  main: dist/index.js
+  main: dist/index.cjs

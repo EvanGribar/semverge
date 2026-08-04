@@ -27,7 +27,7 @@ describe("repository trust surfaces", () => {
     const ciJobs = ci.jobs as Record<string, unknown>;
     const verify = ciJobs.verify as Record<string, unknown>;
     const verifySteps = verify.steps as Array<Record<string, unknown>>;
-    expect(verifySteps.some((step) => step.run === "git diff --exit-code -- dist/index.js dist/index.js.map")).toBe(true);
+    expect(verifySteps.some((step) => step.run === "git diff --exit-code -- dist/index.cjs dist/index.cjs.map")).toBe(true);
     expect((security.permissions as Record<string, unknown>).contents).toBe("read");
     expect((security.jobs as Record<string, unknown>).codeql).toBeTruthy();
     expect((security.jobs as Record<string, unknown>)["dependency-review"]).toBeTruthy();
