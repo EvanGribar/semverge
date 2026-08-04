@@ -21,6 +21,10 @@ on:
   release:
     types: [published]
 
+concurrency:
+  group: semverge-${{ github.repository }}
+  cancel-in-progress: false
+
 permissions:
   contents: write
   pull-requests: write
@@ -33,7 +37,7 @@ jobs:
       - uses: EvanGribar/semverge@v0.1.4
 ```
 
-On pushes to `main`, SemVerge reads conventional commits and merged pull requests, calculates the next semantic version, and maintains a release pull request. When that pull request merges, SemVerge creates the tag and GitHub release.
+On pushes to `main`, SemVerge reads conventional commits and merged pull requests, calculates the next semantic version, and maintains a release pull request. When that pull request merges, SemVerge builds artifacts, prepares a draft release, publishes configured packages, uploads assets, and only then publishes the GitHub release. A durable progress marker in the draft release lets retries resume completed steps.
 
 The default repository needs no configuration. SemVerge also understands product-oriented labels:
 

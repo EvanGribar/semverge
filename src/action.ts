@@ -5,7 +5,7 @@ import { resolve, relative, join, basename, sep } from "node:path";
 import { parseChange } from "./changes.js";
 import { parseConfig, withOverrides } from "./config.js";
 import { readinessMarkdown } from "./readiness.js";
-import { releaseTagName, GitHubClient, type GitHubCommitSummary, type GitHubPullRequest } from "./github.js";
+import { releaseTagName, GitHubClient, type GitHubCommitSummary, type GitHubPullRequest, type GitHubRelease } from "./github.js";
 import { discoverPackages } from "./packages.js";
 import { buildWorkspaceReleasePlan, type WorkspaceReleasePlan } from "./workspace-release.js";
 import { detectRapidHotfix, evaluateReleaseHealth, healthMarkdown, versionFromReleaseTag, type ReleaseHealthObservation } from "./health.js";
@@ -17,6 +17,7 @@ const exec = promisify(execCallback);
 interface PushEvent {
   ref?: string;
   after?: string;
+  head_commit?: { message?: string };
 }
 
 interface PullRequestEvent {
@@ -338,6 +339,27 @@ interface SemVergeManifest {
   packages?: PublishedPackage[];
 }
 
+interface ReleaseProgress {
+  schemaVersion: 1;
+  version: string;
+  packageIds: string[];
+  tagNames: string[];
+  npmEnabled: boolean;
+  publishedPackages: string[];
+  uploadedAssets: Record<string, string[]>;
+  ready: boolean;
+  published: boolean;
+}
+
+interface ReleaseExecution {
+  packageItem: PublishedPackage;
+  tag: string;
+  customerNotes: string;
+  release: GitHubRelease;
+}
+
+const RELEASE_PROGRESS_MARKER = "<!-- semverge-progress ";
+
 function independentTagName(config: SemVergeConfig, packageItem: PublishedPackage): string {
   const safeName = packageItem.name.replace(/^@/, "").replace(/[\\/]/g, "-");
   return `${config.release.independentTagPrefix}${safeName}@${packageItem.version}`;
@@ -345,6 +367,115 @@ function independentTagName(config: SemVergeConfig, packageItem: PublishedPackag
 
 function packageTagName(config: SemVergeConfig, mode: SemVergeManifest["mode"], packageItem: PublishedPackage): string {
   return mode === "independent" ? independentTagName(config, packageItem) : releaseTagName(config.release.tagPrefix, packageItem.version);
+}
+
+function packageKey(packageItem: PublishedPackage, index: number): string {
+  return packageItem.id || packageItem.name || packageItem.directory || `package-${index + 1}`;
+}
+
+function initialReleaseProgress(version: string, publishablePackages: PublishedPackage[], releaseTags: string[], config: SemVergeConfig): ReleaseProgress {
+  const packageIds = publishablePackages.map(packageKey);
+  return {
+    schemaVersion: 1,
+    version,
+    packageIds,
+    tagNames: releaseTags,
+    npmEnabled: config.publishing.npm.enabled,
+    publishedPackages: config.publishing.npm.enabled ? [] : [...packageIds],
+    uploadedAssets: Object.fromEntries(releaseTags.map((tag) => [tag, []])),
+    ready: false,
+    published: false
+  };
+}
+
+function parseReleaseProgress(body: string | null | undefined): ReleaseProgress | null {
+  const match = body?.match(/<!-- semverge-progress ([\s\S]*?) -->/);
+  if (!match) {
+    return null;
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(match[1] ?? "");
+  } catch (error) {
+    throw new Error(`SemVerge found an invalid release progress marker: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("SemVerge found an invalid release progress marker.");
+  }
+  const record = value as Record<string, unknown>;
+  const uploadedAssets = record.uploadedAssets;
+  if (record.schemaVersion !== 1 || typeof record.version !== "string" || !Array.isArray(record.packageIds) || !record.packageIds.every((item) => typeof item === "string") || !Array.isArray(record.tagNames) || !record.tagNames.every((item) => typeof item === "string") || typeof record.npmEnabled !== "boolean" || !Array.isArray(record.publishedPackages) || !record.publishedPackages.every((item) => typeof item === "string") || !uploadedAssets || typeof uploadedAssets !== "object" || Array.isArray(uploadedAssets) || typeof record.ready !== "boolean" || typeof record.published !== "boolean") {
+    throw new Error("SemVerge found an invalid release progress marker.");
+  }
+  const normalizedAssets: Record<string, string[]> = {};
+  for (const [tag, assets] of Object.entries(uploadedAssets as Record<string, unknown>)) {
+    if (!Array.isArray(assets) || !assets.every((asset) => typeof asset === "string")) {
+      throw new Error(`SemVerge found invalid uploaded asset state for ${tag}.`);
+    }
+    normalizedAssets[tag] = [...new Set(assets)];
+  }
+  return {
+    schemaVersion: 1,
+    version: record.version,
+    packageIds: [...new Set(record.packageIds as string[])],
+    tagNames: [...new Set(record.tagNames as string[])],
+    npmEnabled: record.npmEnabled,
+    publishedPackages: [...new Set(record.publishedPackages as string[])],
+    uploadedAssets: normalizedAssets,
+    ready: record.ready,
+    published: record.published
+  };
+}
+
+function releaseBody(customerNotes: string, progress: ReleaseProgress): string {
+  return `${RELEASE_PROGRESS_MARKER}${JSON.stringify(progress)} -->\n\n${customerNotes.trim()}\n`;
+}
+
+function sameValues(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value) => right.includes(value));
+}
+
+function validateReleaseProgress(progress: ReleaseProgress, expected: ReleaseProgress): void {
+  if (progress.version !== expected.version || progress.npmEnabled !== expected.npmEnabled || !sameValues(progress.packageIds, expected.packageIds) || !sameValues(progress.tagNames, expected.tagNames)) {
+    throw new Error("SemVerge found release progress for a different release or publishing configuration; verify the draft releases before retrying.");
+  }
+}
+
+function mergeReleaseProgress(states: Array<ReleaseProgress | null>, expected: ReleaseProgress): ReleaseProgress {
+  const present = states.filter((state): state is ReleaseProgress => state !== null);
+  const merged: ReleaseProgress = {
+    ...expected,
+    publishedPackages: [...expected.publishedPackages],
+    uploadedAssets: Object.fromEntries(expected.tagNames.map((tag) => [tag, [...(expected.uploadedAssets[tag] ?? [])]])),
+    ready: false,
+    published: false
+  };
+  for (const state of present) {
+    validateReleaseProgress(state, expected);
+    merged.publishedPackages = [...new Set([...merged.publishedPackages, ...state.publishedPackages])];
+    merged.ready ||= state.ready;
+    merged.published ||= state.published;
+    for (const tag of expected.tagNames) {
+      merged.uploadedAssets[tag] = [...new Set([...(merged.uploadedAssets[tag] ?? []), ...(state.uploadedAssets[tag] ?? [])])];
+    }
+  }
+  if (present.length === 0) {
+    return expected;
+  }
+  return merged;
+}
+
+async function persistReleaseProgress(client: GitHubClient, executions: ReleaseExecution[], progress: ReleaseProgress, finalize = false): Promise<void> {
+  for (const execution of executions) {
+    if (execution.release.draft !== true) {
+      continue;
+    }
+    const updated = await client.updateRelease(execution.release.id, {
+      body: releaseBody(execution.customerNotes, progress),
+      ...(finalize ? { draft: false } : {})
+    });
+    execution.release = { ...execution.release, ...updated, draft: finalize ? false : (updated.draft ?? execution.release.draft ?? true) };
+  }
 }
 
 function collectFiles(target: string, root: string): string[] {
@@ -388,31 +519,106 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
   const mode = manifest.mode ?? "single";
   const publishablePackages = mode === "single" ? packages : packages.filter((packageItem) => !packageItem.private && packageItem.releaseable !== false);
   const releasePackages = mode === "fixed" ? [publishablePackages[0] ?? packages[0]].filter((packageItem): packageItem is PublishedPackage => Boolean(packageItem)) : publishablePackages;
-  const releases: Array<{ tag: string; url: string }> = [];
-  for (const packageItem of releasePackages) {
+  if (releasePackages.length === 0) {
+    throw new Error("SemVerge found no packages to publish.");
+  }
+
+  // Build and validate every artifact before creating a tag or draft release. A failed
+  // build must not leave any release-side state behind for the next retry.
+  const artifactCommand = input("artifact-command") || config.artifacts.command;
+  const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
+  if (artifactCommand) {
+    log(`Running artifact command: ${artifactCommand}`);
+    await exec(artifactCommand, { cwd: workspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
+  }
+  const artifactFiles = config.artifacts.paths.flatMap((path) => collectFiles(path, workspace));
+
+  const releaseInputs = await Promise.all(releasePackages.map(async (packageItem) => {
     const tag = packageTagName(config, mode, packageItem);
     const existingTag = await client.getRef(`tags/${tag}`);
-    if (!existingTag) {
-      await client.createRef(`tags/${tag}`, mergeSha);
-    } else if (existingTag.object.sha !== mergeSha) {
+    if (existingTag && existingTag.object.sha !== mergeSha) {
       throw new Error(`Release tag ${tag} already points to ${existingTag.object.sha}, not the merged release commit ${mergeSha}.`);
     }
     const existingRelease = await client.getReleaseByTag(tag);
+    const existingProgress = parseReleaseProgress(existingRelease?.body);
+    if (existingRelease?.draft === true && !existingProgress) {
+      throw new Error(`Draft release ${tag} is missing SemVerge transaction state; verify it before retrying.`);
+    }
+    if (existingRelease && existingRelease.draft !== true && existingProgress?.published !== true) {
+      throw new Error(`Release ${tag} already exists outside SemVerge's transactional state; verify it before retrying.`);
+    }
     const customerNotesPath = packageItem.customerNotes ?? (packageItem.directory ? `${packageItem.directory}/${config.outputs.customerNotes}` : config.outputs.customerNotes);
     const customerNotes = await client.getFile(customerNotesPath, mergeSha) ?? `Release ${packageItem.version}`;
-    const release = existingRelease ?? await client.createRelease({
-      tag_name: tag,
-      target_commitish: mergeSha,
-      name: tag,
-      body: customerNotes,
-      prerelease: Boolean(packageItem.version.includes("-"))
-    });
-    releases.push({ tag, url: release.html_url });
-    log(`${existingRelease ? "Found" : "Published"} GitHub release for ${packageItem.name}: ${release.html_url}`);
+    return { packageItem, tag, customerNotes, existingRelease, existingProgress };
+  }));
+
+  const version = manifest.version ?? packages.map((packageItem) => `${packageItem.name}@${packageItem.version}`).join(", ");
+  const expectedProgress = initialReleaseProgress(version, publishablePackages, releaseInputs.map((item) => item.tag), config);
+  const progress = mergeReleaseProgress(releaseInputs.map((item) => item.existingProgress), expectedProgress);
+  const executions: ReleaseExecution[] = [];
+
+  for (const item of releaseInputs) {
+    let release = item.existingRelease;
+    if (!release) {
+      release = await client.createRelease({
+        tag_name: item.tag,
+        target_commitish: mergeSha,
+        name: item.tag,
+        body: releaseBody(item.customerNotes, progress),
+        prerelease: Boolean(item.packageItem.version.includes("-")),
+        draft: true
+      });
+      release = { ...release, draft: true };
+    }
+    executions.push({ packageItem: item.packageItem, tag: item.tag, customerNotes: item.customerNotes, release });
+    log(`${item.existingRelease ? "Resuming" : "Prepared draft"} GitHub release for ${item.packageItem.name}: ${release.html_url}`);
   }
 
+  // The release body is the durable transaction record. Updating it after every
+  // successful side effect lets a later run resume only the unfinished steps.
+  await persistReleaseProgress(client, executions, progress);
+
+  const packageIds = new Map(publishablePackages.map((packageItem, index) => [packageKey(packageItem, index), packageItem]));
+  for (const [id, packageItem] of packageIds) {
+    if (progress.publishedPackages.includes(id)) {
+      continue;
+    }
+    const packageWorkspace = packageItem.directory ? resolve(workspace, packageItem.directory) : workspace;
+    log(`Publishing ${packageItem.name} with npm command.`);
+    await exec(config.publishing.npm.command, { cwd: packageWorkspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
+    progress.publishedPackages = [...new Set([...progress.publishedPackages, id])];
+    await persistReleaseProgress(client, executions, progress);
+  }
+
+  for (const execution of executions) {
+    if (execution.release.draft !== true) {
+      continue;
+    }
+    const uploaded = new Set(progress.uploadedAssets[execution.tag] ?? []);
+    const existingAssets = new Set((execution.release.assets ?? []).map((asset) => asset.name));
+    for (const file of artifactFiles) {
+      const assetName = basename(file);
+      if (existingAssets.has(assetName)) {
+        uploaded.add(assetName);
+        log(`Release artifact already attached for ${execution.tag}: ${assetName}`);
+        continue;
+      }
+      await client.uploadReleaseAsset(execution.release, file);
+      uploaded.add(assetName);
+      log(`Uploaded release artifact for ${execution.tag}: ${assetName}`);
+      progress.uploadedAssets[execution.tag] = [...uploaded];
+      await persistReleaseProgress(client, executions, progress);
+    }
+    progress.uploadedAssets[execution.tag] = [...uploaded];
+  }
+
+  progress.ready = true;
+  await persistReleaseProgress(client, executions, progress);
+  progress.published = true;
+  await persistReleaseProgress(client, executions, progress, true);
+
   if (mode === "independent") {
-    const versions = publishablePackages.map((packageItem) => packageItem.version).filter((version) => parseVersion(version));
+    const versions = publishablePackages.map((packageItem) => packageItem.version).filter((value) => parseVersion(value));
     const anchor = versions.sort((left, right) => (parseVersion(right)?.major ?? 0) - (parseVersion(left)?.major ?? 0) || (parseVersion(right)?.minor ?? 0) - (parseVersion(left)?.minor ?? 0) || (parseVersion(right)?.patch ?? 0) - (parseVersion(left)?.patch ?? 0))[0];
     if (anchor) {
       const anchorTag = releaseTagName(config.release.tagPrefix, anchor);
@@ -424,37 +630,10 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
       }
     }
   }
-  setOutput("version", manifest.version ?? packages.map((packageItem) => `${packageItem.name}@${packageItem.version}`).join(", "));
-  setOutput("release-url", JSON.stringify(releases));
 
-  const artifactCommand = input("artifact-command") || config.artifacts.command;
-  const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
-  if (artifactCommand) {
-    log(`Running artifact command: ${artifactCommand}`);
-    await exec(artifactCommand, { cwd: workspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
-  }
-  const artifactFiles = config.artifacts.paths.flatMap((path) => collectFiles(path, workspace));
-  for (const releaseInfo of releases) {
-    const release = await client.getReleaseByTag(releaseInfo.tag);
-    if (!release) {
-      continue;
-    }
-    for (const file of artifactFiles) {
-      if (release.assets?.some((asset) => asset.name === basename(file))) {
-        log(`Release artifact already attached for ${releaseInfo.tag}: ${basename(file)}`);
-        continue;
-      }
-      await client.uploadReleaseAsset(release, file);
-      log(`Uploaded release artifact for ${releaseInfo.tag}: ${basename(file)}`);
-    }
-  }
-  if (config.publishing.npm.enabled) {
-    for (const packageItem of publishablePackages) {
-      const packageWorkspace = packageItem.directory ? resolve(workspace, packageItem.directory) : workspace;
-      log(`Publishing ${packageItem.name} with npm command.`);
-      await exec(config.publishing.npm.command, { cwd: packageWorkspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
-    }
-  }
+  setOutput("version", version);
+  setOutput("release-url", JSON.stringify(executions.map((execution) => ({ tag: execution.tag, url: execution.release.html_url }))));
+  log("Published all transactional release drafts.");
 }
 
 export async function run(): Promise<void> {
@@ -493,6 +672,13 @@ export async function run(): Promise<void> {
   if (push.ref && push.ref !== expectedRef) {
     log(`Ignoring push to ${push.ref}; release preparation runs on ${expectedRef}.`);
     return;
+  }
+  if (push.after) {
+    const mergedPullRequests = await client.commitPullRequests(push.after);
+    if (mergedPullRequests.some((pullRequest) => pullRequest.merged_at && isSemVergeReleasePullRequest(pullRequest, config))) {
+      log("Ignoring push for a merged SemVerge release PR; the closed-pull-request event owns publication.");
+      return;
+    }
   }
   await prepareRelease(client, push.after || process.env.GITHUB_SHA || "", config);
 }

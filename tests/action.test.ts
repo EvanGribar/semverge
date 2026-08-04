@@ -48,6 +48,9 @@ describe("GitHub Action orchestration", () => {
       if (url.pathname.endsWith("/commits/change-sha/pulls")) {
         return new Response("[]", { status: 200 });
       }
+      if (url.pathname.endsWith("/commits/head-sha/pulls")) {
+        return new Response("[]", { status: 200 });
+      }
       if (url.pathname.includes("/contents/") && init?.method !== "POST") {
         return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
       }
@@ -93,5 +96,46 @@ describe("GitHub Action orchestration", () => {
     const packageEntry = treeEntries.find((entry) => entry.path === "package.json");
     expect(JSON.parse(packageEntry?.content ?? "{}").version).toBe("0.2.0");
     expect(treeEntries.some((entry) => entry.path === "CHANGELOG.md")).toBe(true);
+    expect(requests.some((request) => request.path.endsWith("/commits/head-sha/pulls"))).toBe(true);
+  });
+
+  it("does not prepare a second release when the push already merged a SemVerge release PR", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "semverge-merge-push-"));
+    const eventPath = join(directory, "event.json");
+    const outputPath = join(directory, "outputs.txt");
+    writeFileSync(eventPath, JSON.stringify({ ref: "refs/heads/main", after: "merge-sha" }));
+    const requests: Array<{ method: string; path: string }> = [];
+
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      requests.push({ method: init?.method ?? "GET", path: url.pathname });
+      if (url.pathname.endsWith("/contents/.semverge.yml")) {
+        return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
+      }
+      if (url.pathname.endsWith("/repos/demo/repo")) {
+        return new Response(JSON.stringify({ full_name: "demo/repo", name: "repo", owner: { login: "demo" }, default_branch: "main", html_url: "https://github.com/demo/repo" }), { status: 200 });
+      }
+      if (url.pathname.endsWith("/commits/merge-sha/pulls")) {
+        return new Response(JSON.stringify([{ number: 7, title: "chore(release): v0.2.0", body: "", html_url: "https://github.com/demo/repo/pull/7", state: "closed", merged_at: "2026-08-04T00:00:00Z", merge_commit_sha: "merge-sha", head: { ref: "semverge/release", sha: "release-sha", repo: { full_name: "demo/repo" } }, base: { ref: "main", sha: "main-sha" }, labels: [] }]), { status: 200 });
+      }
+      return new Response(JSON.stringify({ message: `Unexpected ${init?.method ?? "GET"} ${url.pathname}` }), { status: 500 });
+    }));
+
+    const previous = new Map<string, string | undefined>();
+    for (const [key, value] of Object.entries({ GITHUB_API_URL: "https://api.github.test", GITHUB_REPOSITORY: "demo/repo", GITHUB_EVENT_NAME: "push", GITHUB_SHA: "merge-sha", GITHUB_EVENT_PATH: eventPath, GITHUB_OUTPUT: outputPath, INPUT_GITHUB_TOKEN: "test-token", INPUT_CONFIG: ".semverge.yml" })) {
+      previous.set(key, process.env[key]);
+      process.env[key] = value;
+    }
+    try {
+      await run();
+    } finally {
+      for (const [key, value] of previous) {
+        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      }
+      rmSync(directory, { recursive: true, force: true });
+    }
+
+    expect(requests.some((request) => request.method === "POST" && request.path.endsWith("/git/trees"))).toBe(false);
+    expect(requests.some((request) => request.method === "POST" && request.path.endsWith("/pulls"))).toBe(false);
   });
 });
