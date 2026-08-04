@@ -11093,7 +11093,20 @@ function readEvent() {
 function isDryRun() {
   return input("dry-run").toLowerCase() === "true";
 }
+async function localCommitFiles(sha) {
+  const workspace = process.env.GITHUB_WORKSPACE;
+  if (!workspace || !sha || !/^[0-9a-f]{7,40}$/i.test(sha) || !(0, import_node_fs.existsSync)((0, import_node_path3.join)(workspace, ".git"))) {
+    return void 0;
+  }
+  try {
+    const { stdout } = await exec(`git diff-tree --no-commit-id --name-only -r -m ${sha}`, { cwd: workspace, maxBuffer: 1024 * 1024 * 2 });
+    return [...new Set(stdout.split(/\r?\n/).map((path) => path.trim()).filter(Boolean))];
+  } catch {
+    return void 0;
+  }
+}
 async function pullRequestChange(client, pr) {
+  const localFiles = await localCommitFiles(pr.merge_commit_sha);
   return parseChange({
     title: pr.title,
     body: pr.body ?? "",
@@ -11103,7 +11116,7 @@ async function pullRequestChange(client, pr) {
     labels: pr.labels.map((label) => label.name),
     mergedAt: pr.merged_at ?? void 0,
     sha: pr.merge_commit_sha ?? void 0,
-    files: await client.listPullRequestFiles(pr.number)
+    files: localFiles ?? await client.listPullRequestFiles(pr.number)
   });
 }
 function commitChange(commit) {
