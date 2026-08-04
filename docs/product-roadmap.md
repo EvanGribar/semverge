@@ -1,4 +1,4 @@
-﻿# SemVerge product roadmap
+# SemVerge product roadmap
 
 ## Positioning
 

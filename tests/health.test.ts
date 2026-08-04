@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { detectRapidHotfix, evaluateReleaseHealth, healthMarkdown } from "../src/health.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
 

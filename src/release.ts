@@ -1,4 +1,4 @@
-﻿import { bumpForChange } from "./changes.js";
+import { bumpForChange } from "./changes.js";
 import { DEFAULT_CONFIG } from "./config.js";
 import { evaluateReadiness } from "./readiness.js";
 import { bumpVersion, highestBump } from "./semver.js";

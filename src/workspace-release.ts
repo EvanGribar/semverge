@@ -1,4 +1,4 @@
-﻿import { basename, dirname, posix } from "node:path";
+import { basename, dirname, posix } from "node:path";
 import { buildReleasePlan } from "./release.js";
 import { type PackageDescriptor } from "./packages.js";
 import { targetFromDescriptor, updateTargetVersion } from "./version-adapters.js";
