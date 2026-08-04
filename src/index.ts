@@ -5,6 +5,7 @@ export * from "./metadata.js";
 export * from "./npm.js";
 export * from "./notes.js";
 export * from "./packages.js";
+export * from "./plugin-sdk.js";
 export * from "./readiness.js";
 export * from "./release.js";
 export * from "./semver.js";
