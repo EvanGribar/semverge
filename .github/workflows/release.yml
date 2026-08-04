@@ -21,7 +21,7 @@ jobs:
   semverge:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
         with:
           fetch-depth: 0
