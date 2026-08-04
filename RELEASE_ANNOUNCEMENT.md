@@ -1,5 +1,5 @@
-# SemVerge release announcement: 0.1.8
+# SemVerge release announcement: 0.1.9
 
-SemVerge 0.1.8 includes:
+SemVerge 0.1.9 includes:
 
-- apply unscoped changes to independent packages
+- verify releases after transactional publication
