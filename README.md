@@ -51,6 +51,18 @@ The default repository needs no configuration. SemVerge also understands product
 | `ship:skip` | Exclude the pull request from a release |
 | `ship:beta` | Use the beta prerelease channel |
 
+## Local CLI
+
+The package includes a small deterministic local workflow for setup and troubleshooting:
+
+```bash
+npx semverge init       # create .semverge.yml without overwriting it
+npx semverge plan "feat: add bulk export"
+npx semverge doctor     # validate package.json and configuration
+```
+
+`init` is safe by default and requires `--force` to replace an existing file. `plan` prints the same release-plan shape used by the action, while `doctor` reports configuration type errors before a hosted run.
+
 Structured pull-request metadata is optional. Add this hidden block to a pull-request body when the conventional commit is not expressive enough:
 
 ```md
