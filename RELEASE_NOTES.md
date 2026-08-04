@@ -1,7 +1,7 @@
-# What's new in 0.1.7
+# What's new in 0.1.8
 
 A clear summary of the changes included in this release.
 
 ### Improvements and Fixes
 
-- [release explicitly included private roots in single mode](https://github.com/EvanGribar/semverge/pull/37) (#37)
+- [apply unscoped changes to independent packages](https://github.com/EvanGribar/semverge/pull/39) (#39)
