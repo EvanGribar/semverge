@@ -31,6 +31,11 @@ describe("SemVerge CLI", () => {
       expect(await runCli(["plan", "feat: add exports"], directory, planOutput.io)).toBe(0);
       expect(JSON.parse(planOutput.stdout[0] ?? "{}")).toMatchObject({ previousVersion: "1.0.0", version: "1.1.0", bump: "minor" });
 
+      const explainOutput = capture();
+      expect(await runCli(["explain", "feat: add exports"], directory, explainOutput.io)).toBe(0);
+      expect(explainOutput.stdout.join("\n")).toContain("Version decision: 1.0.0 -> 1.1.0 (minor release).");
+      expect(explainOutput.stdout.join("\n")).toContain("When merged:");
+
       const doctorOutput = capture();
       expect(await runCli(["doctor"], directory, doctorOutput.io)).toBe(0);
       expect(doctorOutput.stdout.join("\n")).toContain("OK");

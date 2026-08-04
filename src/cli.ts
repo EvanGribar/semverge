@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import { buildReleasePlan } from "./release.js";
 import { parseChange } from "./changes.js";
 import { parseConfig, validateConfig, validateConfigContent, type ConfigValidationIssue } from "./config.js";
+import { explainReleasePlan } from "./explain.js";
 import { GitHubClient } from "./github.js";
 import { parseVersion } from "./semver.js";
 import { parseReleaseTransaction, parseReleaseTransactionBody, releaseTransactionSummaryMarkdown } from "./transaction.js";
@@ -36,6 +37,7 @@ function usage(): string {
     "Commands:",
     "  init                 Create a starter .semverge.yml without overwriting it",
     "  plan [title]         Print a deterministic local release plan",
+    "  explain [title]      Explain the version decision, blockers, merge path, and recovery",
     "  doctor               Validate repository files and SemVerge configuration",
     "  recover <release-id> Inspect durable release state and print the safe next action",
     "",
@@ -95,17 +97,25 @@ async function init(cwd: string, force: boolean, io: CliIo): Promise<number> {
   return 0;
 }
 
-async function plan(cwd: string, configPath: string, title: string, io: CliIo): Promise<number> {
+async function localPlan(cwd: string, configPath: string, title: string) {
   const packageJson = await readFile(join(cwd, "package.json"), "utf8");
   const configContent = await readOptional(join(cwd, configPath)) ?? "";
   const config = parseConfig(configContent, configPath);
   const currentVersion = readPackageVersion(packageJson);
-  const releasePlan = buildReleasePlan({
+  return buildReleasePlan({
     currentVersion,
     config,
     changes: [parseChange({ title: title || "fix: generated local preview", source: "commit" })]
   });
-  io.stdout(JSON.stringify(releasePlan, null, 2));
+}
+
+async function plan(cwd: string, configPath: string, title: string, io: CliIo): Promise<number> {
+  io.stdout(JSON.stringify(await localPlan(cwd, configPath, title), null, 2));
+  return 0;
+}
+
+async function explain(cwd: string, configPath: string, title: string, io: CliIo): Promise<number> {
+  io.stdout(explainReleasePlan(await localPlan(cwd, configPath, title)));
   return 0;
 }
 
@@ -190,7 +200,7 @@ async function recover(cwd: string, id: string, statePath: string | undefined, i
 }
 
 export async function runCli(argv = process.argv.slice(2), cwd = process.cwd(), io: CliIo = defaultIo): Promise<number> {
-  const commandNames = new Set(["init", "plan", "doctor", "recover", "help"]);
+  const commandNames = new Set(["init", "plan", "explain", "doctor", "recover", "help"]);
   const command = argv[0] && commandNames.has(argv[0]) ? argv[0] : "plan";
   const commandArgs = command === "plan" && argv[0] !== "plan" ? argv : argv.slice(1);
   if (command === "help" || command === "--help" || argv.includes("--help")) {
@@ -215,6 +225,9 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd(), 
     }
     if (command === "plan") {
       return await plan(cwd, configPath, remaining.join(" "), io);
+    }
+    if (command === "explain") {
+      return await explain(cwd, configPath, remaining.join(" "), io);
     }
     io.stderr(`Unknown command: ${command}\n\n${usage()}`);
     return 1;
