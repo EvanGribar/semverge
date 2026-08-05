@@ -2,7 +2,7 @@ import { basename, dirname, posix } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { parseVersion } from "./semver.js";
 import { readTargetName, readTargetVersion, type VersionTarget } from "./version-adapters.js";
-import type { Ecosystem, MonorepoMode, SemVergeConfig } from "./types.js";
+import type { Ecosystem, MonorepoMode, SemVergeConfig, WorkspaceDependencyField } from "./types.js";
 
 export interface PackageDescriptor extends VersionTarget {
   id: string;
@@ -11,6 +11,7 @@ export interface PackageDescriptor extends VersionTarget {
   private: boolean;
   releaseable: boolean;
   workspaceDependencies: string[];
+  workspaceDependencyTypes: Record<string, WorkspaceDependencyField[]>;
 }
 
 export interface PackageDiscoveryResult {
@@ -112,9 +113,8 @@ function descriptor(path: string, content: string, releaseable: boolean): Packag
   if (!parseVersion(version)) {
     throw new Error(`${normalized} contains an invalid semantic version: ${version}`);
   }
-  const root = target.directory === "";
   const privateValue = target.ecosystem === "node" ? Boolean(jsonObject(content)?.private) : false;
-  const workspaceDependencies = target.ecosystem === "node" ? nodeWorkspaceDependencies(content) : [];
+  const workspaceDependencyTypes = target.ecosystem === "node" ? nodeWorkspaceDependencyTypes(content) : {};
   return {
     id: target.directory || name,
     name,
@@ -122,29 +122,30 @@ function descriptor(path: string, content: string, releaseable: boolean): Packag
     version,
     private: privateValue,
     releaseable: releaseable && !privateValue,
-    workspaceDependencies,
+    workspaceDependencies: Object.keys(workspaceDependencyTypes),
+    workspaceDependencyTypes,
     ...target
   };
 }
 
-function nodeWorkspaceDependencies(content: string, internalPackageNames: ReadonlySet<string> = new Set<string>()): string[] {
+function nodeWorkspaceDependencyTypes(content: string, internalPackageNames: ReadonlySet<string> = new Set<string>()): Record<string, WorkspaceDependencyField[]> {
   const value = jsonObject(content);
   if (!value) {
-    return [];
+    return {};
   }
-  const names = new Set<string>();
-  for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+  const types: Record<string, WorkspaceDependencyField[]> = {};
+  for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"] as const) {
     const dependencies = value[field];
     if (!dependencies || typeof dependencies !== "object" || Array.isArray(dependencies)) {
       continue;
     }
     for (const [name, version] of Object.entries(dependencies)) {
       if (typeof version === "string" && (version.startsWith("workspace:") || internalPackageNames.has(name))) {
-        names.add(name);
+        types[name] = [...new Set([...(types[name] ?? []), field])];
       }
     }
   }
-  return [...names];
+  return types;
 }
 
 function selectedMode(config: SemVergeConfig, packages: PackageDescriptor[]): Exclude<MonorepoMode, "auto"> {
@@ -193,7 +194,8 @@ export function discoverPackages(files: Record<string, string>, allPaths: string
   for (const packageItem of unique.filter((item) => item.ecosystem === "node")) {
     const content = normalizedFiles.get(packageItem.manifestPath);
     if (content !== undefined) {
-      packageItem.workspaceDependencies = nodeWorkspaceDependencies(content, internalPackageNames);
+      packageItem.workspaceDependencyTypes = nodeWorkspaceDependencyTypes(content, internalPackageNames);
+      packageItem.workspaceDependencies = Object.keys(packageItem.workspaceDependencyTypes);
     }
   }
   return { mode: selectedMode(config, unique), packages: unique };

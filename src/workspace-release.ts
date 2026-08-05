@@ -2,8 +2,9 @@ import { basename, dirname, posix } from "node:path";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { buildReleasePlan } from "./release.js";
 import { type PackageDescriptor } from "./packages.js";
+import { highestBump } from "./semver.js";
 import { targetFromDescriptor, updateTargetVersion } from "./version-adapters.js";
-import type { PackageReleaseExplanation, PackageReleaseReason, ReadinessReport, ReleaseChange, ReleaseOutput, SemVergeConfig } from "./types.js";
+import type { BumpLevel, PackageReleaseExplanation, PackageReleaseReason, ReadinessReport, ReleaseChange, ReleaseOutput, SemVergeConfig, WorkspaceDependencyField } from "./types.js";
 import type { VersionFileChange } from "./version-files.js";
 
 export interface PackageRelease {
@@ -116,8 +117,25 @@ function buildPackagePlan(input: BuildWorkspaceReleasePlanInput, packageItem: Pa
   });
 }
 
-function workspaceDependencyChange(packageItem: PackageDescriptor, dependencyNames: string[]): ReleaseChange {
-  const dependencies = dependencyNames.join(", ");
+interface DependencyReleaseTrigger {
+  name: string;
+  fields: WorkspaceDependencyField[];
+  bump: BumpLevel;
+}
+
+function dependencyReleaseTriggers(packageItem: PackageDescriptor, releasedNames: ReadonlySet<string>, config: SemVergeConfig): DependencyReleaseTrigger[] {
+  return packageItem.workspaceDependencies.flatMap((name): DependencyReleaseTrigger[] => {
+    if (!releasedNames.has(name)) {
+      return [];
+    }
+    const fields = (packageItem.workspaceDependencyTypes[name] ?? []).filter((field) => config.monorepo.dependencyPolicy[field] !== "none");
+    const bump = highestBump(fields.map((field) => config.monorepo.dependencyPolicy[field]));
+    return bump === "none" ? [] : [{ name, fields, bump }];
+  });
+}
+
+function workspaceDependencyChange(packageItem: PackageDescriptor, triggers: DependencyReleaseTrigger[]): ReleaseChange {
+  const dependencies = triggers.map(({ name, fields }) => `${name} (${fields.join(", ")})`).join(", ");
   return {
     title: `chore(${packageItem.name}): refresh workspace dependencies`,
     description: `Refresh workspace dependency metadata after ${dependencies} release.`,
@@ -127,7 +145,7 @@ function workspaceDependencyChange(packageItem: PackageDescriptor, dependencyNam
     scope: packageItem.name,
     breaking: false,
     skipped: false,
-    forcedBump: "patch",
+    forcedBump: highestBump(triggers.map((trigger) => trigger.bump)),
     dependencyUpdate: true,
     customerSummary: `Refresh ${packageItem.name} for the ${dependencies} release.`,
     internalSummary: `Refresh ${packageItem.name} after ${dependencies} released.`,
@@ -135,11 +153,11 @@ function workspaceDependencyChange(packageItem: PackageDescriptor, dependencyNam
   };
 }
 
-function packageExplanation(packageRelease: Omit<PackageRelease, "explanation">, releasedNames: ReadonlySet<string>, mode: "single" | "fixed" | "independent", releasedPackageCount: number): PackageReleaseExplanation {
+function packageExplanation(packageRelease: Omit<PackageRelease, "explanation">, releasedNames: ReadonlySet<string>, config: SemVergeConfig, mode: "single" | "fixed" | "independent", releasedPackageCount: number): PackageReleaseExplanation {
   const directChanges = [...new Set(packageRelease.plan.releaseChanges.filter((change) => !change.dependencyUpdate).map((change) => change.title))];
-  const dependencies = mode === "independent"
-    ? [...new Set(packageRelease.package.workspaceDependencies.filter((dependency) => releasedNames.has(dependency)))]
-    : [];
+  const dependencyTriggers = mode === "independent" ? dependencyReleaseTriggers(packageRelease.package, releasedNames, config) : [];
+  const dependencies = [...new Set(dependencyTriggers.map((trigger) => trigger.name))];
+  const dependencyTypes = Object.fromEntries(dependencyTriggers.map((trigger) => [trigger.name, trigger.fields]));
   const reasons: PackageReleaseReason[] = [];
   if (directChanges.length > 0) {
     reasons.push("direct-change");
@@ -150,7 +168,7 @@ function packageExplanation(packageRelease: Omit<PackageRelease, "explanation">,
   if (mode === "fixed" && releasedPackageCount > 1) {
     reasons.push("fixed-workspace");
   }
-  return { reasons, directChanges, dependencies };
+  return { reasons, directChanges, dependencies, dependencyTypes };
 }
 
 function mergeReadiness(reports: ReadinessReport[]): ReadinessReport {
@@ -380,7 +398,8 @@ function manifestContent(plan: WorkspaceReleasePlan): string {
       dependencyUpdate: packagePlan.releaseChanges.some((change) => change.dependencyUpdate),
       reasons: explanation.reasons,
       directChanges: explanation.directChanges,
-      dependencies: explanation.dependencies
+      dependencies: explanation.dependencies,
+      dependencyTypes: explanation.dependencyTypes
     })),
     unchangedPackages: plan.unchangedPackages.map((packageItem) => ({
       id: packageItem.id,
@@ -438,12 +457,12 @@ export function buildWorkspaceReleasePlan(input: BuildWorkspaceReleasePlanInput)
         if (packagePlans.has(packageItem.id)) {
           continue;
         }
-        const dependencyNames = packageItem.workspaceDependencies.filter((dependency) => releasedNames.has(dependency));
-        if (dependencyNames.length === 0) {
+        const dependencyTriggers = dependencyReleaseTriggers(packageItem, releasedNames, input.config);
+        if (dependencyTriggers.length === 0) {
           continue;
         }
         const packageChanges = input.changes.filter((change) => affectsPackage(change, packageItem, input.config, workspaceDirectories));
-        const plan = buildPackagePlan(input, packageItem, [...packageChanges, workspaceDependencyChange(packageItem, dependencyNames)]);
+        const plan = buildPackagePlan(input, packageItem, [...packageChanges, workspaceDependencyChange(packageItem, dependencyTriggers)]);
         if (plan.hasRelease) {
           packagePlans.set(packageItem.id, { package: packageItem, plan });
           addedDependencyRelease = true;
@@ -462,7 +481,7 @@ export function buildWorkspaceReleasePlan(input: BuildWorkspaceReleasePlanInput)
   const releasedNames = new Set(releasedPlans.flatMap(({ package: packageItem }) => [packageItem.id, packageItem.name]));
   const packageReleases = plans.map((packageRelease) => ({
     ...packageRelease,
-    explanation: packageExplanation(packageRelease, releasedNames, input.mode, releasedPlans.length)
+    explanation: packageExplanation(packageRelease, releasedNames, input.config, input.mode, releasedPlans.length)
   }));
   const unchangedPackages = input.packages.filter((packageItem) => !releasedPlans.some((release) => release.package.manifestPath === packageItem.manifestPath));
   const hasRelease = releasedPlans.length > 0;
