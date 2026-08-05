@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.0] - 2026-08-05
+
+### Features
+
+- [add durable OCI release targets](https://github.com/EvanGribar/semverge/pull/83) (#83)
+
 ## [0.11.0] - 2026-08-05
 
 ### Features
