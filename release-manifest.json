@@ -1,18 +1,18 @@
 {
   "schemaVersion": 2,
   "mode": "single",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "channel": "stable",
   "promotion": false,
-  "generatedAt": "2026-08-05T01:42:58.845Z",
+  "generatedAt": "2026-08-05T01:54:23.182Z",
   "packages": [
     {
       "id": "semverge",
       "name": "semverge",
       "directory": "",
       "ecosystem": "node",
-      "previousVersion": "0.4.0",
-      "version": "0.5.0",
+      "previousVersion": "0.5.0",
+      "version": "0.6.0",
       "bump": "minor",
       "channel": "stable",
       "promotion": false,
@@ -25,7 +25,7 @@
         "direct-change"
       ],
       "directChanges": [
-        "feat: discover Python and Rust workspaces"
+        "feat: add configurable channel policies"
       ],
       "dependencies": [],
       "dependencyTypes": {}
