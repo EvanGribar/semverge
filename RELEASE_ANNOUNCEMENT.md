@@ -1,5 +1,5 @@
-# SemVerge release announcement: 0.3.0
+# SemVerge release announcement: 0.4.0
 
-SemVerge 0.3.0 includes:
+SemVerge 0.4.0 includes:
 
-- add opt-in npm provenance guard
+- add independent dependency policies

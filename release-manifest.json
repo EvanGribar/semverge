@@ -1,18 +1,18 @@
 {
   "schemaVersion": 2,
   "mode": "single",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "channel": "stable",
   "promotion": false,
-  "generatedAt": "2026-08-05T01:10:19.627Z",
+  "generatedAt": "2026-08-05T01:32:10.556Z",
   "packages": [
     {
       "id": "semverge",
       "name": "semverge",
       "directory": "",
       "ecosystem": "node",
-      "previousVersion": "0.2.0",
-      "version": "0.3.0",
+      "previousVersion": "0.3.0",
+      "version": "0.4.0",
       "bump": "minor",
       "channel": "stable",
       "promotion": false,
@@ -25,9 +25,11 @@
         "direct-change"
       ],
       "directChanges": [
-        "feat: add opt-in npm provenance guard"
+        "test: cover finalization and verification recovery",
+        "feat: add independent dependency policies"
       ],
-      "dependencies": []
+      "dependencies": [],
+      "dependencyTypes": {}
     }
   ],
   "unchangedPackages": [],

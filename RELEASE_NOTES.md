@@ -1,7 +1,7 @@
-# What's new in 0.3.0
+# What's new in 0.4.0
 
-This release includes 1 feature. Highest-impact change: add opt-in npm provenance guard.
+This release includes 1 feature. Highest-impact change: add independent dependency policies.
 
 ### Highlights
 
-- [add opt-in npm provenance guard](https://github.com/EvanGribar/semverge/pull/64) (#64)
+- [add independent dependency policies](https://github.com/EvanGribar/semverge/pull/67) (#67)
