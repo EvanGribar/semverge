@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.2.0] - 2026-08-05
+
+### Features
+
+- [explain monorepo release graph](https://github.com/EvanGribar/semverge/pull/50) (#50)
+- [add explicit stable release promotion](https://github.com/EvanGribar/semverge/pull/61) (#61)
+- [support named prerelease channels](https://github.com/EvanGribar/semverge/pull/63) (#63)
+
+### Internal Changes
+
+- [Add durable release transaction recovery](https://github.com/EvanGribar/semverge/pull/52) (#52)
+- [Add versioned release plugin SDK](https://github.com/EvanGribar/semverge/pull/53) (#53)
+- [Add human-readable release explanations](https://github.com/EvanGribar/semverge/pull/54) (#54)
+- [Add report-first migration diagnostics](https://github.com/EvanGribar/semverge/pull/58) (#58)
+- [Add read-only setup diagnostics](https://github.com/EvanGribar/semverge/pull/59) (#59)
+- [Record artifact integrity and add Vercel OSS surface](https://github.com/EvanGribar/semverge/pull/60) (#60)
+- [add release failure injection coverage](https://github.com/EvanGribar/semverge/pull/62) (#62)
+- [bump pnpm/action-setup from 4 to 5](https://github.com/EvanGribar/semverge/pull/55) (#55)
+- [bump actions/checkout from 4 to 7](https://github.com/EvanGribar/semverge/pull/56) (#56)
+- [bump actions/setup-node from 4 to 7](https://github.com/EvanGribar/semverge/pull/57) (#57)
+
 ## [0.1.12] - 2026-08-04
 
 ### Bug Fixes

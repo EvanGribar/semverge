@@ -1,5 +1,7 @@
-# SemVerge release announcement: 0.1.12
+# SemVerge release announcement: 0.2.0
 
-SemVerge 0.1.12 includes:
+SemVerge 0.2.0 includes:
 
-- quote release action metadata
+- explain monorepo release graph
+- add explicit stable release promotion
+- support named prerelease channels
