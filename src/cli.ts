@@ -8,6 +8,7 @@ import { buildReleasePlan } from "./release.js";
 import { parseChange } from "./changes.js";
 import { parseConfig, validateConfig, validateConfigContent, type ConfigValidationIssue } from "./config.js";
 import { explainReleasePlan } from "./explain.js";
+import { inspectRepository, repositoryDoctorMarkdown } from "./doctor.js";
 import { GitHubClient } from "./github.js";
 import { inspectMigration, isMigrationTool, migrationReportMarkdown, MIGRATION_TOOLS, writeMigrationConfig } from "./migrate.js";
 import { parseVersion } from "./semver.js";
@@ -165,6 +166,7 @@ async function doctor(cwd: string, configPath: string, io: CliIo): Promise<numbe
     }
   }
 
+  io.stdout(repositoryDoctorMarkdown(await inspectRepository(cwd)));
   reportIssues(issues, io);
   if (issues.some((issue) => issue.severity === "error")) {
     return 1;

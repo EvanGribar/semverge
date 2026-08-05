@@ -22,6 +22,7 @@ SemVerge is release automation that understands whether a release is ready and w
 - Versioned, explicitly registered plugin SDK contract with lifecycle hooks and idempotent effect descriptors
 - Human-readable local `explain` output for version decisions, readiness blockers, merge behavior, and transaction recovery
 - Report-first migration diagnostics for Release Please, Changesets, and semantic-release with explicit opt-in config writing
+- Read-only setup diagnostics for package managers, workspaces, tags, release tools, build hooks, registries, and workflow permissions
 - Explainable per-package release graphs in release PRs and manifests, including direct changes, dependency propagation, and unreleased packages
 - Checked-in single-package, fixed-pnpm, independent-workspace, retry, and large-repository fixtures for deterministic end-to-end proof
 
