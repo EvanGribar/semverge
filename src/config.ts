@@ -1,5 +1,6 @@
 import { parse as parseYaml } from "yaml";
-import type { ArtifactConfig, BumpLevel, HealthMonitoringConfig, HealthWorkflow, NpmPublishConfig, OutputConfig, ReadinessCommand, ReadinessTask, RegistryPublishConfig, ReleaseChannelPolicy, ReleasePromotion, SemVergeConfig } from "./types.js";
+import { parseOciImageRepository } from "./registries.js";
+import type { ArtifactConfig, BumpLevel, HealthMonitoringConfig, HealthWorkflow, NpmPublishConfig, OciPublishConfig, OutputConfig, ReadinessCommand, ReadinessTask, RegistryPublishConfig, ReleaseChannelPolicy, ReleasePromotion, SemVergeConfig } from "./types.js";
 
 export type ConfigValidationSeverity = "error" | "warning";
 
@@ -18,6 +19,7 @@ const DEFAULT_CHANNEL_POLICIES: Record<string, ReleaseChannelPolicy> = {
 
 const DEFAULT_PYTHON_PUBLISH_COMMAND = "python -m twine upload dist/*";
 const DEFAULT_RUST_PUBLISH_COMMAND = "cargo publish --locked";
+const DEFAULT_OCI_PUBLISH_COMMAND = "docker push {image}:{version}";
 
 export const DEFAULT_CONFIG: SemVergeConfig = {
   release: {
@@ -82,6 +84,12 @@ export const DEFAULT_CONFIG: SemVergeConfig = {
     rust: {
       enabled: false,
       command: DEFAULT_RUST_PUBLISH_COMMAND,
+      idempotency: "registry"
+    },
+    oci: {
+      enabled: false,
+      images: [],
+      command: DEFAULT_OCI_PUBLISH_COMMAND,
       idempotency: "registry"
     }
   }
@@ -158,6 +166,38 @@ function validateRegistryPublishingSection(
   const command = typeof registry.command === "string" ? registry.command.trim() : "";
   if (registry.enabled === true && command && command !== defaultCommand && registry.idempotency === undefined) {
     issues.push({ path: `${path}.idempotency`, severity: "error", message: `is required for custom ${name} commands; choose registry or declared` });
+  }
+}
+
+function validateOciPublishingSection(publishing: Record<string, unknown>, issues: ConfigValidationIssue[]): void {
+  const oci = section(publishing, "oci", issues);
+  if (!oci) {
+    return;
+  }
+  const path = "publishing.oci";
+  booleanField(oci, "enabled", path, issues);
+  stringArrayField(oci, "images", path, issues);
+  stringField(oci, "command", path, issues);
+  enumField(oci, "idempotency", path, ["registry", "declared"], issues);
+  const images = oci.images;
+  if (oci.enabled === true && Array.isArray(images) && images.length === 0) {
+    issues.push({ path: `${path}.images`, severity: "error", message: "must contain at least one repository when OCI publishing is enabled" });
+  }
+  if (Array.isArray(images)) {
+    images.forEach((image, index) => {
+      if (typeof image !== "string" || !image.trim()) {
+        return;
+      }
+      try {
+        parseOciImageRepository(image);
+      } catch (error) {
+        issues.push({ path: `${path}.images[${index}]`, severity: "error", message: error instanceof Error ? error.message : String(error) });
+      }
+    });
+  }
+  const command = typeof oci.command === "string" ? oci.command.trim() : "";
+  if (oci.enabled === true && command && command !== DEFAULT_OCI_PUBLISH_COMMAND && oci.idempotency === undefined) {
+    issues.push({ path: `${path}.idempotency`, severity: "error", message: "is required for custom OCI commands; choose registry or declared" });
   }
 }
 
@@ -296,6 +336,7 @@ export function validateConfigContent(content: string, fileName = ".semverge.yml
     }
     validateRegistryPublishingSection(publishing, "python", DEFAULT_PYTHON_PUBLISH_COMMAND, issues);
     validateRegistryPublishingSection(publishing, "rust", DEFAULT_RUST_PUBLISH_COMMAND, issues);
+    validateOciPublishingSection(publishing, issues);
   }
   return issues;
 }
@@ -339,6 +380,12 @@ export function validateConfig(config: SemVergeConfig): ConfigValidationIssue[] 
     if (registry.enabled && !registry.idempotency) {
       issues.push({ path: `publishing.${name}.idempotency`, severity: "error", message: `is required for custom ${name} commands; choose registry or declared` });
     }
+  }
+  if (config.publishing.oci.enabled && config.publishing.oci.images.length === 0) {
+    issues.push({ path: "publishing.oci.images", severity: "error", message: "must contain at least one repository when OCI publishing is enabled" });
+  }
+  if (config.publishing.oci.enabled && !config.publishing.oci.idempotency) {
+    issues.push({ path: "publishing.oci.idempotency", severity: "error", message: "is required for custom OCI commands; choose registry or declared" });
   }
   const monitoring = config.health.monitoring;
   if (monitoring && (!Number.isFinite(monitoring.windowHours) || monitoring.windowHours <= 0)) {
@@ -440,6 +487,20 @@ function registryPublishConfig(value: unknown, fallback: RegistryPublishConfig):
   };
 }
 
+function ociPublishConfig(value: unknown, fallback: OciPublishConfig): OciPublishConfig {
+  const object = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const command = typeof object.command === "string" && object.command.trim() ? object.command.trim() : fallback.command;
+  const idempotency: OciPublishConfig["idempotency"] = object.idempotency === "registry" || object.idempotency === "declared"
+    ? object.idempotency
+    : command === fallback.command ? "registry" : undefined;
+  return {
+    enabled: booleanValue(object.enabled, fallback.enabled),
+    images: strings(object.images),
+    command,
+    idempotency
+  };
+}
+
 function healthMonitoring(value: unknown, fallback: HealthMonitoringConfig): HealthMonitoringConfig {
   const object = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
   return {
@@ -498,6 +559,7 @@ function mergeConfig(raw: unknown): SemVergeConfig {
   const npm = publishing.npm && typeof publishing.npm === "object" ? publishing.npm as Record<string, unknown> : {};
   const python = publishing.python;
   const rust = publishing.rust;
+  const oci = publishing.oci;
   const npmCommand = typeof npm.command === "string" && npm.command.trim() ? npm.command.trim() : DEFAULT_CONFIG.publishing.npm.command;
   const npmIdempotency: NpmPublishConfig["idempotency"] = npm.idempotency === "registry" || npm.idempotency === "declared"
     ? npm.idempotency
@@ -554,7 +616,8 @@ function mergeConfig(raw: unknown): SemVergeConfig {
         provenance: booleanValue(npm.provenance, DEFAULT_CONFIG.publishing.npm.provenance)
       },
       python: registryPublishConfig(python, DEFAULT_CONFIG.publishing.python),
-      rust: registryPublishConfig(rust, DEFAULT_CONFIG.publishing.rust)
+      rust: registryPublishConfig(rust, DEFAULT_CONFIG.publishing.rust),
+      oci: ociPublishConfig(oci, DEFAULT_CONFIG.publishing.oci)
     }
   };
 
@@ -592,7 +655,7 @@ export function withOverrides(config: SemVergeConfig, overrides: { prerelease?: 
     artifacts: { ...config.artifacts, paths: [...config.artifacts.paths] },
     monorepo: { ...config.monorepo, packages: [...config.monorepo.packages], dependencyPolicy: { ...config.monorepo.dependencyPolicy } },
     health: { ...config.health, workflows: [...config.health.workflows], expectedArtifacts: [...config.health.expectedArtifacts], requiredLinks: [...config.health.requiredLinks], ...(config.health.monitoring ? { monitoring: { ...config.health.monitoring } } : {}) },
-    publishing: { ...config.publishing, npm: { ...config.publishing.npm }, python: { ...config.publishing.python }, rust: { ...config.publishing.rust } }
+    publishing: { ...config.publishing, npm: { ...config.publishing.npm }, python: { ...config.publishing.python }, rust: { ...config.publishing.rust }, oci: { ...config.publishing.oci, images: [...config.publishing.oci.images] } }
   };
   const prerelease = overrides.prerelease?.trim();
   if (prerelease) {

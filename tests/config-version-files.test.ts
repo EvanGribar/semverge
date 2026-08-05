@@ -124,6 +124,35 @@ describe("configuration and version files", () => {
     });
   });
 
+  it("parses opt-in OCI image publication with explicit retry semantics", () => {
+    const content = `publishing:
+  oci:
+    enabled: true
+    images:
+      - ghcr.io/acme/semverge
+    command: docker push {image}:{version}
+    idempotency: registry
+`;
+    const config = parseConfig(content);
+    expect(config.publishing.oci).toEqual({
+      enabled: true,
+      images: ["ghcr.io/acme/semverge"],
+      command: "docker push {image}:{version}",
+      idempotency: "registry"
+    });
+    expect(validateConfigContent(content)).toEqual([]);
+    expect(validateConfigContent("publishing:\n  oci:\n    enabled: true\n    images: []\n")).toContainEqual({
+      path: "publishing.oci.images",
+      severity: "error",
+      message: "must contain at least one repository when OCI publishing is enabled"
+    });
+    expect(validateConfigContent("publishing:\n  oci:\n    enabled: true\n    images: [ghcr.io/acme/semverge]\n    command: docker push\n")).toContainEqual({
+      path: "publishing.oci.idempotency",
+      severity: "error",
+      message: "is required for custom OCI commands; choose registry or declared"
+    });
+  });
+
   it("keeps npm provenance opt-in and rejects unsafe command combinations", () => {
     const content = "publishing:\n  npm:\n    enabled: true\n    provenance: true\n";
     const config = parseConfig(content);

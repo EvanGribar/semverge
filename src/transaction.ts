@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-export const RELEASE_TRANSACTION_SCHEMA_VERSION = 5 as const;
+export const RELEASE_TRANSACTION_SCHEMA_VERSION = 6 as const;
 export const RELEASE_TRANSACTION_MARKER = "<!-- semverge-progress ";
 
 export const RELEASE_PHASES = [
@@ -43,10 +43,12 @@ export interface ReleaseTransaction {
   packageIds: string[];
   tagNames: string[];
   publishingTargets: string[];
+  ociImages: string[];
   npmEnabled: boolean;
   npmProvenance: boolean;
   artifactDigests: Record<string, string>;
   publishedPackages: string[];
+  publishedOciImages: string[];
   uploadedAssets: Record<string, string[]>;
   ready: boolean;
   published: boolean;
@@ -61,7 +63,9 @@ export interface CreateReleaseTransactionInput {
   packageIds: string[];
   tagNames: string[];
   publishingTargets?: string[];
+  ociImages?: string[];
   alreadyPublishedPackageIds?: string[];
+  alreadyPublishedOciImages?: string[];
   npmEnabled: boolean;
   npmProvenance?: boolean;
   artifactDigests?: Record<string, string>;
@@ -85,6 +89,7 @@ export interface ReleaseTransactionSummary {
   phase: ReleasePhase;
   publishedPackages: string;
   publishingTargets: string[];
+  publishedOciImages: string;
   uploadedAssets: number;
   artifactDigests: Record<string, string>;
   npmProvenance: boolean;
@@ -172,7 +177,8 @@ function normalizeAssets(value: Record<string, string[]>): Record<string, string
 
 export function createReleaseTransaction(input: CreateReleaseTransactionInput): ReleaseTransaction {
   const now = timestamp(input.now);
-  const publishingTargets = unique(input.publishingTargets ?? (input.npmEnabled ? ["npm"] : []));
+  const ociImages = unique(input.ociImages ?? []);
+  const publishingTargets = unique([...(input.publishingTargets ?? (input.npmEnabled ? ["npm"] : [])), ...ociImages.map((image) => `oci:${image}`)]);
   return {
     schemaVersion: RELEASE_TRANSACTION_SCHEMA_VERSION,
     id: input.id ?? `release_${randomUUID().replace(/-/g, "")}`,
@@ -182,10 +188,12 @@ export function createReleaseTransaction(input: CreateReleaseTransactionInput): 
     packageIds: unique(input.packageIds),
     tagNames: unique(input.tagNames),
     publishingTargets,
+    ociImages,
     npmEnabled: input.npmEnabled,
     npmProvenance: input.npmProvenance ?? false,
     artifactDigests: digestMap(input.artifactDigests ?? {}),
     publishedPackages: input.alreadyPublishedPackageIds ? unique(input.alreadyPublishedPackageIds) : publishingTargets.length > 0 ? [] : unique(input.packageIds),
+    publishedOciImages: input.alreadyPublishedOciImages ? unique(input.alreadyPublishedOciImages) : [],
     uploadedAssets: Object.fromEntries(unique(input.tagNames).map((tag) => [tag, []])),
     ready: false,
     published: false,
@@ -244,21 +252,24 @@ export function mergeReleaseTransactions(states: Array<ReleaseTransaction | null
     packageIds: [...expected.packageIds],
     tagNames: [...expected.tagNames],
     publishingTargets: [...expected.publishingTargets],
+    ociImages: [...expected.ociImages],
     artifactDigests: { ...expected.artifactDigests },
     publishedPackages: [...expected.publishedPackages],
+    publishedOciImages: [...expected.publishedOciImages],
     uploadedAssets: normalizeAssets(expected.uploadedAssets),
     events: [...expected.events],
     ready: false,
     published: false
   };
   for (const state of present) {
-    if (state.version !== expected.version || state.npmEnabled !== expected.npmEnabled || state.npmProvenance !== expected.npmProvenance || !sameValues(state.publishingTargets, expected.publishingTargets) || (state.sourceCommit !== "unknown" && expected.sourceCommit !== "unknown" && state.sourceCommit !== expected.sourceCommit) || !sameValues(state.packageIds, expected.packageIds) || !sameValues(state.tagNames, expected.tagNames)) {
+    if (state.version !== expected.version || state.npmEnabled !== expected.npmEnabled || state.npmProvenance !== expected.npmProvenance || !sameValues(state.publishingTargets, expected.publishingTargets) || !sameValues(state.ociImages, expected.ociImages) || (state.sourceCommit !== "unknown" && expected.sourceCommit !== "unknown" && state.sourceCommit !== expected.sourceCommit) || !sameValues(state.packageIds, expected.packageIds) || !sameValues(state.tagNames, expected.tagNames)) {
       throw new Error("SemVerge found release transaction state for a different release or publishing configuration; verify the draft releases before retrying.");
     }
     if (phaseIndex(state.phase) > phaseIndex(merged.phase)) {
       merged.phase = state.phase;
     }
     merged.publishedPackages = unique([...merged.publishedPackages, ...state.publishedPackages]);
+    merged.publishedOciImages = unique([...merged.publishedOciImages, ...state.publishedOciImages]);
     merged.ready ||= state.ready;
     merged.published ||= state.published;
     for (const tag of expected.tagNames) {
@@ -324,10 +335,11 @@ export function parseReleaseTransaction(value: unknown): ReleaseTransaction {
   if (record.schemaVersion === 1) {
     return upgradeLegacyTransaction(record);
   }
-  const hasArtifactDigests = record.schemaVersion === 3 || record.schemaVersion === 4 || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
-  const hasNpmProvenance = record.schemaVersion === 4 || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
-  const hasPublishingTargets = record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
-  if ((record.schemaVersion !== 2 && record.schemaVersion !== 3 && record.schemaVersion !== 4 && record.schemaVersion !== RELEASE_TRANSACTION_SCHEMA_VERSION) || typeof record.id !== "string" || typeof record.version !== "string" || typeof record.sourceCommit !== "string" || typeof record.npmEnabled !== "boolean" || (hasNpmProvenance && typeof record.npmProvenance !== "boolean") || (hasPublishingTargets && record.publishingTargets === undefined) || typeof record.ready !== "boolean" || typeof record.published !== "boolean" || typeof record.updatedAt !== "string" || !Array.isArray(record.events) || (hasArtifactDigests && record.artifactDigests === undefined)) {
+  const hasArtifactDigests = record.schemaVersion === 3 || record.schemaVersion === 4 || record.schemaVersion === 5 || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  const hasNpmProvenance = record.schemaVersion === 4 || record.schemaVersion === 5 || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  const hasPublishingTargets = record.schemaVersion === 5 || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  const hasOciImages = record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  if ((record.schemaVersion !== 2 && record.schemaVersion !== 3 && record.schemaVersion !== 4 && record.schemaVersion !== 5 && record.schemaVersion !== RELEASE_TRANSACTION_SCHEMA_VERSION) || typeof record.id !== "string" || typeof record.version !== "string" || typeof record.sourceCommit !== "string" || typeof record.npmEnabled !== "boolean" || (hasNpmProvenance && typeof record.npmProvenance !== "boolean") || (hasPublishingTargets && record.publishingTargets === undefined) || (hasOciImages && (record.ociImages === undefined || record.publishedOciImages === undefined)) || typeof record.ready !== "boolean" || typeof record.published !== "boolean" || typeof record.updatedAt !== "string" || !Array.isArray(record.events) || (hasArtifactDigests && record.artifactDigests === undefined)) {
     throw new Error("SemVerge found an invalid release transaction marker.");
   }
   const failure = record.failure === undefined ? undefined : objectValue(record.failure);
@@ -344,10 +356,12 @@ export function parseReleaseTransaction(value: unknown): ReleaseTransaction {
     packageIds: stringArray(record.packageIds, "packageIds"),
     tagNames: stringArray(record.tagNames, "tagNames"),
     publishingTargets: hasPublishingTargets ? stringArray(record.publishingTargets, "publishingTargets") : record.npmEnabled ? ["npm"] : [],
+    ociImages: hasOciImages ? stringArray(record.ociImages, "ociImages") : [],
     npmEnabled: record.npmEnabled,
     npmProvenance: hasNpmProvenance ? record.npmProvenance as boolean : false,
     artifactDigests: hasArtifactDigests ? digestMap(record.artifactDigests) : {},
     publishedPackages: stringArray(record.publishedPackages, "publishedPackages"),
+    publishedOciImages: hasOciImages ? stringArray(record.publishedOciImages, "publishedOciImages") : [],
     uploadedAssets: normalizeAssets(assetMap(record.uploadedAssets)),
     ready: record.ready,
     published: record.published,
@@ -433,6 +447,7 @@ export function summarizeReleaseTransaction(state: ReleaseTransaction): ReleaseT
     phase: state.phase,
     publishedPackages: `${state.publishedPackages.length}/${state.packageIds.length}`,
     publishingTargets: [...state.publishingTargets],
+    publishedOciImages: `${state.publishedOciImages.length}/${state.ociImages.length}`,
     uploadedAssets,
     artifactDigests: { ...state.artifactDigests },
     npmProvenance: state.npmProvenance,
@@ -452,6 +467,7 @@ export function releaseTransactionSummaryMarkdown(state: ReleaseTransaction): st
     `- State: **${summary.phase}**`,
     `- Packages published: **${summary.publishedPackages}**`,
     `- Publishing targets: **${summary.publishingTargets.length > 0 ? summary.publishingTargets.join(", ") : "none"}**`,
+    `- OCI images published: **${summary.publishedOciImages}**`,
     `- npm provenance requested: **${summary.npmProvenance ? "yes" : "no"}**`,
     `- Uploaded assets recorded: **${summary.uploadedAssets}**`,
     `- Artifact SHA-256 digests recorded: **${Object.keys(summary.artifactDigests).length}**`,

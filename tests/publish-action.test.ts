@@ -15,9 +15,11 @@ vi.mock("../src/npm.js", async (importOriginal) => ({
 }));
 
 const registryVersionExistsMock = vi.hoisted(() => vi.fn(async () => false));
+const ociImageVersionExistsMock = vi.hoisted(() => vi.fn(async () => false));
 vi.mock("../src/registries.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/registries.js")>()),
-  registryVersionExists: registryVersionExistsMock
+  registryVersionExists: registryVersionExistsMock,
+  ociImageVersionExists: ociImageVersionExistsMock
 }));
 
 const retryFixtureDirectory = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "node-retry");
@@ -103,6 +105,8 @@ describe("merged release publication", () => {
     npmVersionExistsMock.mockResolvedValue(false);
     registryVersionExistsMock.mockReset();
     registryVersionExistsMock.mockResolvedValue(false);
+    ociImageVersionExistsMock.mockReset();
+    ociImageVersionExistsMock.mockResolvedValue(false);
   });
 
   it("builds before creating a draft and publishes only after the transaction is ready", async () => {
@@ -245,6 +249,84 @@ publishing:
     const state = parseReleaseTransactionBody(typeof finalBody === "string" ? finalBody : null);
     expect(state?.publishingTargets).toEqual(["python"]);
     expect(state?.publishedPackages).toEqual(["demo"]);
+  });
+
+  it("publishes a declared OCI image target and records durable image progress", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "semverge-oci-publish-"));
+    const workspace = prepareGitWorkspace(retryFixtureDirectory);
+    const config = `release:
+  branch: release/bot
+health:
+  enabled: false
+publishing:
+  oci:
+    enabled: true
+    images:
+      - ghcr.io/acme/semverge
+    command: node -e "process.stdout.write('oci-published')"
+    idempotency: declared
+`;
+    writeFileSync(join(workspace.directory, ".semverge.yml"), config);
+    execFileSync("git", ["add", ".semverge.yml"], { cwd: workspace.directory, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "enable OCI publishing"], { cwd: workspace.directory, stdio: "ignore" });
+    const mergeSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace.directory, encoding: "utf8" }).trim();
+    const eventPath = publishEvent(directory, mergeSha);
+    const outputPath = join(directory, "outputs.txt");
+    const requests: Array<{ method: string; path: string; body?: Record<string, unknown> }> = [];
+    let release: Record<string, unknown> | null = null;
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      const body = init?.body && typeof init.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : undefined;
+      requests.push({ method: init?.method ?? "GET", path: `${url.pathname}${url.search}`, body });
+      if (url.pathname.endsWith("/contents/.semverge.yml")) {
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded(config) }), { status: 200 });
+      }
+      if (url.pathname.endsWith("/contents/release-manifest.json")) {
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded(manifest()) }), { status: 200 });
+      }
+      if (url.pathname.endsWith("/contents/RELEASE_NOTES.md")) {
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded("# What's new\n") }), { status: 200 });
+      }
+      if (url.pathname.endsWith("/git/ref/tags/v0.2.0")) {
+        return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
+      }
+      if (url.pathname.endsWith("/releases/tags/v0.2.0")) {
+        return release ? new Response(JSON.stringify(release), { status: 200 }) : new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
+      }
+      if (url.pathname.endsWith("/releases") && init?.method === "POST") {
+        release = { id: 3, tag_name: "v0.2.0", html_url: "https://github.com/demo/repo/releases/tag/v0.2.0", upload_url: "https://uploads.github.com/repos/demo/repo/releases/3/assets{?name,label}", body: body?.body, draft: true, assets: [] };
+        return new Response(JSON.stringify(release), { status: 201 });
+      }
+      if (url.pathname.endsWith("/releases/3") && init?.method === "PATCH") {
+        release = { ...release, body: body?.body, draft: body?.draft ?? release?.draft ?? true };
+        return new Response(JSON.stringify(release), { status: 200 });
+      }
+      return new Response(JSON.stringify({ message: `Unhandled ${init?.method ?? "GET"} ${url.pathname}` }), { status: 500 });
+    }));
+
+    const previous = setPublishEnvironment(directory, eventPath, outputPath, workspace.directory, mergeSha);
+    const previousFailure = process.env.SEMVERGE_TEST_FAILURE;
+    try {
+      process.env.SEMVERGE_TEST_FAILURE = "oci-publish";
+      await expect(run()).rejects.toThrow("Injected SemVerge test failure at oci-publish.");
+      delete process.env.SEMVERGE_TEST_FAILURE;
+      await run();
+    } finally {
+      if (previousFailure === undefined) delete process.env.SEMVERGE_TEST_FAILURE; else process.env.SEMVERGE_TEST_FAILURE = previousFailure;
+      restoreEnvironment(previous);
+      rmSync(directory, { recursive: true, force: true });
+      rmSync(workspace.directory, { recursive: true, force: true });
+    }
+
+    expect(ociImageVersionExistsMock).not.toHaveBeenCalled();
+    const finalBody = requests.filter((request) => request.method === "PATCH" && request.path.endsWith("/releases/3")).at(-1)?.body?.body;
+    const state = parseReleaseTransactionBody(typeof finalBody === "string" ? finalBody : null);
+    expect(state?.publishingTargets).toEqual(["oci:ghcr.io/acme/semverge"]);
+    expect(state?.ociImages).toEqual(["ghcr.io/acme/semverge"]);
+    expect(state?.publishedOciImages).toEqual(["ghcr.io/acme/semverge"]);
+    expect(state?.events.some((event) => event.key === "oci:ghcr.io/acme/semverge" && event.status === "failed")).toBe(true);
+    expect(state?.events.filter((event) => event.key === "oci:ghcr.io/acme/semverge" && event.status === "completed")).toHaveLength(1);
+    expect(requests.filter((request) => request.method === "POST" && request.path.endsWith("/releases"))).toHaveLength(1);
   });
 
   it("does not create a tag or draft release when the artifact build fails", async () => {

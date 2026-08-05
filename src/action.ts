@@ -12,7 +12,7 @@ import { buildWorkspaceReleasePlan, type WorkspaceReleasePlan } from "./workspac
 import { evaluatePostReleaseVerification, postReleaseVerificationMarkdown, versionFromReleaseTag, type PostReleaseVerificationObservation, type PostReleaseVerificationReport } from "./health.js";
 import { compareVersions, parseVersion } from "./semver.js";
 import { assertNpmProvenanceEnvironment, npmPublishCommand, npmVersionExists } from "./npm.js";
-import { publishConfigForEcosystem, publisherName, registryVersionExists } from "./registries.js";
+import { ociImageVersionExists, parseOciImageRepository, publishConfigForEcosystem, publisherName, registryVersionExists, renderOciPublishCommand } from "./registries.js";
 import { assertWorkspaceAtCommit } from "./workspace-integrity.js";
 import { advanceReleaseTransaction, createReleaseTransaction, mergeReleaseTransactions, parseReleaseTransactionBody, recordReleaseTransactionEvent, releaseTransactionBody, updateReleaseTransactionBody, type ReleaseTransaction } from "./transaction.js";
 import type { Ecosystem, SemVergeConfig } from "./types.js";
@@ -95,7 +95,7 @@ function isDryRun(): boolean {
   return input("dry-run").toLowerCase() === "true";
 }
 
-type TestFailurePoint = "package-publish" | "asset-upload" | "release-finalize" | "post-release-verification";
+type TestFailurePoint = "package-publish" | "oci-publish" | "asset-upload" | "release-finalize" | "post-release-verification";
 
 function injectTestFailure(point: TestFailurePoint): void {
   if (process.env.NODE_ENV === "test" && process.env.SEMVERGE_TEST_FAILURE === point) {
@@ -611,16 +611,29 @@ function packageEcosystem(packageItem: PublishedPackage): Ecosystem {
   return packageItem.ecosystem ?? "node";
 }
 
+function ociReleaseVersion(mode: SemVergeManifest["mode"], version: string): string {
+  const normalized = version.trim();
+  if (mode === "independent") {
+    throw new Error("SemVerge OCI image publication requires a single or fixed workspace release; independent workspaces need package-specific image mappings.");
+  }
+  if (!parseVersion(normalized) || !/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/.test(normalized)) {
+    throw new Error(`SemVerge cannot use ${version} as an OCI image tag; release-level OCI publication requires a SemVer-compatible Docker tag.`);
+  }
+  return normalized;
+}
+
 function initialReleaseProgress(version: string, sourceCommit: string, publishablePackages: PublishedPackage[], releaseTags: string[], artifactDigestMap: Record<string, string>, config: SemVergeConfig): ReleaseProgress {
   const packageIds = publishablePackages.map(packageKey);
-  const publishingTargets = [...new Set(publishablePackages
+  const packagePublishingTargets = publishablePackages
     .map(packageEcosystem)
     .filter((ecosystem) => publishConfigForEcosystem(config, ecosystem).enabled)
-    .map((ecosystem) => ecosystem === "node" ? "npm" : ecosystem))];
+    .map((ecosystem) => ecosystem === "node" ? "npm" : ecosystem);
+  const ociImages = config.publishing.oci.enabled ? [...config.publishing.oci.images] : [];
+  const publishingTargets = [...new Set([...packagePublishingTargets, ...ociImages.map((image) => `oci:${image}`)])];
   const alreadyPublishedPackageIds = publishablePackages
     .filter((packageItem) => !publishConfigForEcosystem(config, packageEcosystem(packageItem)).enabled)
     .map(packageKey);
-  let transaction = createReleaseTransaction({ version, sourceCommit, packageIds, tagNames: releaseTags, publishingTargets, alreadyPublishedPackageIds, artifactDigests: artifactDigestMap, npmEnabled: config.publishing.npm.enabled, npmProvenance: config.publishing.npm.provenance });
+  let transaction = createReleaseTransaction({ version, sourceCommit, packageIds, tagNames: releaseTags, publishingTargets, ociImages, alreadyPublishedPackageIds, artifactDigests: artifactDigestMap, npmEnabled: config.publishing.npm.enabled, npmProvenance: config.publishing.npm.provenance });
   transaction = advanceReleaseTransaction(transaction, "approved", { key: "approval", kind: "approval-verified", target: sourceCommit, detail: "Release PR merge commit verified." });
   transaction = advanceReleaseTransaction(transaction, "prepared", { key: "release-inputs", kind: "release-plan-prepared", target: version, detail: "Release manifest, package set, and tags validated." });
   return advanceReleaseTransaction(transaction, "built", { key: "artifact-build", kind: "artifacts-built", target: sourceCommit, detail: "Workspace and configured artifacts passed pre-publication validation." });
@@ -719,6 +732,20 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
   if (releasePackages.length === 0) {
     throw new Error("SemVerge found no packages to publish.");
   }
+  const version = manifest.version ?? packages.map((packageItem) => `${packageItem.name}@${packageItem.version}`).join(", ");
+  const ociConfig = config.publishing.oci;
+  if (ociConfig.enabled) {
+    if (ociConfig.images.length === 0) {
+      throw new Error("SemVerge OCI publishing requires at least one image repository.");
+    }
+    if (!ociConfig.idempotency) {
+      throw new Error("SemVerge requires publishing.oci.idempotency for custom commands; choose registry or declared.");
+    }
+    for (const image of ociConfig.images) {
+      parseOciImageRepository(image);
+    }
+  }
+  const ociVersion = ociConfig.enabled ? ociReleaseVersion(mode, version) : "";
   for (const ecosystem of ["node", "python", "rust"] as const) {
     const publisher = publishConfigForEcosystem(config, ecosystem);
     if (publisher.enabled && !publisher.idempotency) {
@@ -726,7 +753,7 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
     }
   }
   assertNpmProvenanceEnvironment(config.publishing.npm);
-  const publishingEnabled = releasePackages.some((packageItem) => publishConfigForEcosystem(config, packageEcosystem(packageItem)).enabled);
+  const publishingEnabled = ociConfig.enabled || releasePackages.some((packageItem) => publishConfigForEcosystem(config, packageEcosystem(packageItem)).enabled);
 
   // Build and validate every artifact before creating a tag or draft release. A failed
   // build must not leave any release-side state behind for the next retry.
@@ -761,7 +788,6 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
     return { packageItem, tag, customerNotes, existingRelease, existingProgress };
   }));
 
-  const version = manifest.version ?? packages.map((packageItem) => `${packageItem.name}@${packageItem.version}`).join(", ");
   const expectedProgress = initialReleaseProgress(version, mergeSha, publishablePackages, releaseInputs.map((item) => item.tag), artifactDigestMap, config);
   let progress = mergeReleaseProgress(releaseInputs.map((item) => item.existingProgress), expectedProgress);
   const executions: ReleaseExecution[] = [];
@@ -834,6 +860,35 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
     await persistReleaseProgress(client, executions, progress);
   }
 
+  if (ociConfig.enabled) {
+    for (const image of ociConfig.images) {
+      if (progress.publishedOciImages.includes(image)) {
+        continue;
+      }
+      const alreadyPublished = ociConfig.idempotency === "registry" ? await ociImageVersionExists(image, ociVersion) : false;
+      if (alreadyPublished) {
+        log(`Found ${image}:${ociVersion} in the OCI registry; treating publication as already complete.`);
+        progress.publishedOciImages = [...new Set([...progress.publishedOciImages, image])];
+        progress = recordReleaseTransactionEvent(progress, { key: `oci:${image}`, kind: "oci-image-published", target: `${image}:${ociVersion}`, detail: "The OCI registry already contains the requested image tag; no duplicate push was attempted." });
+        await persistReleaseProgress(client, executions, progress);
+        continue;
+      }
+      const publishCommand = renderOciPublishCommand(ociConfig.command, image, ociVersion);
+      log(`Publishing OCI image ${image}:${ociVersion}.`);
+      try {
+        injectTestFailure("oci-publish");
+        await exec(publishCommand, { cwd: workspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
+      } catch (error) {
+        progress = recordReleaseTransactionEvent(progress, { key: `oci:${image}`, kind: "oci-image-published", target: `${image}:${ociVersion}`, status: "failed", detail: "OCI image publication failed; inspect runner logs before retrying." });
+        await persistReleaseProgress(client, executions, progress);
+        throw error;
+      }
+      progress.publishedOciImages = [...new Set([...progress.publishedOciImages, image])];
+      progress = recordReleaseTransactionEvent(progress, { key: `oci:${image}`, kind: "oci-image-published", target: `${image}:${ociVersion}` });
+      await persistReleaseProgress(client, executions, progress);
+    }
+  }
+
   for (const execution of executions) {
     if (execution.release.draft !== true) {
       continue;
@@ -866,7 +921,7 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
   }
 
   progress.ready = true;
-  progress = recordReleaseTransactionEvent(progress, { key: "release-ready", kind: "release-ready", target: version, detail: "All package publication and release asset steps completed." });
+  progress = recordReleaseTransactionEvent(progress, { key: "release-ready", kind: "release-ready", target: version, detail: "All package, OCI image, and release asset steps completed." });
   await persistReleaseProgress(client, executions, progress);
   progress.published = true;
   progress = advanceReleaseTransaction(progress, "published", { key: "release-published", kind: "release-published", target: version, detail: "All transactional side effects completed; GitHub release drafts are being finalized." });
