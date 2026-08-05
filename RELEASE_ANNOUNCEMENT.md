@@ -1,5 +1,5 @@
-# SemVerge release announcement: 0.7.0
+# SemVerge release announcement: 0.8.0
 
-SemVerge 0.7.0 includes:
+SemVerge 0.8.0 includes:
 
-- add Python and Rust registry adapters
+- add delayed release monitoring

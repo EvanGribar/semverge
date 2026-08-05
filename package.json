@@ -1,6 +1,6 @@
 {
   "name": "semverge",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Release-readiness automation for Node.js and GitHub: versioning, customer communication, artifacts, npm publishing, and post-release verification.",
   "type": "module",
   "license": "MIT",

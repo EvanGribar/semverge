@@ -1,7 +1,7 @@
-# What's new in 0.7.0
+# What's new in 0.8.0
 
-This release includes 1 feature. Highest-impact change: add Python and Rust registry adapters.
+This release includes 1 feature. Highest-impact change: add delayed release monitoring.
 
 ### Highlights
 
-- [add Python and Rust registry adapters](https://github.com/EvanGribar/semverge/pull/73) (#73)
+- [add delayed release monitoring](https://github.com/EvanGribar/semverge/pull/75) (#75)

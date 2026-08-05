@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.8.0] - 2026-08-05
+
+### Features
+
+- [add delayed release monitoring](https://github.com/EvanGribar/semverge/pull/75) (#75)
+
 ## [0.7.0] - 2026-08-05
 
 ### Features
