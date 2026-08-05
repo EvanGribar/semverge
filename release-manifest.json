@@ -1,18 +1,18 @@
 {
   "schemaVersion": 2,
   "mode": "single",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "channel": "stable",
   "promotion": false,
-  "generatedAt": "2026-08-05T00:57:13.804Z",
+  "generatedAt": "2026-08-05T01:10:19.627Z",
   "packages": [
     {
       "id": "semverge",
       "name": "semverge",
       "directory": "",
       "ecosystem": "node",
-      "previousVersion": "0.1.12",
-      "version": "0.2.0",
+      "previousVersion": "0.2.0",
+      "version": "0.3.0",
       "bump": "minor",
       "channel": "stable",
       "promotion": false,
@@ -25,19 +25,7 @@
         "direct-change"
       ],
       "directChanges": [
-        "feat: explain monorepo release graph",
-        "Add durable release transaction recovery",
-        "Add versioned release plugin SDK",
-        "Add human-readable release explanations",
-        "Add report-first migration diagnostics",
-        "Add read-only setup diagnostics",
-        "Record artifact integrity and add Vercel OSS surface",
-        "feat: add explicit stable release promotion",
-        "test: add release failure injection coverage",
-        "feat: support named prerelease channels",
-        "build(deps): bump pnpm/action-setup from 4 to 5",
-        "build(deps): bump actions/checkout from 4 to 7",
-        "build(deps): bump actions/setup-node from 4 to 7"
+        "feat: add opt-in npm provenance guard"
       ],
       "dependencies": []
     }
