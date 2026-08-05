@@ -178,7 +178,7 @@ SemVerge now exports a versioned, explicitly registered lifecycle plugin contrac
 
 SemVerge is intentionally Node.js and GitHub first. The dependable path covers single packages, fixed and independent npm/pnpm workspaces, conventional commits, PR label overrides, version and lockfile updates, dependency-aware release graphs, changelog and release notes, readiness rules, idempotent npm publishing, artifacts, GitHub releases, and immediate post-release verification.
 
-Python `pyproject.toml` and Rust `Cargo.toml` version adapters are available, but registry-specific publishing and delayed release monitoring are not claimed as finished product capabilities. This keeps the headline aligned with what the repository currently proves.
+Python `pyproject.toml` and Rust `Cargo.toml` package/workspace discovery and deterministic version planning are available, but registry-specific publishing and delayed release monitoring are not claimed as finished product capabilities. This keeps the headline aligned with what the repository currently proves.
 
 ## Development
 

@@ -250,6 +250,57 @@ describe("package discovery and workspace releases", () => {
   });
 });
 
+describe("Python and Rust workspace discovery", () => {
+  it("discovers Python uv workspace members and plans a fixed release", () => {
+    const files = {
+      "pyproject.toml": "[tool.uv.workspace]\nmembers = [\"packages/*\"]\n",
+      "packages/one/pyproject.toml": "[project]\nname = \"demo-one\"\nversion = \"1.0.0\"\n",
+      "packages/two/pyproject.toml": "[project]\nname = \"demo-two\"\nversion = \"1.0.0\"\n"
+    };
+    const discovered = discoverPackages(files, Object.keys(files), DEFAULT_CONFIG);
+    expect(discovered.mode).toBe("fixed");
+    expect(discovered.packages.map((item) => item.name)).toEqual(["demo-one", "demo-two"]);
+    expect(discovered.packages.map((item) => item.ecosystem)).toEqual(["python", "python"]);
+
+    const plan = buildWorkspaceReleasePlan({
+      packages: discovered.packages,
+      mode: discovered.mode,
+      files,
+      config: DEFAULT_CONFIG,
+      changes: [parseChange({ title: "feat: add Python exports", source: "pull_request", files: ["packages/one/src/exports.py"] })],
+      date: "2026-08-04"
+    });
+    expect(plan.version).toBe("1.1.0");
+    expect(plan.versionChanges.map((change) => change.path)).toEqual(["packages/one/pyproject.toml", "packages/two/pyproject.toml"]);
+    expect(plan.versionChanges.every((change) => change.content.includes('version = "1.1.0"'))).toBe(true);
+  });
+
+  it("discovers Rust Cargo workspace members and plans an independent release", () => {
+    const files = {
+      "Cargo.toml": "[workspace]\nmembers = [\"crates/*\"]\n",
+      "crates/core/Cargo.toml": "[package]\nname = \"demo-core\"\nversion = \"0.1.0\"\n",
+      "crates/cli/Cargo.toml": "[package]\nname = \"demo-cli\"\nversion = \"0.2.0\"\n"
+    };
+    const config = { ...DEFAULT_CONFIG, monorepo: { ...DEFAULT_CONFIG.monorepo, mode: "independent" as const } };
+    const discovered = discoverPackages(files, Object.keys(files), config);
+    expect(discovered.mode).toBe("independent");
+    expect(discovered.packages.map((item) => item.name)).toEqual(["demo-core", "demo-cli"]);
+
+    const plan = buildWorkspaceReleasePlan({
+      packages: discovered.packages,
+      mode: "independent",
+      files,
+      config,
+      changes: [parseChange({ title: "fix: repair the Rust core", source: "commit", files: ["crates/core/src/lib.rs"] })],
+      date: "2026-08-04"
+    });
+    expect(plan.packages.map((item) => item.package.name)).toEqual(["demo-core"]);
+    expect(plan.packages[0]?.plan.version).toBe("0.1.1");
+    expect(plan.versionChanges).toEqual([{ path: "crates/core/Cargo.toml", content: "[package]\nname = \"demo-core\"\nversion = \"0.1.1\"\n" }]);
+    expect(plan.unchangedPackages.map((item) => item.name)).toEqual(["demo-cli"]);
+  });
+});
+
 describe("ecosystem version adapters", () => {
   it("reads and updates Python pyproject versions", () => {
     const target = { ecosystem: "python" as const, manifestPath: "pyproject.toml", directory: "" };

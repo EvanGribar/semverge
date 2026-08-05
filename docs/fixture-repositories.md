@@ -5,6 +5,7 @@ The repositories under `fixtures/` are small, checked-in examples used by `tests
 - `node-single` exercises the local CLI against a conventional single-package repository.
 - `pnpm-fixed` exercises fixed-version package discovery through `pnpm-workspace.yaml` and a pnpm lockfile.
 - `node-independent` exercises `apps/*` discovery, independent versioning, and propagation through an ordinary internal dependency range.
+- `tests/packages-workspace.test.ts` also covers native Python `uv`/PDM and Rust Cargo workspace member discovery and version planning; those cases remain synthetic because there is no live registry proof in the fixture suite.
 - `node-retry` supplies a deliberately failing publish command so the action test can verify a draft release resumes safely on retry.
 - `node-large` contains 101 generated files so planning is exercised beyond the common 100-item API page size.
 
