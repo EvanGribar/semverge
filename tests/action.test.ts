@@ -90,6 +90,10 @@ describe("GitHub Action orchestration", () => {
 
     expect(output).toContain("version<<");
     expect(output).toContain("0.2.0");
+    expect(output).toContain("release-channel<<");
+    expect(output).toContain("stable");
+    expect(output).toContain("release-promotion<<");
+    expect(output).toContain("false");
     expect(output).toContain("https://github.com/demo/repo/pull/7");
     const treeRequest = requests.find((request) => request.method === "POST" && request.path.endsWith("/git/trees"));
     const treeEntries = (treeRequest?.body?.tree as Array<{ path: string; content: string }> | undefined) ?? [];
@@ -99,6 +103,7 @@ describe("GitHub Action orchestration", () => {
     expect(requests.some((request) => request.path.split("?")[0]?.endsWith("/commits/head-sha/pulls"))).toBe(true);
     const releasePullRequest = requests.find((request) => request.method === "POST" && request.path.endsWith("/pulls"));
     expect(String(releasePullRequest?.body?.body)).toContain("## Release graph");
+    expect(String(releasePullRequest?.body?.body)).toContain("Channel: **stable**");
     expect(String(releasePullRequest?.body?.body)).toContain("direct change: add exports");
   });
 

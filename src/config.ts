@@ -1,5 +1,5 @@
 import { parse as parseYaml } from "yaml";
-import type { ArtifactConfig, HealthWorkflow, NpmPublishConfig, OutputConfig, ReadinessCommand, ReadinessTask, SemVergeConfig } from "./types.js";
+import type { ArtifactConfig, HealthWorkflow, NpmPublishConfig, OutputConfig, ReadinessCommand, ReadinessTask, ReleasePromotion, SemVergeConfig } from "./types.js";
 
 export type ConfigValidationSeverity = "error" | "warning";
 
@@ -122,6 +122,7 @@ export function validateConfigContent(content: string, fileName = ".semverge.yml
     stringField(release, "tagPrefix", "release", issues);
     stringField(release, "independentTagPrefix", "release", issues);
     stringField(release, "prerelease", "release", issues);
+    enumField(release, "promotion", "release", ["stable"], issues);
   }
   const readiness = section(raw, "readiness", issues);
   if (readiness) {
@@ -336,6 +337,10 @@ function mergeConfig(raw: unknown): SemVergeConfig {
 
   if (typeof release.prerelease === "string" && release.prerelease.trim()) {
     result.release.prerelease = release.prerelease.trim();
+  }
+  if (release.promotion === "stable") {
+    const promotion: ReleasePromotion = "stable";
+    result.release.promotion = promotion;
   }
   if (typeof artifacts.command === "string" && artifacts.command.trim()) {
     result.artifacts.command = artifacts.command.trim();

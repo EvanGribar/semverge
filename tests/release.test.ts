@@ -106,4 +106,35 @@ describe("release planning", () => {
     });
     expect(plan.version).toBe("1.1.0-beta.0");
   });
+
+  it("promotes a prerelease with the stable label even when beta is configured", () => {
+    const plan = buildReleasePlan({
+      currentVersion: "1.1.0-beta.2",
+      config: { ...DEFAULT_CONFIG, release: { ...DEFAULT_CONFIG.release, prerelease: "beta" } },
+      changes: [parseChange({ title: "fix: stabilize preview imports", source: "pull_request", labels: ["ship:stable"] })]
+    });
+
+    expect(plan).toMatchObject({ hasRelease: true, version: "1.1.0", channel: "stable", promotion: true });
+    expect(JSON.parse(plan.manifest)).toMatchObject({ channel: "stable", promotion: true });
+  });
+
+  it("allows a configured stable promotion with no new release-worthy changes", () => {
+    const plan = buildReleasePlan({
+      currentVersion: "2.0.0-rc.3",
+      config: { ...DEFAULT_CONFIG, release: { ...DEFAULT_CONFIG.release, promotion: "stable" } },
+      changes: []
+    });
+
+    expect(plan).toMatchObject({ hasRelease: true, version: "2.0.0", bump: "none", channel: "stable", promotion: true });
+  });
+
+  it("keeps a configured prerelease channel unless stable promotion is requested", () => {
+    const plan = buildReleasePlan({
+      currentVersion: "2.0.0",
+      config: { ...DEFAULT_CONFIG, release: { ...DEFAULT_CONFIG.release, prerelease: "rc" } },
+      changes: [parseChange({ title: "feat: add release candidates", source: "commit" })]
+    });
+
+    expect(plan).toMatchObject({ version: "2.1.0-rc.0", channel: "rc", promotion: false });
+  });
 });

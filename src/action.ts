@@ -207,14 +207,19 @@ function releaseGraphMarkdown(plan: WorkspaceReleasePlan): string[] {
 }
 
 function releasePrBody(plan: WorkspaceReleasePlan, config: SemVergeConfig): string {
-  const marker = JSON.stringify({ version: plan.version, manifest: config.outputs.manifest, mode: plan.mode });
-  const packageLines = plan.packages.map(({ package: packageItem, plan: packagePlan }) => `- **${packageItem.name}**: ${packageItem.version} -> **${packagePlan.version}** (${packagePlan.bump})`);
+  const marker = JSON.stringify({ version: plan.version, manifest: config.outputs.manifest, mode: plan.mode, channel: plan.channel, promotion: plan.promotion });
+  const packageLines = plan.packages.map(({ package: packageItem, plan: packagePlan }) => `- **${packageItem.name}**: ${packageItem.version} -> **${packagePlan.version}** (${packagePlan.bump}, ${packagePlan.channel}${packagePlan.promotion ? ", promotion" : ""})`);
   const notes = plan.packages.map(({ package: packageItem, plan: packagePlan }) => `### ${packageItem.name}\n\n${packagePlan.customerNotes.trim()}`).join("\n\n");
   const lines = [
     `<!-- semverge-release ${marker} -->`,
     `# SemVerge release ${plan.version}`,
     "",
     `This ${plan.mode} release prepares version changes and release communication for ${plan.packages.length} package(s).`,
+    "",
+    "## Release channel",
+    "",
+    `- Channel: **${plan.channel}**`,
+    `- Promotion: **${plan.promotion ? "yes" : "no"}**`,
     "",
     "## Package versions",
     "",
@@ -382,11 +387,13 @@ async function prepareRelease(client: GitHubClient, head: string, config: SemVer
     readinessContext: { availableLabels, availableFiles, commandResults: await runReadinessCommands(effectiveConfig) }
   });
   setOutput("version", plan.version);
+  setOutput("release-channel", plan.channel);
+  setOutput("release-promotion", String(plan.promotion));
   if (!plan.hasRelease) {
     log("No release-worthy changes were found.");
     return;
   }
-  log(`Planned ${plan.version} (${plan.mode}) from ${plan.releaseChanges.length} change(s).`);
+  log(`Planned ${plan.version} (${plan.mode}, ${plan.channel}${plan.promotion ? " promotion" : ""}) from ${plan.releaseChanges.length} change(s).`);
   if (isDryRun()) {
     log(JSON.stringify(plan, null, 2));
     return;
@@ -433,6 +440,8 @@ interface SemVergeManifest {
   schemaVersion?: number;
   mode?: "single" | "fixed" | "independent";
   version?: string;
+  channel?: string;
+  promotion?: boolean;
   readiness?: { passed?: boolean };
   packages?: PublishedPackage[];
 }
@@ -533,6 +542,8 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
   }
   const manifestContent = await client.getFile(config.outputs.manifest, mergeSha);
   const manifest: SemVergeManifest = manifestContent ? JSON.parse(manifestContent) as SemVergeManifest : {};
+  setOutput("release-channel", manifest.channel ?? "stable");
+  setOutput("release-promotion", String(manifest.promotion === true));
   if (manifest.readiness?.passed === false) {
     throw new Error("Release readiness checks are incomplete; SemVerge did not publish the release.");
   }

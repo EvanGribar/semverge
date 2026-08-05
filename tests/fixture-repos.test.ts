@@ -51,6 +51,26 @@ describe("fixture repositories", () => {
     expect(output.stderr).toEqual([]);
   });
 
+  it("records stable promotion in a workspace manifest", () => {
+    const directory = fixturePath("node-single");
+    const files = fixtureFiles(directory);
+    files["package.json"] = files["package.json"]?.replace('"1.4.2"', '"1.4.2-beta.1"') ?? "";
+    files[".semverge.yml"] = "release:\n  promotion: stable\n";
+    const config = parseConfig(files[".semverge.yml"] ?? "");
+    const discovered = discoverPackages(files, Object.keys(files), config);
+    const plan = buildWorkspaceReleasePlan({
+      packages: discovered.packages,
+      mode: discovered.mode,
+      files,
+      config,
+      changes: [],
+      date: "2026-08-04"
+    });
+
+    expect(plan).toMatchObject({ hasRelease: true, version: "1.4.2", channel: "stable", promotion: true });
+    expect(JSON.parse(plan.manifest)).toMatchObject({ channel: "stable", promotion: true, packages: [{ version: "1.4.2", promotion: true }] });
+  });
+
   it("plans independent workspace releases and ordinary internal dependency propagation", () => {
     const directory = fixturePath("node-independent");
     const files = fixtureFiles(directory);

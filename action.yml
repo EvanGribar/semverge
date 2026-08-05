@@ -30,6 +30,10 @@ outputs:
     description: URL of the maintained release pull request, when one is created.
   release-url:
     description: URL of the GitHub release, when one is published.
+  release-channel:
+    description: Release channel selected by the plan, such as stable or beta.
+  release-promotion:
+    description: Whether the release explicitly promotes a prerelease to stable.
   transaction:
     description: JSON durable release transaction state, including phase, recorded side effects, and recovery details.
   post-release-verification:

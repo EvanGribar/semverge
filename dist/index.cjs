@@ -9750,6 +9750,10 @@ function mergeConfig(raw) {
   if (typeof release.prerelease === "string" && release.prerelease.trim()) {
     result.release.prerelease = release.prerelease.trim();
   }
+  if (release.promotion === "stable") {
+    const promotion = "stable";
+    result.release.promotion = promotion;
+  }
   if (typeof artifacts.command === "string" && artifacts.command.trim()) {
     result.artifacts.command = artifacts.command.trim();
   }
@@ -10110,6 +10114,13 @@ function bumpVersion(current, level, prereleaseChannel) {
     }
   }
   return formatVersion(next);
+}
+function promoteVersion(current) {
+  const parsed = parseVersion(current);
+  if (!parsed) {
+    throw new Error(`The current version is not valid semver: ${current}`);
+  }
+  return formatVersion({ ...parsed, prerelease: [], build: [] });
 }
 
 // src/version-adapters.ts
@@ -10549,6 +10560,8 @@ function manifestFor(plan) {
     version: plan.version,
     previousVersion: plan.previousVersion,
     bump: plan.bump,
+    channel: plan.channel,
+    promotion: plan.promotion,
     generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
     changes: plan.releaseChanges.map((change) => ({
       kind: change.kind,
@@ -10567,9 +10580,13 @@ function buildReleasePlan(input2) {
   const releaseChanges = input2.changes.filter((change) => !change.skipped);
   const skippedChanges = input2.changes.filter((change) => change.skipped);
   const bump = highestBump(releaseChanges.map((change) => bumpForChange(change)));
-  const hasRelease = bump !== "none";
   const labelPrerelease = releaseChanges.some((change) => change.labels.includes("ship:beta")) ? "beta" : void 0;
-  const version = hasRelease ? bumpVersion(input2.currentVersion, bump, config.release.prerelease ?? labelPrerelease) : input2.currentVersion;
+  const stableRequested = config.release.promotion === "stable" || releaseChanges.some((change) => change.labels.includes("ship:stable"));
+  const currentVersion = parseVersion(input2.currentVersion);
+  const promotion = stableRequested && Boolean(currentVersion?.prerelease.length);
+  const hasRelease = bump !== "none" || promotion;
+  const channel = stableRequested ? "stable" : config.release.prerelease ?? labelPrerelease ?? "stable";
+  const version = hasRelease ? stableRequested ? promotion ? promoteVersion(input2.currentVersion) : bumpVersion(input2.currentVersion, bump) : bumpVersion(input2.currentVersion, bump, config.release.prerelease ?? labelPrerelease) : input2.currentVersion;
   const readiness = evaluateReadiness(config.readiness, releaseChanges, input2.readinessContext);
   if (!hasRelease) {
     return {
@@ -10577,6 +10594,8 @@ function buildReleasePlan(input2) {
       previousVersion: input2.currentVersion,
       version,
       bump,
+      channel,
+      promotion,
       changes: input2.changes,
       releaseChanges,
       skippedChanges,
@@ -10600,6 +10619,8 @@ function buildReleasePlan(input2) {
     previousVersion: input2.currentVersion,
     version,
     bump,
+    channel,
+    promotion,
     changes: input2.changes,
     releaseChanges,
     skippedChanges,
@@ -10923,6 +10944,8 @@ function manifestContent(plan) {
     schemaVersion: 2,
     mode: plan.mode,
     version: plan.version,
+    channel: plan.channel,
+    promotion: plan.promotion,
     generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
     packages: plan.packages.map(({ package: packageItem, plan: packagePlan, explanation }) => ({
       id: packageItem.id,
@@ -10932,6 +10955,8 @@ function manifestContent(plan) {
       previousVersion: packageItem.version,
       version: packagePlan.version,
       bump: packagePlan.bump,
+      channel: packagePlan.channel,
+      promotion: packagePlan.promotion,
       changelog: packagePlan.outputs.find((output) => output.path.toLowerCase().endsWith("changelog.md"))?.path,
       customerNotes: packagePlan.outputs.find((output) => output.path.toLowerCase().endsWith("release_notes.md") || output.path.toLowerCase().endsWith("release-notes.md"))?.path,
       private: packageItem.private,
@@ -11025,6 +11050,8 @@ function buildWorkspaceReleasePlan(input2) {
   const releaseChanges = input2.mode === "independent" ? [...new Map(packageReleases.flatMap((item) => item.plan.releaseChanges.map((change) => [change.title, change]))).values()] : input2.changes.filter((change) => !change.skipped);
   const readiness = mergeReadiness(packageReleases.length > 0 ? packageReleases.map((item) => item.plan.readiness) : [input2.readinessContext ? { passed: true, missingLabels: [], missingFiles: [], failedCommands: [], missingTasks: [], requestedTasks: [] } : { passed: true, missingLabels: [], missingFiles: [], failedCommands: [], missingTasks: [], requestedTasks: [] }]);
   const version = input2.mode === "independent" ? releasedPlans.map((item) => `${item.package.name}@${item.plan.version}`).join(", ") : plans[0]?.plan.version ?? input2.packages[0]?.version ?? "0.0.0";
+  const channel = input2.mode === "independent" ? [...new Set(packageReleases.map((item) => item.plan.channel))].join(", ") || "stable" : plans[0]?.plan.channel ?? "stable";
+  const promotion = packageReleases.some((item) => item.plan.promotion);
   const versionChangeMap = /* @__PURE__ */ new Map();
   const versionMap = /* @__PURE__ */ new Map();
   for (const item of packageReleases) {
@@ -11075,6 +11102,8 @@ function buildWorkspaceReleasePlan(input2) {
     mode: input2.mode,
     hasRelease,
     version,
+    channel,
+    promotion,
     packages: packageReleases,
     changes: input2.changes,
     releaseChanges,
@@ -11733,8 +11762,8 @@ function releaseGraphMarkdown(plan) {
   return lines;
 }
 function releasePrBody(plan, config) {
-  const marker = JSON.stringify({ version: plan.version, manifest: config.outputs.manifest, mode: plan.mode });
-  const packageLines = plan.packages.map(({ package: packageItem, plan: packagePlan }) => `- **${packageItem.name}**: ${packageItem.version} -> **${packagePlan.version}** (${packagePlan.bump})`);
+  const marker = JSON.stringify({ version: plan.version, manifest: config.outputs.manifest, mode: plan.mode, channel: plan.channel, promotion: plan.promotion });
+  const packageLines = plan.packages.map(({ package: packageItem, plan: packagePlan }) => `- **${packageItem.name}**: ${packageItem.version} -> **${packagePlan.version}** (${packagePlan.bump}, ${packagePlan.channel}${packagePlan.promotion ? ", promotion" : ""})`);
   const notes = plan.packages.map(({ package: packageItem, plan: packagePlan }) => `### ${packageItem.name}
 
 ${packagePlan.customerNotes.trim()}`).join("\n\n");
@@ -11743,6 +11772,11 @@ ${packagePlan.customerNotes.trim()}`).join("\n\n");
     `# SemVerge release ${plan.version}`,
     "",
     `This ${plan.mode} release prepares version changes and release communication for ${plan.packages.length} package(s).`,
+    "",
+    "## Release channel",
+    "",
+    `- Channel: **${plan.channel}**`,
+    `- Promotion: **${plan.promotion ? "yes" : "no"}**`,
     "",
     "## Package versions",
     "",
@@ -11907,11 +11941,13 @@ async function prepareRelease(client, head, config) {
     readinessContext: { availableLabels, availableFiles, commandResults: await runReadinessCommands(effectiveConfig) }
   });
   setOutput("version", plan.version);
+  setOutput("release-channel", plan.channel);
+  setOutput("release-promotion", String(plan.promotion));
   if (!plan.hasRelease) {
     log("No release-worthy changes were found.");
     return;
   }
-  log(`Planned ${plan.version} (${plan.mode}) from ${plan.releaseChanges.length} change(s).`);
+  log(`Planned ${plan.version} (${plan.mode}, ${plan.channel}${plan.promotion ? " promotion" : ""}) from ${plan.releaseChanges.length} change(s).`);
   if (isDryRun()) {
     log(JSON.stringify(plan, null, 2));
     return;
@@ -12016,6 +12052,8 @@ async function publishRelease(client, pr, config) {
   }
   const manifestContent2 = await client.getFile(config.outputs.manifest, mergeSha);
   const manifest = manifestContent2 ? JSON.parse(manifestContent2) : {};
+  setOutput("release-channel", manifest.channel ?? "stable");
+  setOutput("release-promotion", String(manifest.promotion === true));
   if (manifest.readiness?.passed === false) {
     throw new Error("Release readiness checks are incomplete; SemVerge did not publish the release.");
   }

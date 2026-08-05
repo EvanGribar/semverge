@@ -1,7 +1,7 @@
 import { bumpForChange } from "./changes.js";
 import { DEFAULT_CONFIG } from "./config.js";
 import { evaluateReadiness } from "./readiness.js";
-import { bumpVersion, highestBump } from "./semver.js";
+import { bumpVersion, highestBump, parseVersion, promoteVersion } from "./semver.js";
 import { renderAnnouncement, renderChangelogSection, renderCustomerNotes, renderInternalSummary, renderMigrationGuide, prependChangelog } from "./notes.js";
 import type { ReadinessContext, ReleaseChange, ReleasePlan, SemVergeConfig } from "./types.js";
 
@@ -20,6 +20,8 @@ function manifestFor(plan: Omit<ReleasePlan, "manifest" | "outputs">): string {
     version: plan.version,
     previousVersion: plan.previousVersion,
     bump: plan.bump,
+    channel: plan.channel,
+    promotion: plan.promotion,
     generatedAt: new Date().toISOString(),
     changes: plan.releaseChanges.map((change) => ({
       kind: change.kind,
@@ -38,9 +40,17 @@ export function buildReleasePlan(input: BuildReleasePlanInput): ReleasePlan {
   const releaseChanges = input.changes.filter((change) => !change.skipped);
   const skippedChanges = input.changes.filter((change) => change.skipped);
   const bump = highestBump(releaseChanges.map((change) => bumpForChange(change)));
-  const hasRelease = bump !== "none";
   const labelPrerelease = releaseChanges.some((change) => change.labels.includes("ship:beta")) ? "beta" : undefined;
-  const version = hasRelease ? bumpVersion(input.currentVersion, bump, config.release.prerelease ?? labelPrerelease) : input.currentVersion;
+  const stableRequested = config.release.promotion === "stable" || releaseChanges.some((change) => change.labels.includes("ship:stable"));
+  const currentVersion = parseVersion(input.currentVersion);
+  const promotion = stableRequested && Boolean(currentVersion?.prerelease.length);
+  const hasRelease = bump !== "none" || promotion;
+  const channel = stableRequested ? "stable" : config.release.prerelease ?? labelPrerelease ?? "stable";
+  const version = hasRelease
+    ? stableRequested
+      ? promotion ? promoteVersion(input.currentVersion) : bumpVersion(input.currentVersion, bump)
+      : bumpVersion(input.currentVersion, bump, config.release.prerelease ?? labelPrerelease)
+    : input.currentVersion;
   const readiness = evaluateReadiness(config.readiness, releaseChanges, input.readinessContext);
   if (!hasRelease) {
     return {
@@ -48,6 +58,8 @@ export function buildReleasePlan(input: BuildReleasePlanInput): ReleasePlan {
       previousVersion: input.currentVersion,
       version,
       bump,
+      channel,
+      promotion,
       changes: input.changes,
       releaseChanges,
       skippedChanges,
@@ -72,6 +84,8 @@ export function buildReleasePlan(input: BuildReleasePlanInput): ReleasePlan {
     previousVersion: input.currentVersion,
     version,
     bump,
+    channel,
+    promotion,
     changes: input.changes,
     releaseChanges,
     skippedChanges,

@@ -86,6 +86,14 @@ export function bumpVersion(current: string, level: BumpLevel, prereleaseChannel
   return formatVersion(next);
 }
 
+export function promoteVersion(current: string): string {
+  const parsed = parseVersion(current);
+  if (!parsed) {
+    throw new Error(`The current version is not valid semver: ${current}`);
+  }
+  return formatVersion({ ...parsed, prerelease: [], build: [] });
+}
+
 export function isVersion(value: string): boolean {
   return parseVersion(value) !== null;
 }

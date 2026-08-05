@@ -6,6 +6,8 @@ export type Ecosystem = "node" | "python" | "rust";
 
 export type MonorepoMode = "auto" | "single" | "fixed" | "independent";
 
+export type ReleasePromotion = "stable";
+
 export type PackageReleaseReason = "direct-change" | "dependency-update" | "fixed-workspace";
 
 export interface PackageReleaseExplanation {
@@ -85,6 +87,7 @@ export interface ReleaseConfig {
   tagPrefix: string;
   independentTagPrefix: string;
   prerelease?: string;
+  promotion?: ReleasePromotion;
 }
 
 export interface OutputConfig {
@@ -168,6 +171,8 @@ export interface ReleasePlan {
   previousVersion: string;
   version: string;
   bump: BumpLevel;
+  channel: string;
+  promotion: boolean;
   changes: ReleaseChange[];
   releaseChanges: ReleaseChange[];
   skippedChanges: ReleaseChange[];

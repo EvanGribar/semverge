@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bumpVersion, compareVersions, parseVersion } from "../src/semver.js";
+import { bumpVersion, compareVersions, parseVersion, promoteVersion } from "../src/semver.js";
 
 describe("semantic versions", () => {
   it("orders prereleases before the stable version", () => {
@@ -23,5 +23,10 @@ describe("semantic versions", () => {
 
   it("uses SemVer precedence and ignores build metadata", () => {
     expect(compareVersions("1.0.0+build.1", "1.0.0+build.2")).toBe(0);
+  });
+
+  it("promotes a prerelease core version to stable", () => {
+    expect(promoteVersion("1.4.0-beta.2+build.7")).toBe("1.4.0");
+    expect(promoteVersion("1.4.0")).toBe("1.4.0");
   });
 });
