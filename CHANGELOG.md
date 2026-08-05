@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.4.0] - 2026-08-05
+
+### Features
+
+- [add independent dependency policies](https://github.com/EvanGribar/semverge/pull/67) (#67)
+
+### Internal Changes
+
+- [cover finalization and verification recovery](https://github.com/EvanGribar/semverge/pull/66) (#66)
+
 ## [0.3.0] - 2026-08-05
 
 ### Features
