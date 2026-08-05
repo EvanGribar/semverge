@@ -48,7 +48,8 @@ export const DEFAULT_CONFIG: SemVergeConfig = {
     npm: {
       enabled: false,
       command: "npm publish",
-      idempotency: "registry"
+      idempotency: "registry",
+      provenance: false
     }
   }
 };
@@ -179,9 +180,16 @@ export function validateConfigContent(content: string, fileName = ".semverge.yml
       booleanField(npm, "enabled", "publishing.npm", issues);
       stringField(npm, "command", "publishing.npm", issues);
       enumField(npm, "idempotency", "publishing.npm", ["registry", "declared"], issues);
+      booleanField(npm, "provenance", "publishing.npm", issues);
       const command = typeof npm.command === "string" ? npm.command.trim() : "";
       if (npm.enabled === true && command && command !== DEFAULT_CONFIG.publishing.npm.command && npm.idempotency === undefined) {
         issues.push({ path: "publishing.npm.idempotency", severity: "error", message: "is required for custom npm commands; choose registry or declared" });
+      }
+      if (npm.provenance === true && npm.enabled !== true) {
+        issues.push({ path: "publishing.npm.provenance", severity: "error", message: "requires publishing.npm.enabled: true" });
+      }
+      if (npm.provenance === true && command && command !== DEFAULT_CONFIG.publishing.npm.command) {
+        issues.push({ path: "publishing.npm.provenance", severity: "error", message: "requires the default npm publish command; custom commands must own their provenance flags" });
       }
     }
   }
@@ -198,6 +206,12 @@ export function validateConfig(config: SemVergeConfig): ConfigValidationIssue[] 
   }
   if (config.publishing.npm.enabled && !config.publishing.npm.idempotency) {
     issues.push({ path: "publishing.npm.idempotency", severity: "error", message: "is required for custom npm commands; choose registry or declared" });
+  }
+  if (config.publishing.npm.provenance && !config.publishing.npm.enabled) {
+    issues.push({ path: "publishing.npm.provenance", severity: "error", message: "requires publishing.npm.enabled: true" });
+  }
+  if (config.publishing.npm.provenance && config.publishing.npm.command !== DEFAULT_CONFIG.publishing.npm.command) {
+    issues.push({ path: "publishing.npm.provenance", severity: "error", message: "requires the default npm publish command; custom commands must own their provenance flags" });
   }
   const workflowNames = new Set<string>();
   for (const workflow of config.health.workflows) {
@@ -330,7 +344,8 @@ function mergeConfig(raw: unknown): SemVergeConfig {
       npm: {
         enabled: booleanValue(npm.enabled, DEFAULT_CONFIG.publishing.npm.enabled),
         command: npmCommand,
-        idempotency: npmIdempotency
+        idempotency: npmIdempotency,
+        provenance: booleanValue(npm.provenance, DEFAULT_CONFIG.publishing.npm.provenance)
       }
     }
   };

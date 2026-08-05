@@ -9,7 +9,10 @@ import { run } from "../src/action.js";
 import { parseReleaseTransactionBody } from "../src/transaction.js";
 
 const npmVersionExistsMock = vi.hoisted(() => vi.fn(async () => false));
-vi.mock("../src/npm.js", () => ({ npmVersionExists: npmVersionExistsMock }));
+vi.mock("../src/npm.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/npm.js")>()),
+  npmVersionExists: npmVersionExistsMock
+}));
 
 const retryFixtureDirectory = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "node-retry");
 const retryFixtureConfig = join(retryFixtureDirectory, ".semverge.yml");
@@ -377,5 +380,38 @@ describe("merged release publication", () => {
     const finalState = parseReleaseTransactionBody(typeof finalBody === "string" ? finalBody : null);
     expect(finalState?.phase).toBe("completed");
     expect(finalState?.events.some((event) => event.key === "asset:v0.2.0:artifact.txt" && event.status === "failed")).toBe(true);
+  });
+
+  it("refuses provenance publication before creating a release side effect without OIDC", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "semverge-provenance-preflight-"));
+    const workspace = prepareGitWorkspace(retryFixtureDirectory);
+    const config = "release:\n  branch: release/bot\nhealth:\n  enabled: false\npublishing:\n  npm:\n    enabled: true\n    provenance: true\n";
+    writeFileSync(join(workspace.directory, ".semverge.yml"), config);
+    execFileSync("git", ["add", ".semverge.yml"], { cwd: workspace.directory, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "enable provenance"], { cwd: workspace.directory, stdio: "ignore" });
+    const mergeSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace.directory, encoding: "utf8" }).trim();
+    const eventPath = publishEvent(directory, mergeSha);
+    const outputPath = join(directory, "outputs.txt");
+    const requests: Array<{ method: string; path: string }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      requests.push({ method: init?.method ?? "GET", path: url.pathname });
+      if (url.pathname.endsWith("/contents/release-manifest.json")) {
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded(manifest()) }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ message: `Unexpected request ${init?.method ?? "GET"} ${url.pathname}` }), { status: 500 });
+    }));
+
+    const previous = setPublishEnvironment(directory, eventPath, outputPath, workspace.directory, mergeSha);
+    try {
+      await expect(run()).rejects.toThrow("GitHub Actions OIDC");
+    } finally {
+      restoreEnvironment(previous);
+      rmSync(directory, { recursive: true, force: true });
+      rmSync(workspace.directory, { recursive: true, force: true });
+    }
+
+    expect(requests.some((request) => request.method === "POST" && request.path.endsWith("/releases"))).toBe(false);
+    expect(npmVersionExistsMock).not.toHaveBeenCalled();
   });
 });

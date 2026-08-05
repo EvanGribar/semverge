@@ -24,7 +24,8 @@ SemVerge is release automation that understands whether a release is ready and w
 - Human-readable local `explain` output for version decisions, readiness blockers, merge behavior, and transaction recovery
 - Report-first migration diagnostics for Release Please, Changesets, and semantic-release with explicit opt-in config writing
 - Read-only setup diagnostics for package managers, workspaces, tags, release tools, build hooks, registries, and workflow permissions
-- Dependency-free static public site with versioned Vercel configuration and a documented OSS hosting boundary
+- Optional dependency-free static project surface with versioned Vercel configuration; the release engine has no frontend or hosting dependency
+- Opt-in npm provenance publication with GitHub Actions OIDC preflight and durable transaction binding; provider eligibility remains external proof
 - Explainable per-package release graphs in release PRs and manifests, including direct changes, dependency propagation, and unreleased packages
 - Checked-in single-package, fixed-pnpm, independent-workspace, retry, and large-repository fixtures for deterministic end-to-end proof
 - Explicit stable promotion from a prerelease, with channel and promotion decisions recorded in plans, release PRs, manifests, explanations, and action outputs

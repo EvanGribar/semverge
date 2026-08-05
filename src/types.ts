@@ -130,6 +130,7 @@ export interface NpmPublishConfig {
   enabled: boolean;
   command: string;
   idempotency?: "registry" | "declared";
+  provenance: boolean;
 }
 
 export interface PublishingConfig {

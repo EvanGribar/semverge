@@ -73,6 +73,7 @@ export interface RegistryDiagnostic {
   registry?: string;
   sources: string[];
   trustedPublishing: SetupStatus;
+  provenance: SetupStatus;
 }
 
 export interface GitHubDiagnostic {
@@ -370,7 +371,7 @@ function registryFromNpmrc(content: string): string | undefined {
   return undefined;
 }
 
-function registryDiagnostic(root: JsonPackage | undefined, files: RepositoryFile[], workflows: WorkflowObservation[]): RegistryDiagnostic {
+function registryDiagnostic(root: JsonPackage | undefined, files: RepositoryFile[], workflows: WorkflowObservation[], provenanceRequested: boolean): RegistryDiagnostic {
   const sources: string[] = [];
   let registry: string | undefined;
   const publishConfig = isRecord(root?.publishConfig) ? root.publishConfig.registry : undefined;
@@ -395,11 +396,15 @@ function registryDiagnostic(root: JsonPackage | undefined, files: RepositoryFile
   const trustedPublishing: SetupStatus = publishWorkflows.length === 0
     ? "not-detected"
     : publishWorkflows.every((workflow) => workflow.idTokenWrite) ? "detected" : "review";
+  const provenance: SetupStatus = !provenanceRequested
+    ? "not-detected"
+    : trustedPublishing === "detected" ? "detected" : "review";
   return {
     status: registry ? "detected" : sources.length > 0 ? "review" : "not-detected",
     registry,
     sources,
-    trustedPublishing
+    trustedPublishing,
+    provenance
   };
 }
 
@@ -562,6 +567,7 @@ export async function inspectRepository(cwd: string): Promise<RepositoryDoctorRe
   let configuredMode: MonorepoMode = "auto";
   let includeRoot = true;
   let configuredPackages: string[] = [];
+  let provenanceRequested = false;
   const configContent = discovery.files.find((file) => file.path === ".semverge.yml")?.content;
   if (configContent !== undefined) {
     try {
@@ -569,6 +575,7 @@ export async function inspectRepository(cwd: string): Promise<RepositoryDoctorRe
       configuredMode = config.monorepo.mode;
       includeRoot = config.monorepo.includeRoot;
       configuredPackages = config.monorepo.packages;
+      provenanceRequested = config.publishing.npm.provenance;
     } catch {
       warnings.push(".semverge.yml could not be parsed; workspace scope falls back to repository manifests.");
     }
@@ -594,7 +601,10 @@ export async function inspectRepository(cwd: string): Promise<RepositoryDoctorRe
   if (github.semvergeWorkflow && github.permissions.contents !== "write" && github.permissions.contents !== "write-all") {
     warnings.push("A SemVerge workflow was detected without an explicit contents: write permission; release PR and tag publication may be blocked.");
   }
-  const registry = registryDiagnostic(root, discovery.files, workflows);
+  const registry = registryDiagnostic(root, discovery.files, workflows, provenanceRequested);
+  if (provenanceRequested && registry.provenance !== "detected") {
+    warnings.push("npm provenance is requested, but a publish workflow with id-token: write was not detected; provider-side trusted-publishing eligibility is not locally evidenced.");
+  }
   if (registry.trustedPublishing === "detected") {
     warnings.push("Trusted publishing is configured in a workflow, but registry/provider eligibility still requires a hosted proof run.");
   }
@@ -635,6 +645,7 @@ export function repositoryDoctorMarkdown(report: RepositoryDoctorReport): string
     `Build/package scripts: ${joinOrNone(report.build.scripts)}`,
     `Registry: ${report.registry.registry ?? "default or not explicitly configured"} (${report.registry.status}; sources: ${joinOrNone(report.registry.sources)})`,
     `Trusted publishing: ${report.registry.trustedPublishing}`,
+    `npm provenance: ${report.registry.provenance}`,
     `GitHub workflows: ${joinOrNone(report.github.workflowFiles)}`,
     `GitHub permissions: contents=${report.github.permissions.contents}, pull-requests=${report.github.permissions.pullRequests}, id-token=${report.github.permissions.idToken}, actions=${report.github.permissions.actions}`,
     "",

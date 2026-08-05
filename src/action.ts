@@ -11,7 +11,7 @@ import { discoverPackages } from "./packages.js";
 import { buildWorkspaceReleasePlan, type WorkspaceReleasePlan } from "./workspace-release.js";
 import { evaluatePostReleaseVerification, postReleaseVerificationMarkdown, type PostReleaseVerificationObservation } from "./health.js";
 import { compareVersions, parseVersion } from "./semver.js";
-import { npmVersionExists } from "./npm.js";
+import { assertNpmProvenanceEnvironment, npmPublishCommand, npmVersionExists } from "./npm.js";
 import { assertWorkspaceAtCommit } from "./workspace-integrity.js";
 import { advanceReleaseTransaction, createReleaseTransaction, mergeReleaseTransactions, parseReleaseTransactionBody, recordReleaseTransactionEvent, releaseTransactionBody, updateReleaseTransactionBody, type ReleaseTransaction } from "./transaction.js";
 import type { SemVergeConfig } from "./types.js";
@@ -479,7 +479,7 @@ function packageKey(packageItem: PublishedPackage, index: number): string {
 
 function initialReleaseProgress(version: string, sourceCommit: string, publishablePackages: PublishedPackage[], releaseTags: string[], artifactDigestMap: Record<string, string>, config: SemVergeConfig): ReleaseProgress {
   const packageIds = publishablePackages.map(packageKey);
-  let transaction = createReleaseTransaction({ version, sourceCommit, packageIds, tagNames: releaseTags, artifactDigests: artifactDigestMap, npmEnabled: config.publishing.npm.enabled });
+  let transaction = createReleaseTransaction({ version, sourceCommit, packageIds, tagNames: releaseTags, artifactDigests: artifactDigestMap, npmEnabled: config.publishing.npm.enabled, npmProvenance: config.publishing.npm.provenance });
   transaction = advanceReleaseTransaction(transaction, "approved", { key: "approval", kind: "approval-verified", target: sourceCommit, detail: "Release PR merge commit verified." });
   transaction = advanceReleaseTransaction(transaction, "prepared", { key: "release-inputs", kind: "release-plan-prepared", target: version, detail: "Release manifest, package set, and tags validated." });
   return advanceReleaseTransaction(transaction, "built", { key: "artifact-build", kind: "artifacts-built", target: sourceCommit, detail: "Workspace and configured artifacts passed pre-publication validation." });
@@ -578,6 +578,8 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
   if (config.publishing.npm.enabled && !config.publishing.npm.idempotency) {
     throw new Error("SemVerge requires publishing.npm.idempotency for custom npm commands; choose registry or declared.");
   }
+  assertNpmProvenanceEnvironment(config.publishing.npm);
+  const npmCommand = config.publishing.npm.enabled ? npmPublishCommand(config.publishing.npm) : config.publishing.npm.command;
 
   // Build and validate every artifact before creating a tag or draft release. A failed
   // build must not leave any release-side state behind for the next retry.
@@ -660,7 +662,7 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
     log(`Publishing ${packageItem.name} with npm command.`);
     try {
       injectTestFailure("package-publish");
-      await exec(config.publishing.npm.command, { cwd: packageWorkspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
+      await exec(npmCommand, { cwd: packageWorkspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
     } catch (error) {
       progress = recordReleaseTransactionEvent(progress, { key: `package:${id}`, kind: "package-published", target: packageItem.name, status: "failed", detail: "Package publication failed; inspect runner logs before retrying." });
       await persistReleaseProgress(client, executions, progress);

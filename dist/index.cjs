@@ -9637,7 +9637,8 @@ var DEFAULT_CONFIG = {
     npm: {
       enabled: false,
       command: "npm publish",
-      idempotency: "registry"
+      idempotency: "registry",
+      provenance: false
     }
   }
 };
@@ -9753,7 +9754,8 @@ function mergeConfig(raw) {
       npm: {
         enabled: booleanValue(npm.enabled, DEFAULT_CONFIG.publishing.npm.enabled),
         command: npmCommand,
-        idempotency: npmIdempotency
+        idempotency: npmIdempotency,
+        provenance: booleanValue(npm.provenance, DEFAULT_CONFIG.publishing.npm.provenance)
       }
     }
   };
@@ -11193,6 +11195,28 @@ function postReleaseVerificationMarkdown(report) {
 var import_node_child_process = require("node:child_process");
 var import_node_util = require("node:util");
 var execFile = (0, import_node_util.promisify)(import_node_child_process.execFile);
+var DEFAULT_NPM_PUBLISH_COMMAND = "npm publish";
+function npmPublishCommand(config) {
+  if (!config.provenance) {
+    return config.command;
+  }
+  if (!config.enabled) {
+    throw new Error("SemVerge npm provenance requires publishing.npm.enabled: true.");
+  }
+  if (config.command !== DEFAULT_NPM_PUBLISH_COMMAND) {
+    throw new Error("SemVerge npm provenance requires the default npm publish command; custom commands must own their provenance flags.");
+  }
+  return `${config.command} --provenance`;
+}
+function assertNpmProvenanceEnvironment(config, environment = process.env) {
+  if (!config.provenance) {
+    return;
+  }
+  npmPublishCommand(config);
+  if (environment.GITHUB_ACTIONS !== "true" || !environment.ACTIONS_ID_TOKEN_REQUEST_URL || !environment.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
+    throw new Error("SemVerge npm provenance requires GitHub Actions OIDC with id-token: write; the publish command was not run.");
+  }
+}
 var defaultNpmViewRunner = async (executable, args, options) => {
   const result = await execFile(executable, args, { cwd: options.cwd, encoding: "utf8", maxBuffer: 1024 * 1024 });
   return { stdout: result.stdout, stderr: result.stderr };
@@ -11267,7 +11291,7 @@ async function assertWorkspaceAtCommit(workspace, mergeSha, readHead = readWorks
 
 // src/transaction.ts
 var import_node_crypto = require("node:crypto");
-var RELEASE_TRANSACTION_SCHEMA_VERSION = 3;
+var RELEASE_TRANSACTION_SCHEMA_VERSION = 4;
 var RELEASE_TRANSACTION_MARKER = "<!-- semverge-progress ";
 var RELEASE_PHASES = [
   "planned",
@@ -11355,6 +11379,7 @@ function createReleaseTransaction(input2) {
     packageIds: unique(input2.packageIds),
     tagNames: unique(input2.tagNames),
     npmEnabled: input2.npmEnabled,
+    npmProvenance: input2.npmProvenance ?? false,
     artifactDigests: digestMap(input2.artifactDigests ?? {}),
     publishedPackages: input2.npmEnabled ? [] : unique(input2.packageIds),
     uploadedAssets: Object.fromEntries(unique(input2.tagNames).map((tag) => [tag, []])),
@@ -11417,7 +11442,7 @@ function mergeReleaseTransactions(states, expected) {
     published: false
   };
   for (const state of present) {
-    if (state.version !== expected.version || state.npmEnabled !== expected.npmEnabled || state.sourceCommit !== "unknown" && expected.sourceCommit !== "unknown" && state.sourceCommit !== expected.sourceCommit || !sameValues(state.packageIds, expected.packageIds) || !sameValues(state.tagNames, expected.tagNames)) {
+    if (state.version !== expected.version || state.npmEnabled !== expected.npmEnabled || state.npmProvenance !== expected.npmProvenance || state.sourceCommit !== "unknown" && expected.sourceCommit !== "unknown" && state.sourceCommit !== expected.sourceCommit || !sameValues(state.packageIds, expected.packageIds) || !sameValues(state.tagNames, expected.tagNames)) {
       throw new Error("SemVerge found release transaction state for a different release or publishing configuration; verify the draft releases before retrying.");
     }
     if (phaseIndex(state.phase) > phaseIndex(merged.phase)) {
@@ -11487,7 +11512,8 @@ function parseReleaseTransaction(value) {
   if (record.schemaVersion === 1) {
     return upgradeLegacyTransaction(record);
   }
-  if (record.schemaVersion !== 2 && record.schemaVersion !== RELEASE_TRANSACTION_SCHEMA_VERSION || typeof record.id !== "string" || typeof record.version !== "string" || typeof record.sourceCommit !== "string" || typeof record.npmEnabled !== "boolean" || typeof record.ready !== "boolean" || typeof record.published !== "boolean" || typeof record.updatedAt !== "string" || !Array.isArray(record.events) || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION && record.artifactDigests === void 0) {
+  const hasArtifactDigests = record.schemaVersion === 3 || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  if (record.schemaVersion !== 2 && record.schemaVersion !== 3 && record.schemaVersion !== RELEASE_TRANSACTION_SCHEMA_VERSION || typeof record.id !== "string" || typeof record.version !== "string" || typeof record.sourceCommit !== "string" || typeof record.npmEnabled !== "boolean" || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION && typeof record.npmProvenance !== "boolean" || typeof record.ready !== "boolean" || typeof record.published !== "boolean" || typeof record.updatedAt !== "string" || !Array.isArray(record.events) || hasArtifactDigests && record.artifactDigests === void 0) {
     throw new Error("SemVerge found an invalid release transaction marker.");
   }
   const failure = record.failure === void 0 ? void 0 : objectValue2(record.failure);
@@ -11504,7 +11530,8 @@ function parseReleaseTransaction(value) {
     packageIds: stringArray(record.packageIds, "packageIds"),
     tagNames: stringArray(record.tagNames, "tagNames"),
     npmEnabled: record.npmEnabled,
-    artifactDigests: record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION ? digestMap(record.artifactDigests) : {},
+    npmProvenance: record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION ? record.npmProvenance : false,
+    artifactDigests: hasArtifactDigests ? digestMap(record.artifactDigests) : {},
     publishedPackages: stringArray(record.publishedPackages, "publishedPackages"),
     uploadedAssets: normalizeAssets(assetMap(record.uploadedAssets)),
     ready: record.ready,
@@ -11593,6 +11620,7 @@ function summarizeReleaseTransaction(state) {
     publishedPackages: `${state.publishedPackages.length}/${state.packageIds.length}`,
     uploadedAssets,
     artifactDigests: { ...state.artifactDigests },
+    npmProvenance: state.npmProvenance,
     recordedEvents: state.events.length,
     safeNextAction,
     ...state.failure ? { failure: state.failure.message } : {}
@@ -11607,6 +11635,7 @@ function releaseTransactionSummaryMarkdown(state) {
     `- Source commit: \`${summary.sourceCommit}\``,
     `- State: **${summary.phase}**`,
     `- Packages published: **${summary.publishedPackages}**`,
+    `- npm provenance requested: **${summary.npmProvenance ? "yes" : "no"}**`,
     `- Uploaded assets recorded: **${summary.uploadedAssets}**`,
     `- Artifact SHA-256 digests recorded: **${Object.keys(summary.artifactDigests).length}**`,
     ...Object.entries(summary.artifactDigests).sort(([left], [right]) => left.localeCompare(right)).map(([path, digest]) => "- Artifact `" + path + "`: `" + digest + "`"),
@@ -12004,7 +12033,7 @@ function packageKey(packageItem, index) {
 }
 function initialReleaseProgress(version, sourceCommit, publishablePackages, releaseTags, artifactDigestMap, config) {
   const packageIds = publishablePackages.map(packageKey);
-  let transaction = createReleaseTransaction({ version, sourceCommit, packageIds, tagNames: releaseTags, artifactDigests: artifactDigestMap, npmEnabled: config.publishing.npm.enabled });
+  let transaction = createReleaseTransaction({ version, sourceCommit, packageIds, tagNames: releaseTags, artifactDigests: artifactDigestMap, npmEnabled: config.publishing.npm.enabled, npmProvenance: config.publishing.npm.provenance });
   transaction = advanceReleaseTransaction(transaction, "approved", { key: "approval", kind: "approval-verified", target: sourceCommit, detail: "Release PR merge commit verified." });
   transaction = advanceReleaseTransaction(transaction, "prepared", { key: "release-inputs", kind: "release-plan-prepared", target: version, detail: "Release manifest, package set, and tags validated." });
   return advanceReleaseTransaction(transaction, "built", { key: "artifact-build", kind: "artifacts-built", target: sourceCommit, detail: "Workspace and configured artifacts passed pre-publication validation." });
@@ -12094,6 +12123,8 @@ async function publishRelease(client, pr, config) {
   if (config.publishing.npm.enabled && !config.publishing.npm.idempotency) {
     throw new Error("SemVerge requires publishing.npm.idempotency for custom npm commands; choose registry or declared.");
   }
+  assertNpmProvenanceEnvironment(config.publishing.npm);
+  const npmCommand = config.publishing.npm.enabled ? npmPublishCommand(config.publishing.npm) : config.publishing.npm.command;
   const artifactCommand = input("artifact-command") || config.artifacts.command;
   const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
   if (artifactCommand || config.artifacts.paths.length > 0 || config.publishing.npm.enabled) {
@@ -12166,7 +12197,7 @@ async function publishRelease(client, pr, config) {
     log(`Publishing ${packageItem.name} with npm command.`);
     try {
       injectTestFailure("package-publish");
-      await exec2(config.publishing.npm.command, { cwd: packageWorkspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
+      await exec2(npmCommand, { cwd: packageWorkspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
     } catch (error) {
       progress = recordReleaseTransactionEvent(progress, { key: `package:${id}`, kind: "package-published", target: packageItem.name, status: "failed", detail: "Package publication failed; inspect runner logs before retrying." });
       await persistReleaseProgress(client, executions, progress);

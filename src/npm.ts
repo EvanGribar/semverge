@@ -1,5 +1,6 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { promisify } from "node:util";
+import type { NpmPublishConfig } from "./types.js";
 
 const execFile = promisify(execFileCallback);
 
@@ -9,6 +10,31 @@ export interface NpmCommandResult {
 }
 
 export type NpmViewRunner = (executable: string, args: string[], options: { cwd: string }) => Promise<NpmCommandResult>;
+
+const DEFAULT_NPM_PUBLISH_COMMAND = "npm publish";
+
+export function npmPublishCommand(config: NpmPublishConfig): string {
+  if (!config.provenance) {
+    return config.command;
+  }
+  if (!config.enabled) {
+    throw new Error("SemVerge npm provenance requires publishing.npm.enabled: true.");
+  }
+  if (config.command !== DEFAULT_NPM_PUBLISH_COMMAND) {
+    throw new Error("SemVerge npm provenance requires the default npm publish command; custom commands must own their provenance flags.");
+  }
+  return `${config.command} --provenance`;
+}
+
+export function assertNpmProvenanceEnvironment(config: NpmPublishConfig, environment: Record<string, string | undefined> = process.env): void {
+  if (!config.provenance) {
+    return;
+  }
+  npmPublishCommand(config);
+  if (environment.GITHUB_ACTIONS !== "true" || !environment.ACTIONS_ID_TOKEN_REQUEST_URL || !environment.ACTIONS_ID_TOKEN_REQUEST_TOKEN) {
+    throw new Error("SemVerge npm provenance requires GitHub Actions OIDC with id-token: write; the publish command was not run.");
+  }
+}
 
 const defaultNpmViewRunner: NpmViewRunner = async (executable, args, options) => {
   const result = await execFile(executable, args, { cwd: options.cwd, encoding: "utf8", maxBuffer: 1024 * 1024 });

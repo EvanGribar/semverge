@@ -30,6 +30,25 @@ describe("configuration and version files", () => {
     expect(parseConfig(`${content}    idempotency: declared\n`).publishing.npm.idempotency).toBe("declared");
   });
 
+  it("keeps npm provenance opt-in and rejects unsafe command combinations", () => {
+    const content = "publishing:\n  npm:\n    enabled: true\n    provenance: true\n";
+    const config = parseConfig(content);
+    expect(config.publishing.npm.provenance).toBe(true);
+    expect(validateConfigContent(content)).not.toContainEqual(expect.objectContaining({ path: "publishing.npm.provenance", severity: "error" }));
+
+    const custom = "publishing:\n  npm:\n    enabled: true\n    provenance: true\n    command: pnpm publish\n    idempotency: declared\n";
+    expect(validateConfigContent(custom)).toContainEqual({
+      path: "publishing.npm.provenance",
+      severity: "error",
+      message: "requires the default npm publish command; custom commands must own their provenance flags"
+    });
+    expect(validateConfigContent("publishing:\n  npm:\n    provenance: true\n")).toContainEqual({
+      path: "publishing.npm.provenance",
+      severity: "error",
+      message: "requires publishing.npm.enabled: true"
+    });
+  });
+
   it("updates package.json and npm lockfile root versions", () => {
     const changes = updateVersionFiles({
       "package.json": JSON.stringify({ name: "demo", version: "1.0.0" }),

@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import { npmVersionExists } from "../src/npm.js";
+import { assertNpmProvenanceEnvironment, npmPublishCommand, npmVersionExists } from "../src/npm.js";
+
+const provenanceConfig = {
+  enabled: true,
+  command: "npm publish",
+  idempotency: "registry" as const,
+  provenance: true
+};
 
 describe("npm publication idempotency", () => {
   it("recognizes the exact version returned by npm view", async () => {
@@ -23,5 +30,22 @@ describe("npm publication idempotency", () => {
     });
 
     await expect(npmVersionExists("demo", "1.2.3", "C:/workspace", runner)).rejects.toThrow("will not assume the version is absent");
+  });
+});
+
+describe("npm provenance", () => {
+  it("adds provenance only to the built-in npm publish command", () => {
+    expect(npmPublishCommand(provenanceConfig)).toBe("npm publish --provenance");
+    expect(npmPublishCommand({ ...provenanceConfig, provenance: false })).toBe("npm publish");
+  });
+
+  it("rejects custom commands and missing OIDC runtime evidence", () => {
+    expect(() => npmPublishCommand({ ...provenanceConfig, command: "pnpm publish" })).toThrow("default npm publish command");
+    expect(() => assertNpmProvenanceEnvironment(provenanceConfig, { GITHUB_ACTIONS: "true" })).toThrow("id-token: write");
+    expect(() => assertNpmProvenanceEnvironment(provenanceConfig, {
+      GITHUB_ACTIONS: "true",
+      ACTIONS_ID_TOKEN_REQUEST_URL: "https://actions.example/oidc",
+      ACTIONS_ID_TOKEN_REQUEST_TOKEN: "redacted-test-token"
+    })).not.toThrow();
   });
 });

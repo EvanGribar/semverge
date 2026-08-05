@@ -1,11 +1,5 @@
-# SemVerge public site
+# Optional SemVerge project surface
 
-This directory is a static, dependency-free project intended to be imported as the Vercel project root. It has no build step and does not contain secrets or runtime credentials.
+This directory is a dependency-free static explanation of SemVerge. It is optional: the CLI, GitHub Action, tests, and release workflow do not depend on it, and no frontend is required to use SemVerge.
 
-Preview it with the Vercel CLI from the repository root:
-
-```bash
-pnpm dlx vercel --cwd website
-```
-
-For a connected Git project, set the Vercel Root Directory to `website`. See [the repository Vercel guide](../docs/vercel.md) for the deployment boundary and OSS-program notes.
+There is no connected Vercel project or deployment. The checked-in `vercel.json` only keeps this isolated static directory compatible with a future hosting decision. See [the repository Vercel guide](../docs/vercel.md) for the current boundary.

@@ -80,7 +80,7 @@ npx semverge recover release_01J... --state .semverge/release-state.json
 `init` is safe by default and requires `--force` to replace an existing file. `plan` prints the same release-plan shape used by the action, `explain` turns that plan into a human-readable decision and recovery guide, while `doctor` reports local package-manager, workspace, tag, release-tool, registry, build, workflow-permission, and configuration signals before a hosted run. It never prints auth settings and cannot prove provider-side eligibility. See [docs/doctor.md](docs/doctor.md).
 `migrate` detects Release Please, Changesets, and semantic-release configuration and produces a conservative report; add `--write` only after reviewing it. `recover` prints the durable transaction state and safe next action. With `GITHUB_REPOSITORY` and a token it searches GitHub releases; `--state` is useful for a local exported marker or fixture. See [docs/migration.md](docs/migration.md).
 
-The dependency-free [public site](website/README.md) is intended to be hosted from `website/` on Vercel. See [docs/vercel.md](docs/vercel.md) for the deployment boundary and Open Source Program evidence notes.
+The optional dependency-free [project surface](website/README.md) is Vercel-compatible but not hosted or required. See [docs/vercel.md](docs/vercel.md) for the current no-deployment boundary.
 
 For independent workspaces, the plan and release PR include a release graph for every bumped package: direct changes, dependent-package propagation, and packages left unreleased by the current strategy are shown explicitly.
 
@@ -138,6 +138,7 @@ publishing:
     enabled: false
     command: npm publish
     idempotency: registry # registry or declared for custom commands
+    # provenance: true     # opt in only with GitHub Actions OIDC and id-token: write
 
 health:
   enabled: true
@@ -157,6 +158,8 @@ Stable promotion is explicit. Add `ship:stable` to a release-bearing change, or 
 The `health` configuration namespace provides immediate post-release verification: configured assets, documentation links, and workflow results visible after the publication transaction or on a `release.published` event. A workflow that has not started or completed is reported as a warning so the check can be rerun after it finishes. SemVerge does not infer rollback or hotfix signals from a single event; delayed monitoring is planned separately.
 
 Configured commands and artifact commands run in the runner workspace. When artifacts or npm publishing are enabled, SemVerge requires `GITHUB_WORKSPACE` to be checked out at the merged release PR's exact `merge_commit_sha`; the workflow above provides that checkout. The zero-configuration path does not need a checkout. Standard `npm publish` uses `idempotency: registry` to query the exact package version before publishing. Custom commands must explicitly choose `idempotency: declared` when the command owns its own retry-safe behavior, or `idempotency: registry` when the npm registry check is appropriate.
+
+Set `publishing.npm.provenance: true` only when the built-in `npm publish` command is enabled in a GitHub Actions workflow with `id-token: write` and an npm trusted publisher configured. SemVerge appends `--provenance`, requires the OIDC runtime evidence before any release side effect, and binds the choice into the durable transaction so a retry cannot silently change publication policy. It does not configure npm, grant workflow permissions, or prove provider-side eligibility; leave this disabled until those external gates are deliberately set up.
 
 ## Plugin SDK
 
