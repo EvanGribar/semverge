@@ -73,7 +73,7 @@ function restoreEnvironment(previous: Map<string, string | undefined>): void {
   }
 }
 
-function manifest(ecosystem?: "node" | "python" | "rust", channel?: string): string {
+function manifest(ecosystem?: "node" | "python" | "rust", channel = "stable"): string {
   return JSON.stringify({
     schemaVersion: 2,
     mode: "single",
