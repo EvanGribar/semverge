@@ -692,7 +692,7 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
   }
   const manifestContent = await client.getFile(config.outputs.manifest, mergeSha);
   const manifest: SemVergeManifest = manifestContent ? JSON.parse(manifestContent) as SemVergeManifest : {};
-  if (manifest.channel) {
+  if (manifest.channel && manifest.channel.trim().toLowerCase() !== "stable") {
     config = withChannelPolicy(config, manifest.channel);
   }
   setOutput("release-channel", manifest.channel ?? "stable");

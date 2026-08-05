@@ -12574,7 +12574,7 @@ async function publishRelease(client, pr, config) {
   }
   const manifestContent2 = await client.getFile(config.outputs.manifest, mergeSha);
   const manifest = manifestContent2 ? JSON.parse(manifestContent2) : {};
-  if (manifest.channel) {
+  if (manifest.channel && manifest.channel.trim().toLowerCase() !== "stable") {
     config = withChannelPolicy(config, manifest.channel);
   }
   setOutput("release-channel", manifest.channel ?? "stable");
