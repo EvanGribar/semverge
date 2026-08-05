@@ -12,9 +12,10 @@ import { buildWorkspaceReleasePlan, type WorkspaceReleasePlan } from "./workspac
 import { evaluatePostReleaseVerification, postReleaseVerificationMarkdown, type PostReleaseVerificationObservation } from "./health.js";
 import { compareVersions, parseVersion } from "./semver.js";
 import { assertNpmProvenanceEnvironment, npmPublishCommand, npmVersionExists } from "./npm.js";
+import { publishConfigForEcosystem, publisherName, registryVersionExists } from "./registries.js";
 import { assertWorkspaceAtCommit } from "./workspace-integrity.js";
 import { advanceReleaseTransaction, createReleaseTransaction, mergeReleaseTransactions, parseReleaseTransactionBody, recordReleaseTransactionEvent, releaseTransactionBody, updateReleaseTransactionBody, type ReleaseTransaction } from "./transaction.js";
-import type { SemVergeConfig } from "./types.js";
+import type { Ecosystem, SemVergeConfig } from "./types.js";
 
 const exec = promisify(execCallback);
 
@@ -451,6 +452,7 @@ interface PublishedPackage {
   name: string;
   directory: string;
   version: string;
+  ecosystem?: Ecosystem;
   customerNotes?: string;
   private?: boolean;
   releaseable?: boolean;
@@ -488,9 +490,20 @@ function packageKey(packageItem: PublishedPackage, index: number): string {
   return packageItem.id || packageItem.name || packageItem.directory || `package-${index + 1}`;
 }
 
+function packageEcosystem(packageItem: PublishedPackage): Ecosystem {
+  return packageItem.ecosystem ?? "node";
+}
+
 function initialReleaseProgress(version: string, sourceCommit: string, publishablePackages: PublishedPackage[], releaseTags: string[], artifactDigestMap: Record<string, string>, config: SemVergeConfig): ReleaseProgress {
   const packageIds = publishablePackages.map(packageKey);
-  let transaction = createReleaseTransaction({ version, sourceCommit, packageIds, tagNames: releaseTags, artifactDigests: artifactDigestMap, npmEnabled: config.publishing.npm.enabled, npmProvenance: config.publishing.npm.provenance });
+  const publishingTargets = [...new Set(publishablePackages
+    .map(packageEcosystem)
+    .filter((ecosystem) => publishConfigForEcosystem(config, ecosystem).enabled)
+    .map((ecosystem) => ecosystem === "node" ? "npm" : ecosystem))];
+  const alreadyPublishedPackageIds = publishablePackages
+    .filter((packageItem) => !publishConfigForEcosystem(config, packageEcosystem(packageItem)).enabled)
+    .map(packageKey);
+  let transaction = createReleaseTransaction({ version, sourceCommit, packageIds, tagNames: releaseTags, publishingTargets, alreadyPublishedPackageIds, artifactDigests: artifactDigestMap, npmEnabled: config.publishing.npm.enabled, npmProvenance: config.publishing.npm.provenance });
   transaction = advanceReleaseTransaction(transaction, "approved", { key: "approval", kind: "approval-verified", target: sourceCommit, detail: "Release PR merge commit verified." });
   transaction = advanceReleaseTransaction(transaction, "prepared", { key: "release-inputs", kind: "release-plan-prepared", target: version, detail: "Release manifest, package set, and tags validated." });
   return advanceReleaseTransaction(transaction, "built", { key: "artifact-build", kind: "artifacts-built", target: sourceCommit, detail: "Workspace and configured artifacts passed pre-publication validation." });
@@ -586,17 +599,20 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
   if (releasePackages.length === 0) {
     throw new Error("SemVerge found no packages to publish.");
   }
-  if (config.publishing.npm.enabled && !config.publishing.npm.idempotency) {
-    throw new Error("SemVerge requires publishing.npm.idempotency for custom npm commands; choose registry or declared.");
+  for (const ecosystem of ["node", "python", "rust"] as const) {
+    const publisher = publishConfigForEcosystem(config, ecosystem);
+    if (publisher.enabled && !publisher.idempotency) {
+      throw new Error(`SemVerge requires publishing.${ecosystem}.idempotency for custom commands; choose registry or declared.`);
+    }
   }
   assertNpmProvenanceEnvironment(config.publishing.npm);
-  const npmCommand = config.publishing.npm.enabled ? npmPublishCommand(config.publishing.npm) : config.publishing.npm.command;
+  const publishingEnabled = releasePackages.some((packageItem) => publishConfigForEcosystem(config, packageEcosystem(packageItem)).enabled);
 
   // Build and validate every artifact before creating a tag or draft release. A failed
   // build must not leave any release-side state behind for the next retry.
   const artifactCommand = input("artifact-command") || config.artifacts.command;
   const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
-  if (artifactCommand || config.artifacts.paths.length > 0 || config.publishing.npm.enabled) {
+  if (artifactCommand || config.artifacts.paths.length > 0 || publishingEnabled) {
     await assertWorkspaceAtCommit(workspace, mergeSha);
   }
   if (artifactCommand) {
@@ -663,17 +679,31 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
       continue;
     }
     const packageWorkspace = packageItem.directory ? resolve(workspace, packageItem.directory) : workspace;
-    if (config.publishing.npm.idempotency === "registry" && await npmVersionExists(packageItem.name, packageItem.version, packageWorkspace)) {
-      log(`Found ${packageItem.name}@${packageItem.version} in the npm registry; treating publication as already complete.`);
+    const ecosystem = packageEcosystem(packageItem);
+    const publisher = publishConfigForEcosystem(config, ecosystem);
+    if (!publisher.enabled) {
       progress.publishedPackages = [...new Set([...progress.publishedPackages, id])];
-      progress = recordReleaseTransactionEvent(progress, { key: `package:${id}`, kind: "package-published", target: packageItem.name, detail: "Registry already contains the requested version; no duplicate publish was attempted." });
+      progress = recordReleaseTransactionEvent(progress, { key: `package:${id}`, kind: "package-publication-skipped", target: packageItem.name, detail: `No ${publisherName(ecosystem)} publisher is enabled for this package; SemVerge recorded it as intentionally unmanaged.` });
       await persistReleaseProgress(client, executions, progress);
       continue;
     }
-    log(`Publishing ${packageItem.name} with npm command.`);
+    const alreadyPublished = publisher.idempotency === "registry"
+      ? ecosystem === "node"
+        ? await npmVersionExists(packageItem.name, packageItem.version, packageWorkspace)
+        : await registryVersionExists(ecosystem, packageItem.name, packageItem.version)
+      : false;
+    if (alreadyPublished) {
+      log(`Found ${packageItem.name}@${packageItem.version} in the ${publisherName(ecosystem)} registry; treating publication as already complete.`);
+      progress.publishedPackages = [...new Set([...progress.publishedPackages, id])];
+      progress = recordReleaseTransactionEvent(progress, { key: `package:${id}`, kind: "package-published", target: packageItem.name, detail: `${publisherName(ecosystem)} already contains the requested version; no duplicate publish was attempted.` });
+      await persistReleaseProgress(client, executions, progress);
+      continue;
+    }
+    const publishCommand = ecosystem === "node" ? npmPublishCommand(config.publishing.npm) : publisher.command;
+    log(`Publishing ${packageItem.name} with ${publisherName(ecosystem)} command.`);
     try {
       injectTestFailure("package-publish");
-      await exec(npmCommand, { cwd: packageWorkspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
+      await exec(publishCommand, { cwd: packageWorkspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
     } catch (error) {
       progress = recordReleaseTransactionEvent(progress, { key: `package:${id}`, kind: "package-published", target: packageItem.name, status: "failed", detail: "Package publication failed; inspect runner logs before retrying." });
       await persistReleaseProgress(client, executions, progress);

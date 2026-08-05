@@ -108,14 +108,14 @@ describe("release transaction state", () => {
     const parsedBody = parseReleaseTransactionBody(`${releaseTransactionMarker(state)}\nnotes`);
     const summary = summarizeReleaseTransaction(state);
 
-    expect(state.schemaVersion).toBe(4);
+    expect(state.schemaVersion).toBe(5);
     expect(state.phase).toBe("prepared");
     expect(parsedBody?.id).toBe(state.id);
     expect(summary.safeNextAction).toContain(state.id);
     expect(summary.publishedPackages).toBe("0/1");
 
     const v2 = { ...state, schemaVersion: 2, artifactDigests: undefined };
-    expect(parseReleaseTransaction(v2).schemaVersion).toBe(4);
+    expect(parseReleaseTransaction(v2).schemaVersion).toBe(5);
     expect(parseReleaseTransaction(v2).artifactDigests).toEqual({});
   });
 
@@ -141,6 +141,28 @@ describe("release transaction state", () => {
 
     expect(() => mergeReleaseTransactions([changed], expected)).toThrow("different release or publishing configuration");
     expect(parseReleaseTransaction({ ...expected, schemaVersion: 3, npmProvenance: undefined }).npmProvenance).toBe(false);
+  });
+
+  it("binds non-npm registry targets and intentionally unmanaged packages", () => {
+    const expected = createReleaseTransaction({
+      id: "release_01JREGISTRY",
+      version: "1.0.0",
+      sourceCommit: "merge-sha",
+      packageIds: ["python", "rust"],
+      tagNames: ["v1.0.0"],
+      publishingTargets: ["python"],
+      alreadyPublishedPackageIds: ["rust"],
+      npmEnabled: false
+    });
+    expect(expected.publishingTargets).toEqual(["python"]);
+    expect(expected.publishedPackages).toEqual(["rust"]);
+    expect(parseReleaseTransactionBody(releaseTransactionMarker(expected))?.publishingTargets).toEqual(["python"]);
+
+    const changed = createReleaseTransaction({
+      ...expected,
+      publishingTargets: ["rust"]
+    });
+    expect(() => mergeReleaseTransactions([changed], expected)).toThrow("different release or publishing configuration");
   });
 
   it("keeps a failure until the failed side effect succeeds on retry", () => {

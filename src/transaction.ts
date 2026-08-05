@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-export const RELEASE_TRANSACTION_SCHEMA_VERSION = 4 as const;
+export const RELEASE_TRANSACTION_SCHEMA_VERSION = 5 as const;
 export const RELEASE_TRANSACTION_MARKER = "<!-- semverge-progress ";
 
 export const RELEASE_PHASES = [
@@ -42,6 +42,7 @@ export interface ReleaseTransaction {
   phase: ReleasePhase;
   packageIds: string[];
   tagNames: string[];
+  publishingTargets: string[];
   npmEnabled: boolean;
   npmProvenance: boolean;
   artifactDigests: Record<string, string>;
@@ -59,6 +60,8 @@ export interface CreateReleaseTransactionInput {
   sourceCommit: string;
   packageIds: string[];
   tagNames: string[];
+  publishingTargets?: string[];
+  alreadyPublishedPackageIds?: string[];
   npmEnabled: boolean;
   npmProvenance?: boolean;
   artifactDigests?: Record<string, string>;
@@ -81,6 +84,7 @@ export interface ReleaseTransactionSummary {
   sourceCommit: string;
   phase: ReleasePhase;
   publishedPackages: string;
+  publishingTargets: string[];
   uploadedAssets: number;
   artifactDigests: Record<string, string>;
   npmProvenance: boolean;
@@ -168,6 +172,7 @@ function normalizeAssets(value: Record<string, string[]>): Record<string, string
 
 export function createReleaseTransaction(input: CreateReleaseTransactionInput): ReleaseTransaction {
   const now = timestamp(input.now);
+  const publishingTargets = unique(input.publishingTargets ?? (input.npmEnabled ? ["npm"] : []));
   return {
     schemaVersion: RELEASE_TRANSACTION_SCHEMA_VERSION,
     id: input.id ?? `release_${randomUUID().replace(/-/g, "")}`,
@@ -176,10 +181,11 @@ export function createReleaseTransaction(input: CreateReleaseTransactionInput): 
     phase: "planned",
     packageIds: unique(input.packageIds),
     tagNames: unique(input.tagNames),
+    publishingTargets,
     npmEnabled: input.npmEnabled,
     npmProvenance: input.npmProvenance ?? false,
     artifactDigests: digestMap(input.artifactDigests ?? {}),
-    publishedPackages: input.npmEnabled ? [] : unique(input.packageIds),
+    publishedPackages: input.alreadyPublishedPackageIds ? unique(input.alreadyPublishedPackageIds) : publishingTargets.length > 0 ? [] : unique(input.packageIds),
     uploadedAssets: Object.fromEntries(unique(input.tagNames).map((tag) => [tag, []])),
     ready: false,
     published: false,
@@ -237,6 +243,7 @@ export function mergeReleaseTransactions(states: Array<ReleaseTransaction | null
     sourceCommit: present.find((state) => state.sourceCommit !== "unknown")?.sourceCommit ?? expected.sourceCommit,
     packageIds: [...expected.packageIds],
     tagNames: [...expected.tagNames],
+    publishingTargets: [...expected.publishingTargets],
     artifactDigests: { ...expected.artifactDigests },
     publishedPackages: [...expected.publishedPackages],
     uploadedAssets: normalizeAssets(expected.uploadedAssets),
@@ -245,7 +252,7 @@ export function mergeReleaseTransactions(states: Array<ReleaseTransaction | null
     published: false
   };
   for (const state of present) {
-    if (state.version !== expected.version || state.npmEnabled !== expected.npmEnabled || state.npmProvenance !== expected.npmProvenance || (state.sourceCommit !== "unknown" && expected.sourceCommit !== "unknown" && state.sourceCommit !== expected.sourceCommit) || !sameValues(state.packageIds, expected.packageIds) || !sameValues(state.tagNames, expected.tagNames)) {
+    if (state.version !== expected.version || state.npmEnabled !== expected.npmEnabled || state.npmProvenance !== expected.npmProvenance || !sameValues(state.publishingTargets, expected.publishingTargets) || (state.sourceCommit !== "unknown" && expected.sourceCommit !== "unknown" && state.sourceCommit !== expected.sourceCommit) || !sameValues(state.packageIds, expected.packageIds) || !sameValues(state.tagNames, expected.tagNames)) {
       throw new Error("SemVerge found release transaction state for a different release or publishing configuration; verify the draft releases before retrying.");
     }
     if (phaseIndex(state.phase) > phaseIndex(merged.phase)) {
@@ -317,8 +324,10 @@ export function parseReleaseTransaction(value: unknown): ReleaseTransaction {
   if (record.schemaVersion === 1) {
     return upgradeLegacyTransaction(record);
   }
-  const hasArtifactDigests = record.schemaVersion === 3 || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
-  if ((record.schemaVersion !== 2 && record.schemaVersion !== 3 && record.schemaVersion !== RELEASE_TRANSACTION_SCHEMA_VERSION) || typeof record.id !== "string" || typeof record.version !== "string" || typeof record.sourceCommit !== "string" || typeof record.npmEnabled !== "boolean" || (record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION && typeof record.npmProvenance !== "boolean") || typeof record.ready !== "boolean" || typeof record.published !== "boolean" || typeof record.updatedAt !== "string" || !Array.isArray(record.events) || (hasArtifactDigests && record.artifactDigests === undefined)) {
+  const hasArtifactDigests = record.schemaVersion === 3 || record.schemaVersion === 4 || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  const hasNpmProvenance = record.schemaVersion === 4 || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  const hasPublishingTargets = record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  if ((record.schemaVersion !== 2 && record.schemaVersion !== 3 && record.schemaVersion !== 4 && record.schemaVersion !== RELEASE_TRANSACTION_SCHEMA_VERSION) || typeof record.id !== "string" || typeof record.version !== "string" || typeof record.sourceCommit !== "string" || typeof record.npmEnabled !== "boolean" || (hasNpmProvenance && typeof record.npmProvenance !== "boolean") || (hasPublishingTargets && record.publishingTargets === undefined) || typeof record.ready !== "boolean" || typeof record.published !== "boolean" || typeof record.updatedAt !== "string" || !Array.isArray(record.events) || (hasArtifactDigests && record.artifactDigests === undefined)) {
     throw new Error("SemVerge found an invalid release transaction marker.");
   }
   const failure = record.failure === undefined ? undefined : objectValue(record.failure);
@@ -334,8 +343,9 @@ export function parseReleaseTransaction(value: unknown): ReleaseTransaction {
     phase: phaseValue(record.phase),
     packageIds: stringArray(record.packageIds, "packageIds"),
     tagNames: stringArray(record.tagNames, "tagNames"),
+    publishingTargets: hasPublishingTargets ? stringArray(record.publishingTargets, "publishingTargets") : record.npmEnabled ? ["npm"] : [],
     npmEnabled: record.npmEnabled,
-    npmProvenance: record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION ? record.npmProvenance as boolean : false,
+    npmProvenance: hasNpmProvenance ? record.npmProvenance as boolean : false,
     artifactDigests: hasArtifactDigests ? digestMap(record.artifactDigests) : {},
     publishedPackages: stringArray(record.publishedPackages, "publishedPackages"),
     uploadedAssets: normalizeAssets(assetMap(record.uploadedAssets)),
@@ -422,6 +432,7 @@ export function summarizeReleaseTransaction(state: ReleaseTransaction): ReleaseT
     sourceCommit: state.sourceCommit,
     phase: state.phase,
     publishedPackages: `${state.publishedPackages.length}/${state.packageIds.length}`,
+    publishingTargets: [...state.publishingTargets],
     uploadedAssets,
     artifactDigests: { ...state.artifactDigests },
     npmProvenance: state.npmProvenance,
@@ -440,6 +451,7 @@ export function releaseTransactionSummaryMarkdown(state: ReleaseTransaction): st
     `- Source commit: \`${summary.sourceCommit}\``,
     `- State: **${summary.phase}**`,
     `- Packages published: **${summary.publishedPackages}**`,
+    `- Publishing targets: **${summary.publishingTargets.length > 0 ? summary.publishingTargets.join(", ") : "none"}**`,
     `- npm provenance requested: **${summary.npmProvenance ? "yes" : "no"}**`,
     `- Uploaded assets recorded: **${summary.uploadedAssets}**`,
     `- Artifact SHA-256 digests recorded: **${Object.keys(summary.artifactDigests).length}**`,

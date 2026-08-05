@@ -154,6 +154,14 @@ publishing:
     command: npm publish
     idempotency: registry # registry or declared for custom commands
     # provenance: true     # opt in only with GitHub Actions OIDC and id-token: write
+  python:
+    enabled: false
+    command: python -m twine upload dist/*
+    idempotency: registry # checks the exact PyPI version before publishing
+  rust:
+    enabled: false
+    command: cargo publish --locked
+    idempotency: registry # checks the exact crates.io version before publishing
 
 health:
   enabled: true
@@ -176,7 +184,7 @@ Independent workspaces use `monorepo.dependencyPolicy` to decide which internal 
 
 The `health` configuration namespace provides immediate post-release verification: configured assets, documentation links, and workflow results visible after the publication transaction or on a `release.published` event. A workflow that has not started or completed is reported as a warning so the check can be rerun after it finishes. SemVerge does not infer rollback or hotfix signals from a single event; delayed monitoring is planned separately.
 
-Configured commands and artifact commands run in the runner workspace. When artifacts or npm publishing are enabled, SemVerge requires `GITHUB_WORKSPACE` to be checked out at the merged release PR's exact `merge_commit_sha`; the workflow above provides that checkout. The zero-configuration path does not need a checkout. Standard `npm publish` uses `idempotency: registry` to query the exact package version before publishing. Custom commands must explicitly choose `idempotency: declared` when the command owns its own retry-safe behavior, or `idempotency: registry` when the npm registry check is appropriate.
+Configured commands and artifact commands run in the runner workspace. When artifacts or any registry publishing is enabled, SemVerge requires `GITHUB_WORKSPACE` to be checked out at the merged release PR's exact `merge_commit_sha`; the workflow above provides that checkout. The zero-configuration path does not need a checkout. Standard `npm publish` uses `idempotency: registry` to query the exact package version before publishing. Opt-in Python publishing checks PyPI's JSON release metadata, and Rust publishing checks the exact crates.io version endpoint. Custom commands must explicitly choose `idempotency: declared` when the command owns its own retry-safe behavior, or `idempotency: registry` when SemVerge's registry check is appropriate.
 
 Set `publishing.npm.provenance: true` only when the built-in `npm publish` command is enabled in a GitHub Actions workflow with `id-token: write` and an npm trusted publisher configured. SemVerge appends `--provenance`, requires the OIDC runtime evidence before any release side effect, and binds the choice into the durable transaction so a retry cannot silently change publication policy. It does not configure npm, grant workflow permissions, or prove provider-side eligibility; leave this disabled until those external gates are deliberately set up.
 
@@ -186,9 +194,11 @@ SemVerge now exports a versioned, explicitly registered lifecycle plugin contrac
 
 ## Current scope
 
-SemVerge is intentionally Node.js and GitHub first. The dependable path covers single packages, fixed and independent npm/pnpm workspaces, conventional commits, PR label overrides, version and lockfile updates, dependency-aware release graphs, changelog and release notes, readiness rules, idempotent npm publishing, artifacts, GitHub releases, and immediate post-release verification.
+SemVerge is intentionally Node.js and GitHub first. The dependable path covers single packages, fixed and independent npm/pnpm workspaces, conventional commits, PR label overrides, version and lockfile updates, dependency-aware release graphs, changelog and release notes, readiness rules, idempotent npm publishing, opt-in PyPI and crates.io publishing adapters, artifacts, GitHub releases, and immediate post-release verification.
 
-Python `pyproject.toml` and Rust `Cargo.toml` package/workspace discovery and deterministic version planning are available, but registry-specific publishing and delayed release monitoring are not claimed as finished product capabilities. This keeps the headline aligned with what the repository currently proves.
+Python `pyproject.toml` and Rust `Cargo.toml` package/workspace discovery, deterministic version planning, and opt-in registry-specific publication commands are available. Live credentials, provider-side trusted publishing, registry acceptance, and delayed release monitoring remain external or follow-on proof gates.
+
+See [docs/registries.md](docs/registries.md) for the built-in adapter contracts and fail-closed idempotency behavior.
 
 ## Development
 

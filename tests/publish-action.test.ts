@@ -14,6 +14,12 @@ vi.mock("../src/npm.js", async (importOriginal) => ({
   npmVersionExists: npmVersionExistsMock
 }));
 
+const registryVersionExistsMock = vi.hoisted(() => vi.fn(async () => false));
+vi.mock("../src/registries.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../src/registries.js")>()),
+  registryVersionExists: registryVersionExistsMock
+}));
+
 const retryFixtureDirectory = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "node-retry");
 const retryFixtureConfig = join(retryFixtureDirectory, ".semverge.yml");
 
@@ -67,13 +73,13 @@ function restoreEnvironment(previous: Map<string, string | undefined>): void {
   }
 }
 
-function manifest(): string {
+function manifest(ecosystem?: "node" | "python" | "rust"): string {
   return JSON.stringify({
     schemaVersion: 2,
     mode: "single",
     version: "0.2.0",
     readiness: { passed: true },
-    packages: [{ id: "demo", name: "demo", directory: "", version: "0.2.0", customerNotes: "RELEASE_NOTES.md" }]
+    packages: [{ id: "demo", name: "demo", directory: "", version: "0.2.0", ...(ecosystem ? { ecosystem } : {}), customerNotes: "RELEASE_NOTES.md" }]
   });
 }
 
@@ -94,6 +100,8 @@ describe("merged release publication", () => {
     vi.unstubAllGlobals();
     npmVersionExistsMock.mockReset();
     npmVersionExistsMock.mockResolvedValue(false);
+    registryVersionExistsMock.mockReset();
+    registryVersionExistsMock.mockResolvedValue(false);
   });
 
   it("builds before creating a draft and publishes only after the transaction is ready", async () => {
@@ -167,6 +175,75 @@ describe("merged release publication", () => {
     expect(output).toContain("post-release-verification");
     expect(output).toContain('"phase":"completed"');
     expect(output).toContain("https://github.com/demo/repo/releases/tag/v0.2.0");
+  });
+
+  it("publishes a Python package through its configured registry adapter", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "semverge-python-publish-"));
+    const workspace = prepareGitWorkspace(retryFixtureDirectory);
+    const config = `release:
+  branch: release/bot
+health:
+  enabled: false
+publishing:
+  python:
+    enabled: true
+    command: node -e "process.stdout.write('python-published')"
+    idempotency: declared
+`;
+    writeFileSync(join(workspace.directory, ".semverge.yml"), config);
+    execFileSync("git", ["add", ".semverge.yml"], { cwd: workspace.directory, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "enable Python publishing"], { cwd: workspace.directory, stdio: "ignore" });
+    const mergeSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace.directory, encoding: "utf8" }).trim();
+    const eventPath = publishEvent(directory, mergeSha);
+    const outputPath = join(directory, "outputs.txt");
+    const requests: Array<{ method: string; path: string; body?: Record<string, unknown> }> = [];
+    let release: Record<string, unknown> | null = null;
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      const body = init?.body && typeof init.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : undefined;
+      requests.push({ method: init?.method ?? "GET", path: `${url.pathname}${url.search}`, body });
+      if (url.pathname.endsWith("/contents/.semverge.yml")) {
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded(config) }), { status: 200 });
+      }
+      if (url.pathname.endsWith("/contents/release-manifest.json")) {
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded(manifest("python")) }), { status: 200 });
+      }
+      if (url.pathname.endsWith("/contents/RELEASE_NOTES.md")) {
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded("# What's new\n") }), { status: 200 });
+      }
+      if (url.pathname.endsWith("/git/ref/tags/v0.2.0")) {
+        return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
+      }
+      if (url.pathname.endsWith("/releases/tags/v0.2.0")) {
+        return release ? new Response(JSON.stringify(release), { status: 200 }) : new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
+      }
+      if (url.pathname.endsWith("/releases") && init?.method === "POST") {
+        release = { id: 3, tag_name: "v0.2.0", html_url: "https://github.com/demo/repo/releases/tag/v0.2.0", upload_url: "https://uploads.github.com/repos/demo/repo/releases/3/assets{?name,label}", body: body?.body, draft: true, assets: [] };
+        return new Response(JSON.stringify(release), { status: 201 });
+      }
+      if (url.pathname.endsWith("/releases/3") && init?.method === "PATCH") {
+        release = { ...release, body: body?.body, draft: body?.draft ?? release?.draft ?? true };
+        return new Response(JSON.stringify(release), { status: 200 });
+      }
+      return new Response(JSON.stringify({ message: `Unhandled ${init?.method ?? "GET"} ${url.pathname}` }), { status: 500 });
+    }));
+
+    const previous = setPublishEnvironment(directory, eventPath, outputPath, workspace.directory, mergeSha);
+    try {
+      await run();
+    } finally {
+      restoreEnvironment(previous);
+      rmSync(directory, { recursive: true, force: true });
+      rmSync(workspace.directory, { recursive: true, force: true });
+    }
+
+    expect(npmVersionExistsMock).not.toHaveBeenCalled();
+    expect(registryVersionExistsMock).not.toHaveBeenCalled();
+    expect(requests.some((request) => request.method === "POST" && request.path.endsWith("/releases"))).toBe(true);
+    const finalBody = requests.filter((request) => request.method === "PATCH" && request.path.endsWith("/releases/3")).at(-1)?.body?.body;
+    const state = parseReleaseTransactionBody(typeof finalBody === "string" ? finalBody : null);
+    expect(state?.publishingTargets).toEqual(["python"]);
+    expect(state?.publishedPackages).toEqual(["demo"]);
   });
 
   it("does not create a tag or draft release when the artifact build fails", async () => {
