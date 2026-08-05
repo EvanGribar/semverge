@@ -1,11 +1,7 @@
-# What's new in 0.11.0
+# What's new in 0.12.0
 
-This release includes 1 feature and 1 fix. Highest-impact change: add scheduled channel release policies.
+This release includes 1 feature. Highest-impact change: add durable OCI release targets.
 
 ### Highlights
 
-- [add scheduled channel release policies](https://github.com/EvanGribar/semverge/pull/79) (#79)
-
-### Improvements and Fixes
-
-- [preserve stable release publication](https://github.com/EvanGribar/semverge/pull/81) (#81)
+- [add durable OCI release targets](https://github.com/EvanGribar/semverge/pull/83) (#83)
