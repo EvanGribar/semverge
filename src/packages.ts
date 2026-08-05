@@ -32,9 +32,49 @@ function jsonObject(content: string): Record<string, unknown> | null {
   }
 }
 
-function workspacePatterns(rootContent: string, pnpmWorkspaceContent: string | undefined, config: SemVergeConfig): string[] {
+function tomlArray(content: string, sectionName: string, key: string): string[] {
+  let section = "";
+  let value = "";
+  let collecting = false;
+  for (const line of content.split(/\r?\n/)) {
+    const sectionMatch = /^\s*\[([^\]]+)\]\s*$/.exec(line);
+    if (sectionMatch) {
+      section = sectionMatch[1]?.trim() ?? "";
+      collecting = false;
+      value = "";
+      continue;
+    }
+    if (section !== sectionName) {
+      continue;
+    }
+    if (!collecting) {
+      const keyMatch = new RegExp(`^\\s*${key}\\s*=\\s*(.*)$`).exec(line);
+      if (!keyMatch) {
+        continue;
+      }
+      value = keyMatch[1] ?? "";
+    } else {
+      value += line;
+    }
+    collecting = !value.includes("]");
+    if (!collecting) {
+      break;
+    }
+  }
+  return [...value.matchAll(/["']([^"']+)["']/g)].map((match) => match[1]?.trim() ?? "").filter(Boolean);
+}
+
+function tomlWorkspacePatterns(rootContent: string, ecosystem: Ecosystem): string[] {
+  const sections = ecosystem === "rust" ? ["workspace"] : ["tool.uv.workspace", "tool.pdm.workspace"];
+  return sections.flatMap((section) => tomlArray(rootContent, section, "members"));
+}
+
+function workspacePatterns(rootContent: string, pnpmWorkspaceContent: string | undefined, config: SemVergeConfig, ecosystem: Ecosystem): string[] {
   if (config.monorepo.packages.length > 0) {
     return config.monorepo.packages.map(normalize);
+  }
+  if (ecosystem === "python" || ecosystem === "rust") {
+    return tomlWorkspacePatterns(rootContent, ecosystem).map(normalize);
   }
   const root = jsonObject(rootContent);
   const workspaces = root?.workspaces;
@@ -84,7 +124,8 @@ function globRegex(pattern: string): RegExp {
 function matchesWorkspace(pattern: string, packagePath: string): boolean {
   const normalizedPattern = normalize(pattern);
   const candidate = normalize(packagePath);
-  const packagePattern = normalizedPattern.endsWith("/package.json") ? normalizedPattern : `${normalizedPattern}/package.json`;
+  const manifestName = basename(candidate);
+  const packagePattern = normalizedPattern.endsWith(`/${manifestName}`) || normalizedPattern === manifestName ? normalizedPattern : `${normalizedPattern}/${manifestName}`;
   return globRegex(packagePattern).test(candidate);
 }
 
@@ -126,6 +167,18 @@ function descriptor(path: string, content: string, releaseable: boolean): Packag
     workspaceDependencyTypes,
     ...target
   };
+}
+
+function targetVersionPresent(path: string, content: string): boolean {
+  const target = packageTarget(path);
+  if (!target) {
+    return false;
+  }
+  try {
+    return Boolean(readTargetVersion({ ecosystem: target.ecosystem, manifestPath: normalize(path), directory: target.directory }, content).trim());
+  } catch {
+    return false;
+  }
 }
 
 function nodeWorkspaceDependencyTypes(content: string, internalPackageNames: ReadonlySet<string> = new Set<string>()): Record<string, WorkspaceDependencyField[]> {
@@ -173,7 +226,7 @@ export function discoverPackages(files: Record<string, string>, allPaths: string
     if (config.monorepo.includeRoot || !rootIsPrivate) {
       discovered.push(descriptor("package.json", rootNode, config.monorepo.includeRoot));
     }
-    const patterns = config.monorepo.mode === "single" ? [] : workspacePatterns(rootNode, pnpmWorkspace, config);
+    const patterns = config.monorepo.mode === "single" ? [] : workspacePatterns(rootNode, pnpmWorkspace, config, "node");
     for (const path of [...new Set(allPaths.map(normalize))].filter((item) => item.endsWith("/package.json") && item !== "package.json")) {
       const content = normalizedFiles.get(path);
       if (content && patterns.some((pattern) => matchesWorkspace(pattern, path))) {
@@ -181,9 +234,31 @@ export function discoverPackages(files: Record<string, string>, allPaths: string
       }
     }
   } else if (rootPython) {
-    discovered.push(descriptor("pyproject.toml", rootPython, true));
+    const patterns = config.monorepo.mode === "single" ? [] : workspacePatterns(rootPython, undefined, config, "python");
+    if (config.monorepo.includeRoot && targetVersionPresent("pyproject.toml", rootPython)) {
+      discovered.push(descriptor("pyproject.toml", rootPython, true));
+    } else if (config.monorepo.includeRoot && patterns.length === 0) {
+      discovered.push(descriptor("pyproject.toml", rootPython, true));
+    }
+    for (const path of [...new Set(allPaths.map(normalize))].filter((item) => item.endsWith("/pyproject.toml") && item !== "pyproject.toml")) {
+      const content = normalizedFiles.get(path);
+      if (content && patterns.some((pattern) => matchesWorkspace(pattern, path))) {
+        discovered.push(descriptor(path, content, true));
+      }
+    }
   } else if (rootRust) {
-    discovered.push(descriptor("Cargo.toml", rootRust, true));
+    const patterns = config.monorepo.mode === "single" ? [] : workspacePatterns(rootRust, undefined, config, "rust");
+    if (config.monorepo.includeRoot && targetVersionPresent("Cargo.toml", rootRust)) {
+      discovered.push(descriptor("Cargo.toml", rootRust, true));
+    } else if (config.monorepo.includeRoot && patterns.length === 0) {
+      discovered.push(descriptor("Cargo.toml", rootRust, true));
+    }
+    for (const path of [...new Set(allPaths.map(normalize))].filter((item) => item.endsWith("/Cargo.toml") && item !== "Cargo.toml")) {
+      const content = normalizedFiles.get(path);
+      if (content && patterns.some((pattern) => matchesWorkspace(pattern, path))) {
+        discovered.push(descriptor(path, content, true));
+      }
+    }
   }
 
   const unique = [...new Map(discovered.map((item) => [item.manifestPath, item])).values()];
