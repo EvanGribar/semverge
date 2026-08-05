@@ -105,6 +105,14 @@ release:
   independentTagPrefix: pkg-
   prerelease: beta
   # promotion: stable # promote the current prerelease without another prerelease bump
+  channels:
+    preview:
+      label: ship:preview
+      prerelease: preview
+    nightly:
+      label: ship:nightly
+      prerelease: nightly
+      branch: nightly
 
 monorepo:
   mode: auto # auto, fixed, or independent
@@ -161,6 +169,8 @@ health:
 Readiness checks are reported in the release PR. A missing required label or file blocks publication but does not hide the proposed version or generated communication.
 
 Stable promotion is explicit. Add `ship:stable` to a release-bearing change, or set `release.promotion: stable`, to turn a current version such as `1.4.0-beta.2` into `1.4.0`. The release PR, JSON manifest, local plan, explanation, and `release-channel`/`release-promotion` action outputs record the decision. Without that opt-in, configured prerelease channels continue to create the next prerelease version. When no `release.prerelease` is configured, `ship:beta`, `ship:rc`, `ship:nightly`, and `ship:canary` select their named channels; use one channel label per release.
+
+`release.channels` extends or overrides those built-in channel policies. Each policy supplies a label and prerelease identifier; an optional `branch` limits preparation to pushes from that branch. The workflow must still opt into that branch, and channel policies do not create a scheduler or publish to a registry by themselves.
 
 Independent workspaces use `monorepo.dependencyPolicy` to decide which internal dependency fields release a dependent package and at what bump level (`none`, `patch`, `minor`, or `major`). `dependencies`, `optionalDependencies`, and `peerDependencies` default to patch propagation; `devDependencies` default to no dependent release. Internal ranges and lockfiles still follow released package versions, while the release manifest records the dependency field that caused each propagated release.
 

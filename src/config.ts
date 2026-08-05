@@ -1,5 +1,5 @@
 import { parse as parseYaml } from "yaml";
-import type { ArtifactConfig, BumpLevel, HealthWorkflow, NpmPublishConfig, OutputConfig, ReadinessCommand, ReadinessTask, ReleasePromotion, SemVergeConfig } from "./types.js";
+import type { ArtifactConfig, BumpLevel, HealthWorkflow, NpmPublishConfig, OutputConfig, ReadinessCommand, ReadinessTask, ReleaseChannelPolicy, ReleasePromotion, SemVergeConfig } from "./types.js";
 
 export type ConfigValidationSeverity = "error" | "warning";
 
@@ -9,11 +9,19 @@ export interface ConfigValidationIssue {
   message: string;
 }
 
+const DEFAULT_CHANNEL_POLICIES: Record<string, ReleaseChannelPolicy> = {
+  beta: { label: "ship:beta", prerelease: "beta" },
+  rc: { label: "ship:rc", prerelease: "rc" },
+  nightly: { label: "ship:nightly", prerelease: "nightly" },
+  canary: { label: "ship:canary", prerelease: "canary" }
+};
+
 export const DEFAULT_CONFIG: SemVergeConfig = {
   release: {
     branch: "semverge/release",
     tagPrefix: "v",
-    independentTagPrefix: "pkg-"
+    independentTagPrefix: "pkg-",
+    channels: DEFAULT_CHANNEL_POLICIES
   },
   readiness: {
     requiredLabels: [],
@@ -130,6 +138,24 @@ export function validateConfigContent(content: string, fileName = ".semverge.yml
     stringField(release, "independentTagPrefix", "release", issues);
     stringField(release, "prerelease", "release", issues);
     enumField(release, "promotion", "release", ["stable"], issues);
+    const channels = section(release, "channels", issues);
+    if (channels) {
+      for (const [name, value] of Object.entries(channels)) {
+        if (!record(value)) {
+          issues.push({ path: `release.channels.${name}`, severity: "error", message: "must be an object with label and prerelease strings" });
+          continue;
+        }
+        if (typeof value.label !== "string" || !value.label.trim()) {
+          issues.push({ path: `release.channels.${name}.label`, severity: "error", message: "must be a non-empty string" });
+        }
+        if (typeof value.prerelease !== "string" || !value.prerelease.trim()) {
+          issues.push({ path: `release.channels.${name}.prerelease`, severity: "error", message: "must be a non-empty string" });
+        }
+        if (value.branch !== undefined && (typeof value.branch !== "string" || !value.branch.trim())) {
+          issues.push({ path: `release.channels.${name}.branch`, severity: "error", message: "must be a non-empty string when provided" });
+        }
+      }
+    }
   }
   const readiness = section(raw, "readiness", issues);
   if (readiness) {
@@ -215,6 +241,17 @@ export function validateConfig(config: SemVergeConfig): ConfigValidationIssue[] 
   }
   if (!config.release.tagPrefix) {
     issues.push({ path: "release.tagPrefix", severity: "warning", message: "is empty; generated release tags will not have a prefix" });
+  }
+  for (const [name, policy] of Object.entries(config.release.channels)) {
+    if (!policy.label.trim()) {
+      issues.push({ path: `release.channels.${name}.label`, severity: "error", message: "must be a non-empty string" });
+    }
+    if (!policy.prerelease.trim()) {
+      issues.push({ path: `release.channels.${name}.prerelease`, severity: "error", message: "must be a non-empty string" });
+    }
+    if (policy.branch !== undefined && !policy.branch.trim()) {
+      issues.push({ path: `release.channels.${name}.branch`, severity: "error", message: "must be a non-empty string when provided" });
+    }
   }
   if (config.publishing.npm.enabled && !config.publishing.npm.idempotency) {
     issues.push({ path: "publishing.npm.idempotency", severity: "error", message: "is required for custom npm commands; choose registry or declared" });
@@ -308,6 +345,28 @@ function bumpLevel(value: unknown, fallback: BumpLevel): BumpLevel {
   return value === "none" || value === "patch" || value === "minor" || value === "major" ? value : fallback;
 }
 
+function channelPolicies(value: unknown): Record<string, ReleaseChannelPolicy> {
+  const result: Record<string, ReleaseChannelPolicy> = Object.fromEntries(Object.entries(DEFAULT_CHANNEL_POLICIES).map(([name, policy]) => [name, { ...policy }]));
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return result;
+  }
+  for (const [name, item] of Object.entries(value)) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      continue;
+    }
+    const record = item as Record<string, unknown>;
+    if (typeof record.label !== "string" || !record.label.trim() || typeof record.prerelease !== "string" || !record.prerelease.trim()) {
+      continue;
+    }
+    const policy: ReleaseChannelPolicy = { label: record.label.trim(), prerelease: record.prerelease.trim() };
+    if (typeof record.branch === "string" && record.branch.trim()) {
+      policy.branch = record.branch.trim();
+    }
+    result[name.trim()] = policy;
+  }
+  return result;
+}
+
 function mergeConfig(raw: unknown): SemVergeConfig {
   if (!raw || typeof raw !== "object") {
     return DEFAULT_CONFIG;
@@ -331,7 +390,8 @@ function mergeConfig(raw: unknown): SemVergeConfig {
     release: {
       branch: typeof release.branch === "string" && release.branch.trim() ? release.branch.trim() : DEFAULT_CONFIG.release.branch,
       tagPrefix: typeof release.tagPrefix === "string" ? release.tagPrefix : DEFAULT_CONFIG.release.tagPrefix,
-      independentTagPrefix: typeof release.independentTagPrefix === "string" ? release.independentTagPrefix : DEFAULT_CONFIG.release.independentTagPrefix
+      independentTagPrefix: typeof release.independentTagPrefix === "string" ? release.independentTagPrefix : DEFAULT_CONFIG.release.independentTagPrefix,
+      channels: channelPolicies(release.channels)
     },
     readiness: {
       requiredLabels: strings(readiness.requiredLabels),
@@ -406,7 +466,7 @@ export function parseConfig(content: string, fileName = ".semverge.yml"): SemVer
 
 export function withOverrides(config: SemVergeConfig, overrides: { prerelease?: string; artifactCommand?: string }): SemVergeConfig {
   const result: SemVergeConfig = {
-    release: { ...config.release },
+    release: { ...config.release, channels: Object.fromEntries(Object.entries(config.release.channels).map(([name, policy]) => [name, { ...policy }])) },
     readiness: { ...config.readiness, requiredLabels: [...config.readiness.requiredLabels], requiredFiles: [...config.readiness.requiredFiles], commands: [...config.readiness.commands], tasks: [...config.readiness.tasks] },
     outputs: { ...config.outputs },
     artifacts: { ...config.artifacts, paths: [...config.artifacts.paths] },

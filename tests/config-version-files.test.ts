@@ -13,6 +13,19 @@ describe("configuration and version files", () => {
     expect(config.publishing.npm.idempotency).toBe("registry");
   });
 
+  it("parses configurable channel labels and branch scoping", () => {
+    const content = `release:\n  channels:\n    preview:\n      label: ship:preview\n      prerelease: preview\n    nightly:\n      label: ship:nightly\n      prerelease: nightly\n      branch: nightly\n`;
+    const config = parseConfig(content);
+    expect(config.release.channels.preview).toEqual({ label: "ship:preview", prerelease: "preview" });
+    expect(config.release.channels.nightly).toEqual({ label: "ship:nightly", prerelease: "nightly", branch: "nightly" });
+    expect(validateConfigContent(content)).toEqual([]);
+    expect(validateConfigContent("release:\n  channels:\n    preview:\n      label: ship:preview\n")).toContainEqual({
+      path: "release.channels.preview.prerelease",
+      severity: "error",
+      message: "must be a non-empty string"
+    });
+  });
+
   it("parses and validates independent dependency release policies", () => {
     const content = `monorepo:\n  mode: independent\n  dependencyPolicy:\n    dependencies: patch\n    devDependencies: none\n    peerDependencies: major\n    optionalDependencies: minor\n`;
     const config = parseConfig(content);

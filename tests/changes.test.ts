@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseChange, prereleaseChannelFromLabels } from "../src/changes.js";
+import { parseChange, prereleaseChannelFromLabels, releaseChannelFromLabels } from "../src/changes.js";
 
 describe("release change parsing", () => {
   it("uses product labels as a conventional-commit override", () => {
@@ -36,5 +36,15 @@ describe("release change parsing", () => {
     expect(prereleaseChannelFromLabels(["SHIP:NIGHTLY"])).toBe("nightly");
     expect(prereleaseChannelFromLabels(["ship:canary"])).toBe("canary");
     expect(prereleaseChannelFromLabels(["ship:stable"])).toBeUndefined();
+  });
+
+  it("uses a configured channel label and preserves its branch policy", () => {
+    const match = releaseChannelFromLabels(["ship:preview"], {
+      preview: { label: "ship:preview", prerelease: "preview", branch: "preview" }
+    });
+    expect(match).toEqual({ name: "preview", policy: { label: "ship:preview", prerelease: "preview", branch: "preview" } });
+    expect(prereleaseChannelFromLabels(["ship:preview"], {
+      preview: { label: "ship:preview", prerelease: "preview", branch: "preview" }
+    })).toBe("preview");
   });
 });

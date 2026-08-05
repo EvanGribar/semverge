@@ -146,4 +146,23 @@ describe("release planning", () => {
 
     expect(plan).toMatchObject({ version: "2.1.0-rc.0", channel: "rc", promotion: false });
   });
+
+  it("uses configured channel policies for custom prerelease labels", () => {
+    const plan = buildReleasePlan({
+      currentVersion: "2.0.0",
+      config: {
+        ...DEFAULT_CONFIG,
+        release: {
+          ...DEFAULT_CONFIG.release,
+          channels: {
+            ...DEFAULT_CONFIG.release.channels,
+            preview: { label: "ship:preview", prerelease: "preview" }
+          }
+        }
+      },
+      changes: [parseChange({ title: "feat: add preview imports", source: "pull_request", labels: ["ship:preview"] })]
+    });
+
+    expect(plan).toMatchObject({ version: "2.1.0-preview.0", channel: "preview", promotion: false });
+  });
 });

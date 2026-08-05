@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { run } from "../src/action.js";
+import { channelBranchAllowed, run } from "../src/action.js";
 
 function encoded(content: string): string {
   return Buffer.from(content, "utf8").toString("base64");
@@ -11,6 +11,13 @@ function encoded(content: string): string {
 describe("GitHub Action orchestration", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("enforces optional channel branch scoping", () => {
+    expect(channelBranchAllowed("nightly", "main", "nightly")).toBe(true);
+    expect(channelBranchAllowed("main", "main", "nightly")).toBe(false);
+    expect(channelBranchAllowed("main", "main")).toBe(true);
+    expect(channelBranchAllowed("feature", "main")).toBe(false);
   });
 
   it("creates a release branch and PR from a zero-config push", async () => {

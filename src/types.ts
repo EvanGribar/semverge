@@ -87,10 +87,17 @@ export interface ReadinessConfig {
   tasks: ReadinessTask[];
 }
 
+export interface ReleaseChannelPolicy {
+  label: string;
+  prerelease: string;
+  branch?: string;
+}
+
 export interface ReleaseConfig {
   branch: string;
   tagPrefix: string;
   independentTagPrefix: string;
+  channels: Record<string, ReleaseChannelPolicy>;
   prerelease?: string;
   promotion?: ReleasePromotion;
 }
