@@ -33,6 +33,43 @@ describe("release transaction state", () => {
     expect(() => advanceReleaseTransaction(state, "approved", { key: "backward", kind: "invalid", target: "release" })).toThrow("cannot move");
   });
 
+  it("records artifact SHA-256 digests and rejects changed retry inputs", () => {
+    const digest = "a".repeat(64);
+    const state = createReleaseTransaction({
+      id: "release_01JDIGEST",
+      version: "2.0.0",
+      sourceCommit: "merge-sha",
+      packageIds: ["demo"],
+      tagNames: ["v2.0.0"],
+      artifactDigests: { "dist/demo.tgz": digest },
+      npmEnabled: false,
+      now: "2026-08-04T00:00:00.000Z"
+    });
+    const parsed = parseReleaseTransactionBody(releaseTransactionBody("notes", state));
+
+    expect(parsed?.artifactDigests).toEqual({ "dist/demo.tgz": digest });
+    expect(summarizeReleaseTransaction(state).artifactDigests).toEqual({ "dist/demo.tgz": digest });
+    expect(releaseTransactionBody("notes", state)).toContain(`Artifact \`dist/demo.tgz\`: \`${digest}\``);
+    const changed = createReleaseTransaction({
+      id: state.id,
+      version: "2.0.0",
+      sourceCommit: "merge-sha",
+      packageIds: ["demo"],
+      tagNames: ["v2.0.0"],
+      artifactDigests: { "dist/demo.tgz": "b".repeat(64) },
+      npmEnabled: false
+    });
+    expect(() => mergeReleaseTransactions([changed], state)).toThrow("different artifact digest");
+    expect(() => createReleaseTransaction({
+      version: "2.0.0",
+      sourceCommit: "merge-sha",
+      packageIds: ["demo"],
+      tagNames: ["v2.0.0"],
+      artifactDigests: { "dist/demo.tgz": "not-a-digest" },
+      npmEnabled: false
+    })).toThrow("SHA-256");
+  });
+
   it("merges partial progress and retains the durable transaction id", () => {
     const expected = createReleaseTransaction({
       id: "release_expected",
@@ -71,11 +108,15 @@ describe("release transaction state", () => {
     const parsedBody = parseReleaseTransactionBody(`${releaseTransactionMarker(state)}\nnotes`);
     const summary = summarizeReleaseTransaction(state);
 
-    expect(state.schemaVersion).toBe(2);
+    expect(state.schemaVersion).toBe(3);
     expect(state.phase).toBe("prepared");
     expect(parsedBody?.id).toBe(state.id);
     expect(summary.safeNextAction).toContain(state.id);
     expect(summary.publishedPackages).toBe("0/1");
+
+    const v2 = { ...state, schemaVersion: 2, artifactDigests: undefined };
+    expect(parseReleaseTransaction(v2).schemaVersion).toBe(3);
+    expect(parseReleaseTransaction(v2).artifactDigests).toEqual({});
   });
 
   it("keeps a failure until the failed side effect succeeds on retry", () => {

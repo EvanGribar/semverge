@@ -16,9 +16,18 @@ function yamlFile(path: string): Record<string, unknown> {
 
 describe("repository trust surfaces", () => {
   it("keeps required policy and issue files present", () => {
-    for (const path of ["LICENSE", "SECURITY.md", "CONTRIBUTING.md", ".github/dependabot.yml", ".github/ISSUE_TEMPLATE/bug_report.yml", ".github/ISSUE_TEMPLATE/feature_request.yml"]) {
+    for (const path of ["LICENSE", "SECURITY.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "docs/vercel.md", "website/index.html", "website/styles.css", "website/vercel.json", ".github/dependabot.yml", ".github/ISSUE_TEMPLATE/bug_report.yml", ".github/ISSUE_TEMPLATE/feature_request.yml"]) {
       expect(existsSync(join(root, path)), path).toBe(true);
     }
+  });
+
+  it("keeps the public static site explicitly Vercel-compatible and hardened", () => {
+    const vercel = JSON.parse(readFileSync(join(root, "website/vercel.json"), "utf8")) as Record<string, unknown>;
+    expect(vercel.$schema).toBe("https://openapi.vercel.sh/vercel.json");
+    expect(vercel.framework).toBeNull();
+    expect(vercel.cleanUrls).toBe(true);
+    expect(vercel.headers).toBeInstanceOf(Array);
+    expect(readFileSync(join(root, "website/index.html"), "utf8")).not.toContain("style=");
   });
 
   it("keeps action workflows syntactically valid and explicitly permissioned", () => {
