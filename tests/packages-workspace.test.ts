@@ -87,7 +87,7 @@ describe("package discovery and workspace releases", () => {
     expect(plan.packages).toHaveLength(1);
     expect(plan.packages[0]?.package.name).toBe("@demo/one");
     expect(plan.packages[0]?.plan.version).toBe("1.0.1");
-    expect(plan.packages[0]?.explanation).toEqual({ reasons: ["direct-change"], directChanges: ["fix(one): repair one"], dependencies: [] });
+    expect(plan.packages[0]?.explanation).toEqual({ reasons: ["direct-change"], directChanges: ["fix(one): repair one"], dependencies: [], dependencyTypes: {} });
     expect(plan.versionChanges.some((change) => change.path === "packages/one/package-lock.json" && change.content.includes('"version": "1.0.1"'))).toBe(true);
     expect(plan.outputs.some((output) => output.path === "packages/one/CHANGELOG.md")).toBe(true);
   });
@@ -151,8 +151,8 @@ describe("package discovery and workspace releases", () => {
     const two = plan.packages.find((item) => item.package.name === "@demo/two");
     expect(one?.plan.version).toBe("1.0.1");
     expect(two?.plan.version).toBe("1.0.1");
-    expect(one?.explanation).toEqual({ reasons: ["direct-change"], directChanges: ["fix: repair shared export"], dependencies: [] });
-    expect(two?.explanation).toEqual({ reasons: ["dependency-update"], directChanges: [], dependencies: ["@demo/one"] });
+    expect(one?.explanation).toEqual({ reasons: ["direct-change"], directChanges: ["fix: repair shared export"], dependencies: [], dependencyTypes: {} });
+    expect(two?.explanation).toEqual({ reasons: ["dependency-update"], directChanges: [], dependencies: ["@demo/one"], dependencyTypes: { "@demo/one": ["dependencies"] } });
     expect(two?.plan.releaseChanges.some((change) => change.dependencyUpdate)).toBe(true);
     expect(two?.plan.customerNotes).toContain("No customer-facing changes");
     expect(plan.manifest).toContain('"dependencyUpdate": true');
@@ -183,6 +183,46 @@ describe("package discovery and workspace releases", () => {
     expect(two?.plan.releaseChanges.some((change) => change.dependencyUpdate)).toBe(true);
     expect(plan.versionChanges.some((change) => change.path === "packages/two/package.json" && change.content.includes('"@demo/one": "^1.0.1"'))).toBe(true);
     expect(plan.versionChanges.some((change) => change.path === "pnpm-lock.yaml" && change.content.includes("version: 1.0.1"))).toBe(true);
+  });
+
+  it("applies independent dependency policies by manifest field", () => {
+    const files = {
+      "package.json": JSON.stringify({ name: "demo", version: "1.0.0", private: true, workspaces: ["packages/*"] }),
+      "packages/one/package.json": JSON.stringify({ name: "@demo/one", version: "1.0.0" }),
+      "packages/peer/package.json": JSON.stringify({ name: "@demo/peer", version: "1.0.0", peerDependencies: { "@demo/one": "^1.0.0" } }),
+      "packages/optional/package.json": JSON.stringify({ name: "@demo/optional", version: "1.0.0", optionalDependencies: { "@demo/one": "^1.0.0" } }),
+      "packages/dev/package.json": JSON.stringify({ name: "@demo/dev", version: "1.0.0", devDependencies: { "@demo/one": "^1.0.0" } })
+    };
+    const config = {
+      ...DEFAULT_CONFIG,
+      monorepo: {
+        ...DEFAULT_CONFIG.monorepo,
+        mode: "independent" as const,
+        dependencyPolicy: {
+          ...DEFAULT_CONFIG.monorepo.dependencyPolicy,
+          peerDependencies: "major" as const,
+          optionalDependencies: "minor" as const,
+          devDependencies: "none" as const
+        }
+      }
+    };
+    const discovered = discoverPackages(files, Object.keys(files), config);
+    const plan = buildWorkspaceReleasePlan({
+      packages: discovered.packages,
+      mode: "independent",
+      files,
+      config,
+      changes: [parseChange({ title: "fix: repair shared export", source: "pull_request", files: ["packages/one/src/index.ts"] })],
+      date: "2026-08-04"
+    });
+
+    expect(plan.packages.map((item) => item.package.name)).toEqual(["@demo/one", "@demo/peer", "@demo/optional"]);
+    expect(plan.packages.map((item) => item.plan.version)).toEqual(["1.0.1", "2.0.0", "1.1.0"]);
+    expect(plan.packages.find((item) => item.package.name === "@demo/peer")?.explanation.dependencyTypes).toEqual({ "@demo/one": ["peerDependencies"] });
+    expect(plan.packages.find((item) => item.package.name === "@demo/optional")?.explanation.dependencyTypes).toEqual({ "@demo/one": ["optionalDependencies"] });
+    expect(plan.packages.find((item) => item.package.name === "@demo/peer")?.plan.releaseChanges.find((change) => change.dependencyUpdate)?.forcedBump).toBe("major");
+    expect(plan.unchangedPackages.map((item) => item.name)).toEqual(["demo", "@demo/dev"]);
+    expect(plan.manifest).toContain('"peerDependencies"');
   });
 
   it("explains transitive independent dependency propagation", () => {

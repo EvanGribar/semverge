@@ -27,6 +27,7 @@ SemVerge is release automation that understands whether a release is ready and w
 - Optional dependency-free static project surface with versioned Vercel configuration; the release engine has no frontend or hosting dependency
 - Opt-in npm provenance publication with GitHub Actions OIDC preflight and durable transaction binding; provider eligibility remains external proof
 - Explainable per-package release graphs in release PRs and manifests, including direct changes, dependency propagation, and unreleased packages
+- Explicit independent-workspace dependency policies for runtime, optional, peer, and development links, with dependency-field evidence in the release graph
 - Checked-in single-package, fixed-pnpm, independent-workspace, retry, and large-repository fixtures for deterministic end-to-end proof
 - Explicit stable promotion from a prerelease, with channel and promotion decisions recorded in plans, release PRs, manifests, explanations, and action outputs
 
@@ -34,8 +35,7 @@ SemVerge is release automation that understands whether a release is ready and w
 
 1. Richer channel policies, including coordinated release candidates, nightly builds, and canary behavior.
 2. Python and Rust workspace discovery and publishing integrations.
-3. Richer independent-package dependency policies, including peer and optional dependency semantics.
-4. More artifact transports and registry-specific publishing adapters.
-5. Delayed release monitoring and history comments/check runs without growing into an analytics dashboard.
+3. More artifact transports and registry-specific publishing adapters.
+4. Delayed release monitoring and history comments/check runs without growing into an analytics dashboard.
 
 Advanced behavior should remain opt-in. A standard repository should continue to need only one workflow file.

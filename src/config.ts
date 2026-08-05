@@ -1,5 +1,5 @@
 import { parse as parseYaml } from "yaml";
-import type { ArtifactConfig, HealthWorkflow, NpmPublishConfig, OutputConfig, ReadinessCommand, ReadinessTask, ReleasePromotion, SemVergeConfig } from "./types.js";
+import type { ArtifactConfig, BumpLevel, HealthWorkflow, NpmPublishConfig, OutputConfig, ReadinessCommand, ReadinessTask, ReleasePromotion, SemVergeConfig } from "./types.js";
 
 export type ConfigValidationSeverity = "error" | "warning";
 
@@ -36,7 +36,13 @@ export const DEFAULT_CONFIG: SemVergeConfig = {
     mode: "auto",
     packages: [],
     includeRoot: true,
-    unscopedChanges: "all"
+    unscopedChanges: "all",
+    dependencyPolicy: {
+      dependencies: "patch",
+      devDependencies: "none",
+      peerDependencies: "patch",
+      optionalDependencies: "patch"
+    }
   },
   health: {
     enabled: true,
@@ -153,6 +159,12 @@ export function validateConfigContent(content: string, fileName = ".semverge.yml
     stringArrayField(monorepo, "packages", "monorepo", issues);
     booleanField(monorepo, "includeRoot", "monorepo", issues);
     enumField(monorepo, "unscopedChanges", "monorepo", ["all", "root"], issues);
+    const dependencyPolicy = section(monorepo, "dependencyPolicy", issues);
+    if (dependencyPolicy) {
+      for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
+        enumField(dependencyPolicy, field, "monorepo.dependencyPolicy", ["none", "patch", "minor", "major"], issues);
+      }
+    }
   }
   const health = section(raw, "health", issues);
   if (health) {
@@ -212,6 +224,11 @@ export function validateConfig(config: SemVergeConfig): ConfigValidationIssue[] 
   }
   if (config.publishing.npm.provenance && config.publishing.npm.command !== DEFAULT_CONFIG.publishing.npm.command) {
     issues.push({ path: "publishing.npm.provenance", severity: "error", message: "requires the default npm publish command; custom commands must own their provenance flags" });
+  }
+  for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"] as const) {
+    if (!["none", "patch", "minor", "major"].includes(config.monorepo.dependencyPolicy[field])) {
+      issues.push({ path: `monorepo.dependencyPolicy.${field}`, severity: "error", message: "must be one of: none, patch, minor, major" });
+    }
   }
   const workflowNames = new Set<string>();
   for (const workflow of config.health.workflows) {
@@ -287,6 +304,10 @@ function booleanValue(value: unknown, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
+function bumpLevel(value: unknown, fallback: BumpLevel): BumpLevel {
+  return value === "none" || value === "patch" || value === "minor" || value === "major" ? value : fallback;
+}
+
 function mergeConfig(raw: unknown): SemVergeConfig {
   if (!raw || typeof raw !== "object") {
     return DEFAULT_CONFIG;
@@ -297,6 +318,7 @@ function mergeConfig(raw: unknown): SemVergeConfig {
   const outputs = object.outputs && typeof object.outputs === "object" ? object.outputs as Record<string, unknown> : {};
   const artifacts = object.artifacts && typeof object.artifacts === "object" ? object.artifacts as Record<string, unknown> : {};
   const monorepo = object.monorepo && typeof object.monorepo === "object" ? object.monorepo as Record<string, unknown> : {};
+  const dependencyPolicy = monorepo.dependencyPolicy && typeof monorepo.dependencyPolicy === "object" ? monorepo.dependencyPolicy as Record<string, unknown> : {};
   const health = object.health && typeof object.health === "object" ? object.health as Record<string, unknown> : {};
   const publishing = object.publishing && typeof object.publishing === "object" ? object.publishing as Record<string, unknown> : {};
   const npm = publishing.npm && typeof publishing.npm === "object" ? publishing.npm as Record<string, unknown> : {};
@@ -332,7 +354,13 @@ function mergeConfig(raw: unknown): SemVergeConfig {
       mode: monorepo.mode === "single" || monorepo.mode === "fixed" || monorepo.mode === "independent" ? monorepo.mode : "auto",
       packages: strings(monorepo.packages),
       includeRoot: booleanValue(monorepo.includeRoot, DEFAULT_CONFIG.monorepo.includeRoot),
-      unscopedChanges: monorepo.unscopedChanges === "root" ? "root" : "all"
+      unscopedChanges: monorepo.unscopedChanges === "root" ? "root" : "all",
+      dependencyPolicy: {
+        dependencies: bumpLevel(dependencyPolicy.dependencies, DEFAULT_CONFIG.monorepo.dependencyPolicy.dependencies),
+        devDependencies: bumpLevel(dependencyPolicy.devDependencies, DEFAULT_CONFIG.monorepo.dependencyPolicy.devDependencies),
+        peerDependencies: bumpLevel(dependencyPolicy.peerDependencies, DEFAULT_CONFIG.monorepo.dependencyPolicy.peerDependencies),
+        optionalDependencies: bumpLevel(dependencyPolicy.optionalDependencies, DEFAULT_CONFIG.monorepo.dependencyPolicy.optionalDependencies)
+      }
     },
     health: {
       enabled: booleanValue(health.enabled, DEFAULT_CONFIG.health.enabled),
@@ -382,7 +410,7 @@ export function withOverrides(config: SemVergeConfig, overrides: { prerelease?: 
     readiness: { ...config.readiness, requiredLabels: [...config.readiness.requiredLabels], requiredFiles: [...config.readiness.requiredFiles], commands: [...config.readiness.commands], tasks: [...config.readiness.tasks] },
     outputs: { ...config.outputs },
     artifacts: { ...config.artifacts, paths: [...config.artifacts.paths] },
-    monorepo: { ...config.monorepo, packages: [...config.monorepo.packages] },
+    monorepo: { ...config.monorepo, packages: [...config.monorepo.packages], dependencyPolicy: { ...config.monorepo.dependencyPolicy } },
     health: { ...config.health, workflows: [...config.health.workflows], expectedArtifacts: [...config.health.expectedArtifacts], requiredLinks: [...config.health.requiredLinks] },
     publishing: { ...config.publishing, npm: { ...config.publishing.npm } }
   };

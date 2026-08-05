@@ -6,6 +6,10 @@ export type Ecosystem = "node" | "python" | "rust";
 
 export type MonorepoMode = "auto" | "single" | "fixed" | "independent";
 
+export type WorkspaceDependencyField = "dependencies" | "devDependencies" | "peerDependencies" | "optionalDependencies";
+
+export type DependencyReleasePolicy = BumpLevel;
+
 export type ReleasePromotion = "stable";
 
 export type PackageReleaseReason = "direct-change" | "dependency-update" | "fixed-workspace";
@@ -14,6 +18,7 @@ export interface PackageReleaseExplanation {
   reasons: PackageReleaseReason[];
   directChanges: string[];
   dependencies: string[];
+  dependencyTypes: Record<string, WorkspaceDependencyField[]>;
 }
 
 export interface SemVergeMetadata {
@@ -109,6 +114,14 @@ export interface MonorepoConfig {
   packages: string[];
   includeRoot: boolean;
   unscopedChanges: "all" | "root";
+  dependencyPolicy: MonorepoDependencyPolicy;
+}
+
+export interface MonorepoDependencyPolicy {
+  dependencies: DependencyReleasePolicy;
+  devDependencies: DependencyReleasePolicy;
+  peerDependencies: DependencyReleasePolicy;
+  optionalDependencies: DependencyReleasePolicy;
 }
 
 export type HealthWorkflowPurpose = "package" | "deployment" | "custom";

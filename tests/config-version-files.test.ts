@@ -13,6 +13,18 @@ describe("configuration and version files", () => {
     expect(config.publishing.npm.idempotency).toBe("registry");
   });
 
+  it("parses and validates independent dependency release policies", () => {
+    const content = `monorepo:\n  mode: independent\n  dependencyPolicy:\n    dependencies: patch\n    devDependencies: none\n    peerDependencies: major\n    optionalDependencies: minor\n`;
+    const config = parseConfig(content);
+    expect(config.monorepo.dependencyPolicy).toEqual({ dependencies: "patch", devDependencies: "none", peerDependencies: "major", optionalDependencies: "minor" });
+    expect(validateConfigContent(content)).toEqual([]);
+    expect(validateConfigContent("monorepo:\n  dependencyPolicy:\n    peerDependencies: breaking\n")).toContainEqual({
+      path: "monorepo.dependencyPolicy.peerDependencies",
+      severity: "error",
+      message: "must be one of: none, patch, minor, major"
+    });
+  });
+
   it("rejects unknown release promotion policies", () => {
     expect(validateConfigContent("release:\n  promotion: nightly\n")).toContainEqual({
       path: "release.promotion",

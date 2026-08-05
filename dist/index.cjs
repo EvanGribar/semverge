@@ -9625,7 +9625,13 @@ var DEFAULT_CONFIG = {
     mode: "auto",
     packages: [],
     includeRoot: true,
-    unscopedChanges: "all"
+    unscopedChanges: "all",
+    dependencyPolicy: {
+      dependencies: "patch",
+      devDependencies: "none",
+      peerDependencies: "patch",
+      optionalDependencies: "patch"
+    }
   },
   health: {
     enabled: true,
@@ -9700,6 +9706,9 @@ function healthWorkflows(value) {
 function booleanValue(value, fallback) {
   return typeof value === "boolean" ? value : fallback;
 }
+function bumpLevel(value, fallback) {
+  return value === "none" || value === "patch" || value === "minor" || value === "major" ? value : fallback;
+}
 function mergeConfig(raw) {
   if (!raw || typeof raw !== "object") {
     return DEFAULT_CONFIG;
@@ -9710,6 +9719,7 @@ function mergeConfig(raw) {
   const outputs = object.outputs && typeof object.outputs === "object" ? object.outputs : {};
   const artifacts = object.artifacts && typeof object.artifacts === "object" ? object.artifacts : {};
   const monorepo = object.monorepo && typeof object.monorepo === "object" ? object.monorepo : {};
+  const dependencyPolicy = monorepo.dependencyPolicy && typeof monorepo.dependencyPolicy === "object" ? monorepo.dependencyPolicy : {};
   const health = object.health && typeof object.health === "object" ? object.health : {};
   const publishing = object.publishing && typeof object.publishing === "object" ? object.publishing : {};
   const npm = publishing.npm && typeof publishing.npm === "object" ? publishing.npm : {};
@@ -9742,7 +9752,13 @@ function mergeConfig(raw) {
       mode: monorepo.mode === "single" || monorepo.mode === "fixed" || monorepo.mode === "independent" ? monorepo.mode : "auto",
       packages: strings(monorepo.packages),
       includeRoot: booleanValue(monorepo.includeRoot, DEFAULT_CONFIG.monorepo.includeRoot),
-      unscopedChanges: monorepo.unscopedChanges === "root" ? "root" : "all"
+      unscopedChanges: monorepo.unscopedChanges === "root" ? "root" : "all",
+      dependencyPolicy: {
+        dependencies: bumpLevel(dependencyPolicy.dependencies, DEFAULT_CONFIG.monorepo.dependencyPolicy.dependencies),
+        devDependencies: bumpLevel(dependencyPolicy.devDependencies, DEFAULT_CONFIG.monorepo.dependencyPolicy.devDependencies),
+        peerDependencies: bumpLevel(dependencyPolicy.peerDependencies, DEFAULT_CONFIG.monorepo.dependencyPolicy.peerDependencies),
+        optionalDependencies: bumpLevel(dependencyPolicy.optionalDependencies, DEFAULT_CONFIG.monorepo.dependencyPolicy.optionalDependencies)
+      }
     },
     health: {
       enabled: booleanValue(health.enabled, DEFAULT_CONFIG.health.enabled),
@@ -9789,7 +9805,7 @@ function withOverrides(config, overrides) {
     readiness: { ...config.readiness, requiredLabels: [...config.readiness.requiredLabels], requiredFiles: [...config.readiness.requiredFiles], commands: [...config.readiness.commands], tasks: [...config.readiness.tasks] },
     outputs: { ...config.outputs },
     artifacts: { ...config.artifacts, paths: [...config.artifacts.paths] },
-    monorepo: { ...config.monorepo, packages: [...config.monorepo.packages] },
+    monorepo: { ...config.monorepo, packages: [...config.monorepo.packages], dependencyPolicy: { ...config.monorepo.dependencyPolicy } },
     health: { ...config.health, workflows: [...config.health.workflows], expectedArtifacts: [...config.health.expectedArtifacts], requiredLinks: [...config.health.requiredLinks] },
     publishing: { ...config.publishing, npm: { ...config.publishing.npm } }
   };
@@ -10348,9 +10364,8 @@ function descriptor(path, content, releaseable) {
   if (!parseVersion(version)) {
     throw new Error(`${normalized} contains an invalid semantic version: ${version}`);
   }
-  const root = target.directory === "";
   const privateValue = target.ecosystem === "node" ? Boolean(jsonObject2(content)?.private) : false;
-  const workspaceDependencies = target.ecosystem === "node" ? nodeWorkspaceDependencies(content) : [];
+  const workspaceDependencyTypes = target.ecosystem === "node" ? nodeWorkspaceDependencyTypes(content) : {};
   return {
     id: target.directory || name,
     name,
@@ -10358,16 +10373,17 @@ function descriptor(path, content, releaseable) {
     version,
     private: privateValue,
     releaseable: releaseable && !privateValue,
-    workspaceDependencies,
+    workspaceDependencies: Object.keys(workspaceDependencyTypes),
+    workspaceDependencyTypes,
     ...target
   };
 }
-function nodeWorkspaceDependencies(content, internalPackageNames = /* @__PURE__ */ new Set()) {
+function nodeWorkspaceDependencyTypes(content, internalPackageNames = /* @__PURE__ */ new Set()) {
   const value = jsonObject2(content);
   if (!value) {
-    return [];
+    return {};
   }
-  const names = /* @__PURE__ */ new Set();
+  const types = {};
   for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"]) {
     const dependencies = value[field];
     if (!dependencies || typeof dependencies !== "object" || Array.isArray(dependencies)) {
@@ -10375,11 +10391,11 @@ function nodeWorkspaceDependencies(content, internalPackageNames = /* @__PURE__ 
     }
     for (const [name, version] of Object.entries(dependencies)) {
       if (typeof version === "string" && (version.startsWith("workspace:") || internalPackageNames.has(name))) {
-        names.add(name);
+        types[name] = [.../* @__PURE__ */ new Set([...types[name] ?? [], field])];
       }
     }
   }
-  return [...names];
+  return types;
 }
 function selectedMode(config, packages) {
   if (config.monorepo.mode !== "auto") {
@@ -10424,7 +10440,8 @@ function discoverPackages(files, allPaths, config) {
   for (const packageItem of unique2.filter((item) => item.ecosystem === "node")) {
     const content = normalizedFiles.get(packageItem.manifestPath);
     if (content !== void 0) {
-      packageItem.workspaceDependencies = nodeWorkspaceDependencies(content, internalPackageNames);
+      packageItem.workspaceDependencyTypes = nodeWorkspaceDependencyTypes(content, internalPackageNames);
+      packageItem.workspaceDependencies = Object.keys(packageItem.workspaceDependencyTypes);
     }
   }
   return { mode: selectedMode(config, unique2), packages: unique2 };
@@ -10720,8 +10737,18 @@ function buildPackagePlan(input2, packageItem, changes) {
     readinessContext: input2.readinessContext
   });
 }
-function workspaceDependencyChange(packageItem, dependencyNames) {
-  const dependencies = dependencyNames.join(", ");
+function dependencyReleaseTriggers(packageItem, releasedNames, config) {
+  return packageItem.workspaceDependencies.flatMap((name) => {
+    if (!releasedNames.has(name)) {
+      return [];
+    }
+    const fields = (packageItem.workspaceDependencyTypes[name] ?? []).filter((field) => config.monorepo.dependencyPolicy[field] !== "none");
+    const bump = highestBump(fields.map((field) => config.monorepo.dependencyPolicy[field]));
+    return bump === "none" ? [] : [{ name, fields, bump }];
+  });
+}
+function workspaceDependencyChange(packageItem, triggers) {
+  const dependencies = triggers.map(({ name, fields }) => `${name} (${fields.join(", ")})`).join(", ");
   return {
     title: `chore(${packageItem.name}): refresh workspace dependencies`,
     description: `Refresh workspace dependency metadata after ${dependencies} release.`,
@@ -10731,16 +10758,18 @@ function workspaceDependencyChange(packageItem, dependencyNames) {
     scope: packageItem.name,
     breaking: false,
     skipped: false,
-    forcedBump: "patch",
+    forcedBump: highestBump(triggers.map((trigger) => trigger.bump)),
     dependencyUpdate: true,
     customerSummary: `Refresh ${packageItem.name} for the ${dependencies} release.`,
     internalSummary: `Refresh ${packageItem.name} after ${dependencies} released.`,
     readiness: []
   };
 }
-function packageExplanation(packageRelease, releasedNames, mode, releasedPackageCount) {
+function packageExplanation(packageRelease, releasedNames, config, mode, releasedPackageCount) {
   const directChanges = [...new Set(packageRelease.plan.releaseChanges.filter((change) => !change.dependencyUpdate).map((change) => change.title))];
-  const dependencies = mode === "independent" ? [...new Set(packageRelease.package.workspaceDependencies.filter((dependency) => releasedNames.has(dependency)))] : [];
+  const dependencyTriggers = mode === "independent" ? dependencyReleaseTriggers(packageRelease.package, releasedNames, config) : [];
+  const dependencies = [...new Set(dependencyTriggers.map((trigger) => trigger.name))];
+  const dependencyTypes = Object.fromEntries(dependencyTriggers.map((trigger) => [trigger.name, trigger.fields]));
   const reasons = [];
   if (directChanges.length > 0) {
     reasons.push("direct-change");
@@ -10751,7 +10780,7 @@ function packageExplanation(packageRelease, releasedNames, mode, releasedPackage
   if (mode === "fixed" && releasedPackageCount > 1) {
     reasons.push("fixed-workspace");
   }
-  return { reasons, directChanges, dependencies };
+  return { reasons, directChanges, dependencies, dependencyTypes };
 }
 function mergeReadiness(reports) {
   return {
@@ -10976,7 +11005,8 @@ function manifestContent(plan) {
       dependencyUpdate: packagePlan.releaseChanges.some((change) => change.dependencyUpdate),
       reasons: explanation.reasons,
       directChanges: explanation.directChanges,
-      dependencies: explanation.dependencies
+      dependencies: explanation.dependencies,
+      dependencyTypes: explanation.dependencyTypes
     })),
     unchangedPackages: plan.unchangedPackages.map((packageItem) => ({
       id: packageItem.id,
@@ -11032,12 +11062,12 @@ function buildWorkspaceReleasePlan(input2) {
         if (packagePlans.has(packageItem.id)) {
           continue;
         }
-        const dependencyNames = packageItem.workspaceDependencies.filter((dependency) => releasedNames2.has(dependency));
-        if (dependencyNames.length === 0) {
+        const dependencyTriggers = dependencyReleaseTriggers(packageItem, releasedNames2, input2.config);
+        if (dependencyTriggers.length === 0) {
           continue;
         }
         const packageChanges = input2.changes.filter((change) => affectsPackage(change, packageItem, input2.config, workspaceDirectories));
-        const plan = buildPackagePlan(input2, packageItem, [...packageChanges, workspaceDependencyChange(packageItem, dependencyNames)]);
+        const plan = buildPackagePlan(input2, packageItem, [...packageChanges, workspaceDependencyChange(packageItem, dependencyTriggers)]);
         if (plan.hasRelease) {
           packagePlans.set(packageItem.id, { package: packageItem, plan });
           addedDependencyRelease = true;
@@ -11055,7 +11085,7 @@ function buildWorkspaceReleasePlan(input2) {
   const releasedNames = new Set(releasedPlans.flatMap(({ package: packageItem }) => [packageItem.id, packageItem.name]));
   const packageReleases = plans.map((packageRelease) => ({
     ...packageRelease,
-    explanation: packageExplanation(packageRelease, releasedNames, input2.mode, releasedPlans.length)
+    explanation: packageExplanation(packageRelease, releasedNames, input2.config, input2.mode, releasedPlans.length)
   }));
   const unchangedPackages = input2.packages.filter((packageItem) => !releasedPlans.some((release) => release.package.manifestPath === packageItem.manifestPath));
   const hasRelease = releasedPlans.length > 0;
