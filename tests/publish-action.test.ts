@@ -309,4 +309,73 @@ describe("merged release publication", () => {
     const finalBody = requests.filter((request) => request.method === "PATCH" && request.path.endsWith("/releases/3")).at(-1)?.body?.body;
     expect(parseReleaseTransactionBody(typeof finalBody === "string" ? finalBody : null)?.phase).toBe("completed");
   });
+
+  it("uses injected asset failure to verify retry-safe transaction recovery", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "semverge-asset-failure-"));
+    const config = "release:\n  branch: release/bot\nhealth:\n  enabled: false\nartifacts:\n  paths:\n    - artifact.txt\n";
+    const workspace = prepareGitWorkspace(retryFixtureDirectory);
+    writeFileSync(join(workspace.directory, ".semverge.yml"), config);
+    writeFileSync(join(workspace.directory, "artifact.txt"), "artifact");
+    execFileSync("git", ["add", ".semverge.yml", "artifact.txt"], { cwd: workspace.directory, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "artifact"], { cwd: workspace.directory, stdio: "ignore" });
+    const mergeSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: workspace.directory, encoding: "utf8" }).trim();
+    const eventPath = publishEvent(directory, mergeSha);
+    const outputPath = join(directory, "outputs.txt");
+    const requests: Array<{ method: string; path: string; body?: Record<string, unknown> }> = [];
+    let release: Record<string, unknown> | null = null;
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      const body = init?.body && typeof init.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : undefined;
+      requests.push({ method: init?.method ?? "GET", path: `${url.pathname}${url.search}`, body });
+      if (url.pathname.endsWith("/contents/.semverge.yml")) {
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded(config) }), { status: 200 });
+      }
+      if (url.pathname.endsWith("/contents/release-manifest.json")) {
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded(manifest()) }), { status: 200 });
+      }
+      if (url.pathname.endsWith("/contents/RELEASE_NOTES.md")) {
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded("# What's new\n") }), { status: 200 });
+      }
+      if (url.pathname.endsWith("/git/ref/tags/v0.2.0")) {
+        return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
+      }
+      if (url.pathname.endsWith("/releases/tags/v0.2.0")) {
+        return release ? new Response(JSON.stringify(release), { status: 200 }) : new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
+      }
+      if (url.pathname.endsWith("/releases") && init?.method === "POST") {
+        release = { id: 3, tag_name: "v0.2.0", html_url: "https://github.com/demo/repo/releases/tag/v0.2.0", upload_url: "https://uploads.github.com/repos/demo/repo/releases/3/assets{?name,label}", body: body?.body, draft: true, assets: [] };
+        return new Response(JSON.stringify(release), { status: 201 });
+      }
+      if (url.pathname.endsWith("/releases/3") && init?.method === "PATCH") {
+        release = { ...release, body: body?.body, draft: body?.draft ?? release?.draft ?? true };
+        return new Response(JSON.stringify(release), { status: 200 });
+      }
+      if (url.pathname.endsWith("/assets") && init?.method === "POST") {
+        return new Response(JSON.stringify({ name: "artifact.txt" }), { status: 201 });
+      }
+      return new Response(JSON.stringify({ message: `Unhandled ${init?.method ?? "GET"} ${url.pathname}` }), { status: 500 });
+    }));
+
+    const previous = setPublishEnvironment(directory, eventPath, outputPath, workspace.directory, mergeSha);
+    const previousFailure = process.env.SEMVERGE_TEST_FAILURE;
+    try {
+      process.env.SEMVERGE_TEST_FAILURE = "asset-upload";
+      await expect(run()).rejects.toThrow("Injected SemVerge test failure at asset-upload.");
+      delete process.env.SEMVERGE_TEST_FAILURE;
+      await run();
+    } finally {
+      if (previousFailure === undefined) delete process.env.SEMVERGE_TEST_FAILURE; else process.env.SEMVERGE_TEST_FAILURE = previousFailure;
+      restoreEnvironment(previous);
+      rmSync(directory, { recursive: true, force: true });
+      rmSync(workspace.directory, { recursive: true, force: true });
+    }
+
+    expect(requests.filter((request) => request.method === "POST" && request.path.endsWith("/releases"))).toHaveLength(1);
+    expect(requests.filter((request) => request.method === "POST" && request.path.split("?")[0]?.endsWith("/assets"))).toHaveLength(1);
+    expect(requests.some((request) => request.method === "PATCH" && request.path.endsWith("/releases/3") && request.body?.draft === false)).toBe(true);
+    const finalBody = requests.filter((request) => request.method === "PATCH" && request.path.endsWith("/releases/3")).at(-1)?.body?.body;
+    const finalState = parseReleaseTransactionBody(typeof finalBody === "string" ? finalBody : null);
+    expect(finalState?.phase).toBe("completed");
+    expect(finalState?.events.some((event) => event.key === "asset:v0.2.0:artifact.txt" && event.status === "failed")).toBe(true);
+  });
 });

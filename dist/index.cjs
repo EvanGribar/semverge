@@ -11637,6 +11637,11 @@ function readEvent() {
 function isDryRun() {
   return input("dry-run").toLowerCase() === "true";
 }
+function injectTestFailure(point) {
+  if (process.env.NODE_ENV === "test" && process.env.SEMVERGE_TEST_FAILURE === point) {
+    throw new Error(`Injected SemVerge test failure at ${point}.`);
+  }
+}
 function localWorkspaceFile(path, ref) {
   const workspace = process.env.GITHUB_WORKSPACE;
   if (!workspace || ref !== void 0 && !/^[0-9a-f]{7,40}$/i.test(ref)) {
@@ -11834,6 +11839,7 @@ async function runPostReleaseVerification(client, releaseEvent, config) {
     log("Post-release verification is disabled.");
     return;
   }
+  injectTestFailure("post-release-verification");
   const releaseDetails = await client.getReleaseByTag(releaseEvent.tag_name);
   const targetCommit = releaseDetails?.target_commitish || releaseEvent.target_commitish || process.env.GITHUB_SHA || "";
   const workflowRuns = targetCommit ? await client.listWorkflowRuns(targetCommit) : [];
@@ -12149,6 +12155,7 @@ async function publishRelease(client, pr, config) {
     }
     log(`Publishing ${packageItem.name} with npm command.`);
     try {
+      injectTestFailure("package-publish");
       await exec2(config.publishing.npm.command, { cwd: packageWorkspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
     } catch (error) {
       progress = recordReleaseTransactionEvent(progress, { key: `package:${id}`, kind: "package-published", target: packageItem.name, status: "failed", detail: "Package publication failed; inspect runner logs before retrying." });
@@ -12174,6 +12181,7 @@ async function publishRelease(client, pr, config) {
         continue;
       }
       try {
+        injectTestFailure("asset-upload");
         await client.uploadReleaseAsset(execution.release, file);
       } catch (error) {
         progress = recordReleaseTransactionEvent(progress, { key: `asset:${execution.tag}:${assetName}`, kind: "asset-uploaded", target: assetName, status: "failed", detail: "Release asset upload failed; inspect runner logs before retrying." });
@@ -12193,6 +12201,7 @@ async function publishRelease(client, pr, config) {
   await persistReleaseProgress(client, executions, progress);
   progress.published = true;
   progress = advanceReleaseTransaction(progress, "published", { key: "release-published", kind: "release-published", target: version, detail: "All transactional side effects completed; GitHub release drafts are being finalized." });
+  injectTestFailure("release-finalize");
   await persistReleaseProgress(client, executions, progress, true);
   if (mode === "independent") {
     const versions = publishablePackages.map((packageItem) => packageItem.version).filter((value) => parseVersion(value));
