@@ -1,5 +1,5 @@
-# SemVerge release announcement: 0.8.0
+# SemVerge release announcement: 0.9.0
 
-SemVerge 0.8.0 includes:
+SemVerge 0.9.0 includes:
 
-- add delayed release monitoring
+- add monitoring check-run evidence

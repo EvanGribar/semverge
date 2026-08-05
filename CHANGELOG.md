@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.9.0] - 2026-08-05
+
+### Features
+
+- [add monitoring check-run evidence](https://github.com/EvanGribar/semverge/pull/77) (#77)
+
 ## [0.8.0] - 2026-08-05
 
 ### Features
