@@ -19,6 +19,9 @@ inputs:
   artifact-command:
     description: Optional command that produces release artifacts in the runner workspace.
     required: false
+  release-channel:
+    description: Optional configured channel to prepare during a push, schedule, or workflow_dispatch run.
+    required: false
   dry-run:
     description: Calculate and print the release plan without writing branches, PRs, tags, or releases.
     required: false

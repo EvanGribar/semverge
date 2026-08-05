@@ -199,6 +199,15 @@ export function validateConfigContent(content: string, fileName = ".semverge.yml
         if (value.branch !== undefined && (typeof value.branch !== "string" || !value.branch.trim())) {
           issues.push({ path: `release.channels.${name}.branch`, severity: "error", message: "must be a non-empty string when provided" });
         }
+        if (value.baseBranch !== undefined && (typeof value.baseBranch !== "string" || !value.baseBranch.trim())) {
+          issues.push({ path: `release.channels.${name}.baseBranch`, severity: "error", message: "must be a non-empty string when provided" });
+        }
+        if (value.releaseBranch !== undefined && (typeof value.releaseBranch !== "string" || !value.releaseBranch.trim())) {
+          issues.push({ path: `release.channels.${name}.releaseBranch`, severity: "error", message: "must be a non-empty string when provided" });
+        }
+        if (value.tagPrefix !== undefined && typeof value.tagPrefix !== "string") {
+          issues.push({ path: `release.channels.${name}.tagPrefix`, severity: "error", message: "must be a string when provided" });
+        }
       }
     }
   }
@@ -308,6 +317,12 @@ export function validateConfig(config: SemVergeConfig): ConfigValidationIssue[] 
     }
     if (policy.branch !== undefined && !policy.branch.trim()) {
       issues.push({ path: `release.channels.${name}.branch`, severity: "error", message: "must be a non-empty string when provided" });
+    }
+    if (policy.baseBranch !== undefined && !policy.baseBranch.trim()) {
+      issues.push({ path: `release.channels.${name}.baseBranch`, severity: "error", message: "must be a non-empty string when provided" });
+    }
+    if (policy.releaseBranch !== undefined && !policy.releaseBranch.trim()) {
+      issues.push({ path: `release.channels.${name}.releaseBranch`, severity: "error", message: "must be a non-empty string when provided" });
     }
   }
   if (config.publishing.npm.enabled && !config.publishing.npm.idempotency) {
@@ -452,6 +467,15 @@ function channelPolicies(value: unknown): Record<string, ReleaseChannelPolicy> {
     if (typeof record.branch === "string" && record.branch.trim()) {
       policy.branch = record.branch.trim();
     }
+    if (typeof record.baseBranch === "string" && record.baseBranch.trim()) {
+      policy.baseBranch = record.baseBranch.trim();
+    }
+    if (typeof record.releaseBranch === "string" && record.releaseBranch.trim()) {
+      policy.releaseBranch = record.releaseBranch.trim();
+    }
+    if (typeof record.tagPrefix === "string") {
+      policy.tagPrefix = record.tagPrefix;
+    }
     result[name.trim()] = policy;
   }
   return result;
@@ -579,4 +603,38 @@ export function withOverrides(config: SemVergeConfig, overrides: { prerelease?: 
     result.artifacts.command = artifactCommand;
   }
   return result;
+}
+
+export function channelPolicy(config: SemVergeConfig, channel: string): { name: string; policy: ReleaseChannelPolicy } | undefined {
+  const normalized = channel.trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+  const match = Object.entries(config.release.channels).find(([name, policy]) => name.toLowerCase() === normalized || policy.prerelease.toLowerCase() === normalized);
+  return match ? { name: match[0], policy: match[1] } : undefined;
+}
+
+export function withChannelPolicy(config: SemVergeConfig, channel?: string): SemVergeConfig {
+  const result = withOverrides(config, {});
+  if (!channel?.trim()) {
+    return result;
+  }
+  const match = channelPolicy(config, channel);
+  if (!match) {
+    throw new Error(`Unknown SemVerge release channel: ${channel}`);
+  }
+  delete result.release.promotion;
+  result.release.prerelease = match.policy.prerelease;
+  if (match.policy.releaseBranch) {
+    result.release.branch = match.policy.releaseBranch;
+  }
+  if (match.policy.tagPrefix !== undefined) {
+    result.release.tagPrefix = match.policy.tagPrefix;
+  }
+  return result;
+}
+
+export function channelBaseBranch(config: SemVergeConfig, channel: string | undefined, defaultBranch: string): string {
+  const policy = channel ? channelPolicy(config, channel)?.policy : undefined;
+  return (policy?.baseBranch ?? policy?.branch ?? defaultBranch).replace(/^refs\/heads\//, "");
 }

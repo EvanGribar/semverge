@@ -3,8 +3,8 @@ import { appendFileSync, existsSync, readFileSync, statSync, readdirSync } from 
 import { exec as execCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve, relative, join, basename, sep } from "node:path";
-import { formatChangeReference, parseChange, prereleaseChannelFromLabels, releaseChannelFromLabels } from "./changes.js";
-import { parseConfig, withOverrides } from "./config.js";
+import { formatChangeReference, parseChange, releaseChannelFromLabels } from "./changes.js";
+import { channelBaseBranch, channelPolicy, parseConfig, withChannelPolicy, withOverrides } from "./config.js";
 import { readinessMarkdown } from "./readiness.js";
 import { releaseTagName, GitHubClient, type GitHubCommitSummary, type GitHubPullRequest, type GitHubRelease } from "./github.js";
 import { discoverPackages } from "./packages.js";
@@ -46,6 +46,23 @@ interface ReleaseEvent {
 export function channelBranchAllowed(branch: string, defaultBranch: string, configuredBranch?: string): boolean {
   const expectedBranch = configuredBranch?.replace(/^refs\/heads\//, "");
   return expectedBranch ? branch === expectedBranch : branch === defaultBranch;
+}
+
+export function channelFromBranch(config: SemVergeConfig, branch: string): { name: string; policy: SemVergeConfig["release"]["channels"][string] } | undefined {
+  const normalizedBranch = branch.replace(/^refs\/heads\//, "");
+  const match = Object.entries(config.release.channels).find(([, policy]) => policy.branch?.replace(/^refs\/heads\//, "") === normalizedBranch);
+  return match ? { name: match[0], policy: match[1] } : undefined;
+}
+
+function selectedChannel(config: SemVergeConfig, changes: Array<{ labels: string[] }>, branch: string, requestedChannel: string): { name: string; policy: SemVergeConfig["release"]["channels"][string] } | undefined {
+  if (requestedChannel.trim()) {
+    const requested = channelPolicy(config, requestedChannel);
+    if (!requested) {
+      throw new Error(`Unknown SemVerge release channel: ${requestedChannel}`);
+    }
+    return requested;
+  }
+  return releaseChannelFromLabels(changes.flatMap((change) => change.labels), config.release.channels) ?? channelFromBranch(config, branch);
 }
 
 function input(name: string): string {
@@ -446,7 +463,7 @@ async function monitorReleases(client: GitHubClient, config: SemVergeConfig, tag
   }
 }
 
-async function prepareRelease(client: GitHubClient, head: string, config: SemVergeConfig, branch: string, defaultBranch: string): Promise<void> {
+async function prepareRelease(client: GitHubClient, head: string, config: SemVergeConfig, branch: string, defaultBranch: string, requestedChannel = ""): Promise<void> {
   const baseCommit = await client.getCommit(head);
   const repositoryTree = await client.getTree(baseCommit.tree.sha);
   const allPaths = repositoryTree.filter((entry) => entry.type === "blob").map((entry) => entry.path);
@@ -454,15 +471,20 @@ async function prepareRelease(client: GitHubClient, head: string, config: SemVer
   const manifestEntries = await Promise.all(manifestPaths.map(async (path) => [path, await fileAtHead(client, path, head)] as const));
   const manifestFiles = Object.fromEntries(manifestEntries.flatMap(([path, content]) => content === null ? [] : [[path, content]]));
   const discovered = discoverPackages(manifestFiles, allPaths, config);
-  const changes = await changesSinceTag(client, head, await latestReleaseTag(client, config));
-  const channel = releaseChannelFromLabels(changes.flatMap((change) => change.labels), config.release.channels);
-  const labelPrerelease = prereleaseChannelFromLabels(changes.flatMap((change) => change.labels), config.release.channels);
+  let changes = await changesSinceTag(client, head, await latestReleaseTag(client, config));
+  let channel = selectedChannel(config, changes, branch, requestedChannel);
+  let effectiveConfig = channel ? withChannelPolicy(config, channel.name) : config;
+  if (channel && effectiveConfig.release.tagPrefix !== config.release.tagPrefix) {
+    changes = await changesSinceTag(client, head, await latestReleaseTag(client, effectiveConfig));
+    channel = selectedChannel(config, changes, branch, requestedChannel) ?? channel;
+    effectiveConfig = withChannelPolicy(config, channel.name);
+  }
   const channelBranch = channel?.policy.branch?.replace(/^refs\/heads\//, "");
   if (!channelBranchAllowed(branch, defaultBranch, channelBranch)) {
     log(`Ignoring push to ${branch}; ${channel ? `${channel.name} channel requires ${channelBranch ?? defaultBranch}` : `release preparation runs on ${defaultBranch}`}.`);
     return;
   }
-  const effectiveConfig = labelPrerelease && !config.release.prerelease ? withOverrides(config, { prerelease: labelPrerelease }) : config;
+  const baseBranch = channelBaseBranch(config, channel?.name, defaultBranch);
   const packageOutputPaths = discovered.packages.flatMap((packageItem) => {
     const prefix = discovered.mode === "independent" && packageItem.directory ? `${packageItem.directory}/` : "";
     return Object.values(effectiveConfig.outputs).map((path) => prefix + path);
@@ -528,14 +550,18 @@ async function prepareRelease(client: GitHubClient, head: string, config: SemVer
   const titleVersion = plan.mode === "independent" ? plan.version : releaseTagName(effectiveConfig.release.tagPrefix, plan.version);
   const title = `chore(release): ${titleVersion}`;
   const body = releasePrBody(plan, effectiveConfig);
-  const existing = (await client.listPullRequests({ state: "open", head: `${repository.owner.login}:${effectiveConfig.release.branch}`, base: repository.default_branch }))[0];
-  const releasePr = existing ? await client.updatePullRequest(existing.number, { title, body }) : await client.createPullRequest({ title, body, head: effectiveConfig.release.branch, base: repository.default_branch });
+  const existing = (await client.listPullRequests({ state: "open", head: `${repository.owner.login}:${effectiveConfig.release.branch}`, base: baseBranch }))[0];
+  const releasePr = existing ? await client.updatePullRequest(existing.number, { title, body }) : await client.createPullRequest({ title, body, head: effectiveConfig.release.branch, base: baseBranch });
   setOutput("release-pr", releasePr.html_url);
   log(`${existing ? "Updated" : "Created"} release PR: ${releasePr.html_url}`);
 }
 
 function isSemVergeReleasePullRequest(pr: GitHubPullRequest, config: SemVergeConfig): boolean {
-  return (pr.head.ref === config.release.branch || pr.head.ref.startsWith("semverge/")) && /release/i.test(pr.title);
+  const releaseBranches = new Set([
+    config.release.branch,
+    ...Object.values(config.release.channels).flatMap((policy) => policy.releaseBranch ? [policy.releaseBranch.replace(/^refs\/heads\//, "")] : [])
+  ]);
+  return (releaseBranches.has(pr.head.ref) || pr.head.ref.startsWith("semverge/")) && /release/i.test(pr.title);
 }
 
 interface PublishedPackage {
@@ -666,6 +692,9 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
   }
   const manifestContent = await client.getFile(config.outputs.manifest, mergeSha);
   const manifest: SemVergeManifest = manifestContent ? JSON.parse(manifestContent) as SemVergeManifest : {};
+  if (manifest.channel) {
+    config = withChannelPolicy(config, manifest.channel);
+  }
   setOutput("release-channel", manifest.channel ?? "stable");
   setOutput("release-promotion", String(manifest.promotion === true));
   if (manifest.readiness?.passed === false) {
@@ -914,6 +943,7 @@ export async function run(): Promise<void> {
     prerelease: input("prerelease"),
     artifactCommand: input("artifact-command")
   });
+  const requestedChannel = input("release-channel");
 
   if (eventName === "release" && "release" in event && event.release && event.action === "published") {
     await runPostReleaseVerification(client, event.release, config);
@@ -924,7 +954,18 @@ export async function run(): Promise<void> {
     return;
   }
   if (eventName === "schedule" || eventName === "workflow_dispatch") {
-    await monitorReleases(client, config, input("monitor-tag"));
+    if (requestedChannel) {
+      const repositoryInfo = await client.repositoryInfo();
+      const configuredRef = process.env.GITHUB_REF_NAME || process.env.GITHUB_REF || repositoryInfo.default_branch;
+      const branch = configuredRef.replace(/^refs\/heads\//, "");
+      const head = process.env.GITHUB_SHA?.trim();
+      if (!head) {
+        throw new Error("GITHUB_SHA is required for scheduled or manually dispatched channel preparation.");
+      }
+      await prepareRelease(client, head, config, branch, repositoryInfo.default_branch, requestedChannel);
+    } else {
+      await monitorReleases(client, config, input("monitor-tag"));
+    }
     return;
   }
   if (eventName !== "push") {
@@ -949,7 +990,7 @@ export async function run(): Promise<void> {
     }
   }
   const branch = (push.ref ?? process.env.GITHUB_REF_NAME ?? expectedRef.replace(/^refs\/heads\//, "")).replace(/^refs\/heads\//, "");
-  await prepareRelease(client, push.after || process.env.GITHUB_SHA || "", config, branch, repositoryInfo.default_branch);
+  await prepareRelease(client, push.after || process.env.GITHUB_SHA || "", config, branch, repositoryInfo.default_branch, requestedChannel);
 }
 
 if (process.env.NODE_ENV !== "test") {

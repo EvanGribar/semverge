@@ -91,6 +91,9 @@ export interface ReleaseChannelPolicy {
   label: string;
   prerelease: string;
   branch?: string;
+  baseBranch?: string;
+  releaseBranch?: string;
+  tagPrefix?: string;
 }
 
 export interface ReleaseConfig {

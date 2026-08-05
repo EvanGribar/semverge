@@ -35,6 +35,7 @@ SemVerge is release automation that understands whether a release is ready and w
 - Opt-in Python PyPI and Rust crates.io publishing adapters with exact-version idempotency checks and durable publication-target binding
 - Explicit delayed release monitoring with configurable windows and idempotent release-PR history comments
 - Optional idempotent delayed-monitoring GitHub check-run evidence bound to a release commit
+- Explicit scheduled/manual channel preparation with independent channel source, base, release-PR, and tag policies
 
 ## Follow-on slices
 
