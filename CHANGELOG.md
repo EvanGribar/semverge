@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.0] - 2026-08-05
+
+### Features
+
+- [add opt-in npm provenance guard](https://github.com/EvanGribar/semverge/pull/64) (#64)
+
 ## [0.2.0] - 2026-08-05
 
 ### Features
