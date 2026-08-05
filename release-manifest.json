@@ -1,18 +1,18 @@
 {
   "schemaVersion": 2,
   "mode": "single",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "channel": "stable",
   "promotion": false,
-  "generatedAt": "2026-08-05T02:56:12.403Z",
+  "generatedAt": "2026-08-05T03:04:01.568Z",
   "packages": [
     {
       "id": "semverge",
       "name": "semverge",
       "directory": "",
       "ecosystem": "node",
-      "previousVersion": "0.9.0",
-      "version": "0.10.0",
+      "previousVersion": "0.10.0",
+      "version": "0.11.0",
       "bump": "minor",
       "channel": "stable",
       "promotion": false,
@@ -25,7 +25,9 @@
         "direct-change"
       ],
       "directChanges": [
-        "feat: add scheduled channel release policies"
+        "feat: add scheduled channel release policies",
+        "chore(release): v0.10.0",
+        "fix: preserve stable release publication"
       ],
       "dependencies": [],
       "dependencyTypes": {}

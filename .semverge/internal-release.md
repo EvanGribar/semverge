@@ -1,3 +1,3 @@
-# Internal release summary for 0.10.0
+# Internal release summary for 0.11.0
 
-No internal-only changes were recorded.
+- v0.10.0
