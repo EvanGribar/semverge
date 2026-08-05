@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.11.0] - 2026-08-05
+
+### Features
+
+- [add scheduled channel release policies](https://github.com/EvanGribar/semverge/pull/79) (#79)
+
+### Bug Fixes
+
+- [preserve stable release publication](https://github.com/EvanGribar/semverge/pull/81) (#81)
+
+### Internal Changes
+
+- [v0.10.0](https://github.com/EvanGribar/semverge/pull/80) (#80)
+
 ## [0.10.0] - 2026-08-05
 
 ### Features
