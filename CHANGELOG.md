@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.0] - 2026-08-05
+
+### Features
+
+- [add Python and Rust registry adapters](https://github.com/EvanGribar/semverge/pull/73) (#73)
+
 ## [0.6.0] - 2026-08-05
 
 ### Features

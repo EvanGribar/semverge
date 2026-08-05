@@ -1,7 +1,7 @@
-# What's new in 0.6.0
+# What's new in 0.7.0
 
-This release includes 1 feature. Highest-impact change: add configurable channel policies.
+This release includes 1 feature. Highest-impact change: add Python and Rust registry adapters.
 
 ### Highlights
 
-- [add configurable channel policies](https://github.com/EvanGribar/semverge/pull/71) (#71)
+- [add Python and Rust registry adapters](https://github.com/EvanGribar/semverge/pull/73) (#73)

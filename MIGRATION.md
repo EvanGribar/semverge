@@ -1,3 +1,3 @@
-# Migration guide for 0.6.0
+# Migration guide for 0.7.0
 
 No migration steps are required for this release.
