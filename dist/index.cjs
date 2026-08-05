@@ -9604,6 +9604,207 @@ function formatChangeReference(change) {
 
 // src/config.ts
 var import_yaml = __toESM(require_dist(), 1);
+
+// src/registries.ts
+var PYPI_JSON_URL = "https://pypi.org/pypi";
+var CRATES_IO_API_URL = "https://crates.io/api/v1/crates";
+var DOCKER_HUB_REGISTRY = "registry-1.docker.io";
+var OCI_MANIFEST_ACCEPT = [
+  "application/vnd.oci.image.index.v1+json",
+  "application/vnd.oci.image.manifest.v1+json",
+  "application/vnd.docker.distribution.manifest.list.v2+json",
+  "application/vnd.docker.distribution.manifest.v2+json"
+].join(", ");
+function defaultFetcher(input2, init) {
+  return fetch(input2, init);
+}
+function packageIdentity(name, version) {
+  const packageName = name.trim();
+  const packageVersion = version.trim();
+  if (!packageName || !packageVersion) {
+    throw new Error("SemVerge cannot check registry idempotency without a package name and version.");
+  }
+  return { name: packageName, version: packageVersion };
+}
+function registryError(registry, name, version, status) {
+  return new Error(`Could not verify ${name}@${version} in the ${registry} registry (HTTP ${status}). Fix registry access and retry; SemVerge will not assume the version is absent.`);
+}
+function ociRegistryError(image, version, detail) {
+  return new Error(`Could not verify ${image}:${version} in the OCI registry: ${detail}; SemVerge will not assume the image tag is absent.`);
+}
+function parseOciImageRepository(value) {
+  const image = value.trim();
+  const segments = image.split("/");
+  const first = segments[0] ?? "";
+  const hasExplicitRegistry = segments.length > 1 && (first.includes(".") || first.includes(":") || first === "localhost");
+  const registry = (hasExplicitRegistry ? first : DOCKER_HUB_REGISTRY).toLowerCase();
+  const repositorySegments = hasExplicitRegistry ? segments.slice(1) : segments;
+  if (!image || image.includes("@") || image.includes("\\") || image.startsWith("/") || image.endsWith("/") || repositorySegments.length === 0 || repositorySegments.some((segment) => !/^[a-z0-9]+(?:[._-][a-z0-9]+)*$/.test(segment))) {
+    throw new Error(`SemVerge OCI image entries must be untagged repository references such as ghcr.io/acme/app: ${value}`);
+  }
+  if (!/^[a-z0-9][a-z0-9._:-]*$/.test(registry)) {
+    throw new Error(`SemVerge OCI image entries must use a valid registry host: ${value}`);
+  }
+  return {
+    registry: registry === "docker.io" ? DOCKER_HUB_REGISTRY : registry,
+    repository: (!hasExplicitRegistry && repositorySegments.length === 1 ? ["library", ...repositorySegments] : repositorySegments).join("/")
+  };
+}
+async function responseJson(response, registry, name, version) {
+  try {
+    return await response.json();
+  } catch {
+    throw new Error(`Could not verify ${name}@${version} in the ${registry} registry: the registry returned invalid JSON; SemVerge will not assume the version is absent.`);
+  }
+}
+async function pythonVersionExists(name, version, fetcher) {
+  const encodedName = encodeURIComponent(name);
+  const response = await fetcher(`${PYPI_JSON_URL}/${encodedName}/json`, {
+    headers: { accept: "application/json" }
+  });
+  if (response.status === 404) {
+    return false;
+  }
+  if (!response.ok) {
+    throw registryError("PyPI", name, version, response.status);
+  }
+  const payload = await responseJson(response, "PyPI", name, version);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error(`Could not verify ${name}@${version} in the PyPI registry: the registry response was not an object; SemVerge will not assume the version is absent.`);
+  }
+  const releases = payload.releases;
+  if (!releases || typeof releases !== "object" || Array.isArray(releases)) {
+    throw new Error(`Could not verify ${name}@${version} in the PyPI registry: the registry response did not contain release metadata; SemVerge will not assume the version is absent.`);
+  }
+  return Object.prototype.hasOwnProperty.call(releases, version);
+}
+async function rustVersionExists(name, version, fetcher) {
+  const encodedName = encodeURIComponent(name);
+  const encodedVersion = encodeURIComponent(version);
+  const response = await fetcher(`${CRATES_IO_API_URL}/${encodedName}/${encodedVersion}`, {
+    headers: {
+      accept: "application/json",
+      "user-agent": "semverge-release-engine"
+    }
+  });
+  if (response.status === 404) {
+    return false;
+  }
+  if (!response.ok) {
+    throw registryError("crates.io", name, version, response.status);
+  }
+  await responseJson(response, "crates.io", name, version);
+  return true;
+}
+function publishConfigForEcosystem(config, ecosystem) {
+  if (ecosystem === "node") {
+    return config.publishing.npm;
+  }
+  return config.publishing[ecosystem];
+}
+function publisherName(ecosystem) {
+  if (ecosystem === "node") {
+    return "npm";
+  }
+  return ecosystem === "python" ? "PyPI" : "crates.io";
+}
+async function registryVersionExists(ecosystem, name, version, fetcher = defaultFetcher) {
+  const identity = packageIdentity(name, version);
+  if (ecosystem === "python") {
+    return pythonVersionExists(identity.name, identity.version, fetcher);
+  }
+  return rustVersionExists(identity.name, identity.version, fetcher);
+}
+function bearerChallenge(header) {
+  const match = header?.match(/^\s*Bearer\s+(.+)$/i);
+  if (!match) {
+    return null;
+  }
+  const challenge = match[1];
+  if (!challenge) {
+    return null;
+  }
+  const values = {};
+  const parameters = /([A-Za-z][A-Za-z0-9_-]*)=(?:"([^"]*)"|([^,]*))/g;
+  for (const item of challenge.matchAll(parameters)) {
+    const key = item[1];
+    if (key) {
+      values[key.toLowerCase()] = (item[2] ?? item[3] ?? "").trim();
+    }
+  }
+  if (!values.realm) {
+    return null;
+  }
+  return { realm: values.realm, ...values.service ? { service: values.service } : {}, ...values.scope ? { scope: values.scope } : {} };
+}
+async function bearerToken(challenge, image, version, fetcher) {
+  let tokenUrl;
+  try {
+    tokenUrl = new URL(challenge.realm);
+  } catch {
+    throw ociRegistryError(image, version, "the registry returned an invalid bearer-token realm");
+  }
+  if (tokenUrl.protocol !== "https:" && tokenUrl.protocol !== "http:") {
+    throw ociRegistryError(image, version, "the registry returned an unsupported bearer-token realm");
+  }
+  if (challenge.service) tokenUrl.searchParams.set("service", challenge.service);
+  if (challenge.scope) tokenUrl.searchParams.set("scope", challenge.scope);
+  const response = await fetcher(tokenUrl.toString(), { headers: { accept: "application/json" } });
+  if (!response.ok) {
+    throw ociRegistryError(image, version, `the bearer-token request returned HTTP ${response.status}`);
+  }
+  let payload;
+  try {
+    payload = await response.json();
+  } catch {
+    throw ociRegistryError(image, version, "the bearer-token response was not valid JSON");
+  }
+  const record = payload && typeof payload === "object" && !Array.isArray(payload) ? payload : null;
+  const token = record && (typeof record.token === "string" ? record.token : typeof record.access_token === "string" ? record.access_token : "");
+  if (!token) {
+    throw ociRegistryError(image, version, "the bearer-token response did not contain a token");
+  }
+  return token;
+}
+function ociManifestUrl(reference, version) {
+  const repository = reference.repository.split("/").map(encodeURIComponent).join("/");
+  return `https://${reference.registry}/v2/${repository}/manifests/${encodeURIComponent(version)}`;
+}
+function renderOciPublishCommand(command, image, version) {
+  const rendered = command.trim().replaceAll("{image}", image).replaceAll("{version}", version);
+  if (!rendered) {
+    throw new Error("SemVerge cannot publish an OCI image with an empty command.");
+  }
+  return rendered;
+}
+async function ociImageVersionExists(image, version, fetcher = defaultFetcher) {
+  const normalizedImage = image.trim();
+  const normalizedVersion = version.trim();
+  if (!normalizedImage || !normalizedVersion) {
+    throw new Error("SemVerge cannot check OCI idempotency without an image repository and version.");
+  }
+  const reference = parseOciImageRepository(normalizedImage);
+  const url = ociManifestUrl(reference, normalizedVersion);
+  const baseHeaders = { accept: OCI_MANIFEST_ACCEPT, "user-agent": "semverge-release-engine" };
+  let response = await fetcher(url, { headers: baseHeaders });
+  if (response.status === 401) {
+    const challenge = bearerChallenge(response.headers.get("www-authenticate"));
+    if (!challenge) {
+      throw ociRegistryError(normalizedImage, normalizedVersion, "the registry requires authentication but did not provide a bearer challenge");
+    }
+    const token = await bearerToken(challenge, normalizedImage, normalizedVersion, fetcher);
+    response = await fetcher(url, { headers: { ...baseHeaders, authorization: `Bearer ${token}` } });
+  }
+  if (response.status === 404) {
+    return false;
+  }
+  if (!response.ok) {
+    throw ociRegistryError(normalizedImage, normalizedVersion, `the registry returned HTTP ${response.status}`);
+  }
+  return true;
+}
+
+// src/config.ts
 var DEFAULT_CHANNEL_POLICIES = {
   beta: { label: "ship:beta", prerelease: "beta" },
   rc: { label: "ship:rc", prerelease: "rc" },
@@ -9612,6 +9813,7 @@ var DEFAULT_CHANNEL_POLICIES = {
 };
 var DEFAULT_PYTHON_PUBLISH_COMMAND = "python -m twine upload dist/*";
 var DEFAULT_RUST_PUBLISH_COMMAND = "cargo publish --locked";
+var DEFAULT_OCI_PUBLISH_COMMAND = "docker push {image}:{version}";
 var DEFAULT_CONFIG = {
   release: {
     branch: "semverge/release",
@@ -9675,6 +9877,12 @@ var DEFAULT_CONFIG = {
     rust: {
       enabled: false,
       command: DEFAULT_RUST_PUBLISH_COMMAND,
+      idempotency: "registry"
+    },
+    oci: {
+      enabled: false,
+      images: [],
+      command: DEFAULT_OCI_PUBLISH_COMMAND,
       idempotency: "registry"
     }
   }
@@ -9750,6 +9958,17 @@ function registryPublishConfig(value, fallback) {
     idempotency
   };
 }
+function ociPublishConfig(value, fallback) {
+  const object = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const command = typeof object.command === "string" && object.command.trim() ? object.command.trim() : fallback.command;
+  const idempotency = object.idempotency === "registry" || object.idempotency === "declared" ? object.idempotency : command === fallback.command ? "registry" : void 0;
+  return {
+    enabled: booleanValue(object.enabled, fallback.enabled),
+    images: strings(object.images),
+    command,
+    idempotency
+  };
+}
 function healthMonitoring(value, fallback) {
   const object = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   return {
@@ -9806,6 +10025,7 @@ function mergeConfig(raw) {
   const npm = publishing.npm && typeof publishing.npm === "object" ? publishing.npm : {};
   const python = publishing.python;
   const rust = publishing.rust;
+  const oci = publishing.oci;
   const npmCommand = typeof npm.command === "string" && npm.command.trim() ? npm.command.trim() : DEFAULT_CONFIG.publishing.npm.command;
   const npmIdempotency = npm.idempotency === "registry" || npm.idempotency === "declared" ? npm.idempotency : npmCommand === DEFAULT_CONFIG.publishing.npm.command ? "registry" : void 0;
   const result = {
@@ -9859,7 +10079,8 @@ function mergeConfig(raw) {
         provenance: booleanValue(npm.provenance, DEFAULT_CONFIG.publishing.npm.provenance)
       },
       python: registryPublishConfig(python, DEFAULT_CONFIG.publishing.python),
-      rust: registryPublishConfig(rust, DEFAULT_CONFIG.publishing.rust)
+      rust: registryPublishConfig(rust, DEFAULT_CONFIG.publishing.rust),
+      oci: ociPublishConfig(oci, DEFAULT_CONFIG.publishing.oci)
     }
   };
   if (typeof release.prerelease === "string" && release.prerelease.trim()) {
@@ -9894,7 +10115,7 @@ function withOverrides(config, overrides) {
     artifacts: { ...config.artifacts, paths: [...config.artifacts.paths] },
     monorepo: { ...config.monorepo, packages: [...config.monorepo.packages], dependencyPolicy: { ...config.monorepo.dependencyPolicy } },
     health: { ...config.health, workflows: [...config.health.workflows], expectedArtifacts: [...config.health.expectedArtifacts], requiredLinks: [...config.health.requiredLinks], ...config.health.monitoring ? { monitoring: { ...config.health.monitoring } } : {} },
-    publishing: { ...config.publishing, npm: { ...config.publishing.npm }, python: { ...config.publishing.python }, rust: { ...config.publishing.rust } }
+    publishing: { ...config.publishing, npm: { ...config.publishing.npm }, python: { ...config.publishing.python }, rust: { ...config.publishing.rust }, oci: { ...config.publishing.oci, images: [...config.publishing.oci.images] } }
   };
   const prerelease = overrides.prerelease?.trim();
   if (prerelease) {
@@ -11523,89 +11744,6 @@ async function npmVersionExists(name, version, cwd, runner = defaultNpmViewRunne
   }
 }
 
-// src/registries.ts
-var PYPI_JSON_URL = "https://pypi.org/pypi";
-var CRATES_IO_API_URL = "https://crates.io/api/v1/crates";
-function defaultFetcher(input2, init) {
-  return fetch(input2, init);
-}
-function packageIdentity(name, version) {
-  const packageName = name.trim();
-  const packageVersion = version.trim();
-  if (!packageName || !packageVersion) {
-    throw new Error("SemVerge cannot check registry idempotency without a package name and version.");
-  }
-  return { name: packageName, version: packageVersion };
-}
-function registryError(registry, name, version, status) {
-  return new Error(`Could not verify ${name}@${version} in the ${registry} registry (HTTP ${status}). Fix registry access and retry; SemVerge will not assume the version is absent.`);
-}
-async function responseJson(response, registry, name, version) {
-  try {
-    return await response.json();
-  } catch {
-    throw new Error(`Could not verify ${name}@${version} in the ${registry} registry: the registry returned invalid JSON; SemVerge will not assume the version is absent.`);
-  }
-}
-async function pythonVersionExists(name, version, fetcher) {
-  const encodedName = encodeURIComponent(name);
-  const response = await fetcher(`${PYPI_JSON_URL}/${encodedName}/json`, {
-    headers: { accept: "application/json" }
-  });
-  if (response.status === 404) {
-    return false;
-  }
-  if (!response.ok) {
-    throw registryError("PyPI", name, version, response.status);
-  }
-  const payload = await responseJson(response, "PyPI", name, version);
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
-    throw new Error(`Could not verify ${name}@${version} in the PyPI registry: the registry response was not an object; SemVerge will not assume the version is absent.`);
-  }
-  const releases = payload.releases;
-  if (!releases || typeof releases !== "object" || Array.isArray(releases)) {
-    throw new Error(`Could not verify ${name}@${version} in the PyPI registry: the registry response did not contain release metadata; SemVerge will not assume the version is absent.`);
-  }
-  return Object.prototype.hasOwnProperty.call(releases, version);
-}
-async function rustVersionExists(name, version, fetcher) {
-  const encodedName = encodeURIComponent(name);
-  const encodedVersion = encodeURIComponent(version);
-  const response = await fetcher(`${CRATES_IO_API_URL}/${encodedName}/${encodedVersion}`, {
-    headers: {
-      accept: "application/json",
-      "user-agent": "semverge-release-engine"
-    }
-  });
-  if (response.status === 404) {
-    return false;
-  }
-  if (!response.ok) {
-    throw registryError("crates.io", name, version, response.status);
-  }
-  await responseJson(response, "crates.io", name, version);
-  return true;
-}
-function publishConfigForEcosystem(config, ecosystem) {
-  if (ecosystem === "node") {
-    return config.publishing.npm;
-  }
-  return config.publishing[ecosystem];
-}
-function publisherName(ecosystem) {
-  if (ecosystem === "node") {
-    return "npm";
-  }
-  return ecosystem === "python" ? "PyPI" : "crates.io";
-}
-async function registryVersionExists(ecosystem, name, version, fetcher = defaultFetcher) {
-  const identity = packageIdentity(name, version);
-  if (ecosystem === "python") {
-    return pythonVersionExists(identity.name, identity.version, fetcher);
-  }
-  return rustVersionExists(identity.name, identity.version, fetcher);
-}
-
 // src/workspace-integrity.ts
 var import_node_child_process2 = require("node:child_process");
 var import_node_util2 = require("node:util");
@@ -11634,7 +11772,7 @@ async function assertWorkspaceAtCommit(workspace, mergeSha, readHead = readWorks
 
 // src/transaction.ts
 var import_node_crypto = require("node:crypto");
-var RELEASE_TRANSACTION_SCHEMA_VERSION = 5;
+var RELEASE_TRANSACTION_SCHEMA_VERSION = 6;
 var RELEASE_TRANSACTION_MARKER = "<!-- semverge-progress ";
 var RELEASE_PHASES = [
   "planned",
@@ -11713,7 +11851,8 @@ function normalizeAssets(value) {
 }
 function createReleaseTransaction(input2) {
   const now = timestamp(input2.now);
-  const publishingTargets = unique(input2.publishingTargets ?? (input2.npmEnabled ? ["npm"] : []));
+  const ociImages = unique(input2.ociImages ?? []);
+  const publishingTargets = unique([...input2.publishingTargets ?? (input2.npmEnabled ? ["npm"] : []), ...ociImages.map((image) => `oci:${image}`)]);
   return {
     schemaVersion: RELEASE_TRANSACTION_SCHEMA_VERSION,
     id: input2.id ?? `release_${(0, import_node_crypto.randomUUID)().replace(/-/g, "")}`,
@@ -11723,10 +11862,12 @@ function createReleaseTransaction(input2) {
     packageIds: unique(input2.packageIds),
     tagNames: unique(input2.tagNames),
     publishingTargets,
+    ociImages,
     npmEnabled: input2.npmEnabled,
     npmProvenance: input2.npmProvenance ?? false,
     artifactDigests: digestMap(input2.artifactDigests ?? {}),
     publishedPackages: input2.alreadyPublishedPackageIds ? unique(input2.alreadyPublishedPackageIds) : publishingTargets.length > 0 ? [] : unique(input2.packageIds),
+    publishedOciImages: input2.alreadyPublishedOciImages ? unique(input2.alreadyPublishedOciImages) : [],
     uploadedAssets: Object.fromEntries(unique(input2.tagNames).map((tag) => [tag, []])),
     ready: false,
     published: false,
@@ -11780,21 +11921,24 @@ function mergeReleaseTransactions(states, expected) {
     packageIds: [...expected.packageIds],
     tagNames: [...expected.tagNames],
     publishingTargets: [...expected.publishingTargets],
+    ociImages: [...expected.ociImages],
     artifactDigests: { ...expected.artifactDigests },
     publishedPackages: [...expected.publishedPackages],
+    publishedOciImages: [...expected.publishedOciImages],
     uploadedAssets: normalizeAssets(expected.uploadedAssets),
     events: [...expected.events],
     ready: false,
     published: false
   };
   for (const state of present) {
-    if (state.version !== expected.version || state.npmEnabled !== expected.npmEnabled || state.npmProvenance !== expected.npmProvenance || !sameValues(state.publishingTargets, expected.publishingTargets) || state.sourceCommit !== "unknown" && expected.sourceCommit !== "unknown" && state.sourceCommit !== expected.sourceCommit || !sameValues(state.packageIds, expected.packageIds) || !sameValues(state.tagNames, expected.tagNames)) {
+    if (state.version !== expected.version || state.npmEnabled !== expected.npmEnabled || state.npmProvenance !== expected.npmProvenance || !sameValues(state.publishingTargets, expected.publishingTargets) || !sameValues(state.ociImages, expected.ociImages) || state.sourceCommit !== "unknown" && expected.sourceCommit !== "unknown" && state.sourceCommit !== expected.sourceCommit || !sameValues(state.packageIds, expected.packageIds) || !sameValues(state.tagNames, expected.tagNames)) {
       throw new Error("SemVerge found release transaction state for a different release or publishing configuration; verify the draft releases before retrying.");
     }
     if (phaseIndex(state.phase) > phaseIndex(merged.phase)) {
       merged.phase = state.phase;
     }
     merged.publishedPackages = unique([...merged.publishedPackages, ...state.publishedPackages]);
+    merged.publishedOciImages = unique([...merged.publishedOciImages, ...state.publishedOciImages]);
     merged.ready ||= state.ready;
     merged.published ||= state.published;
     for (const tag of expected.tagNames) {
@@ -11858,10 +12002,11 @@ function parseReleaseTransaction(value) {
   if (record.schemaVersion === 1) {
     return upgradeLegacyTransaction(record);
   }
-  const hasArtifactDigests = record.schemaVersion === 3 || record.schemaVersion === 4 || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
-  const hasNpmProvenance = record.schemaVersion === 4 || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
-  const hasPublishingTargets = record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
-  if (record.schemaVersion !== 2 && record.schemaVersion !== 3 && record.schemaVersion !== 4 && record.schemaVersion !== RELEASE_TRANSACTION_SCHEMA_VERSION || typeof record.id !== "string" || typeof record.version !== "string" || typeof record.sourceCommit !== "string" || typeof record.npmEnabled !== "boolean" || hasNpmProvenance && typeof record.npmProvenance !== "boolean" || hasPublishingTargets && record.publishingTargets === void 0 || typeof record.ready !== "boolean" || typeof record.published !== "boolean" || typeof record.updatedAt !== "string" || !Array.isArray(record.events) || hasArtifactDigests && record.artifactDigests === void 0) {
+  const hasArtifactDigests = record.schemaVersion === 3 || record.schemaVersion === 4 || record.schemaVersion === 5 || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  const hasNpmProvenance = record.schemaVersion === 4 || record.schemaVersion === 5 || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  const hasPublishingTargets = record.schemaVersion === 5 || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  const hasOciImages = record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  if (record.schemaVersion !== 2 && record.schemaVersion !== 3 && record.schemaVersion !== 4 && record.schemaVersion !== 5 && record.schemaVersion !== RELEASE_TRANSACTION_SCHEMA_VERSION || typeof record.id !== "string" || typeof record.version !== "string" || typeof record.sourceCommit !== "string" || typeof record.npmEnabled !== "boolean" || hasNpmProvenance && typeof record.npmProvenance !== "boolean" || hasPublishingTargets && record.publishingTargets === void 0 || hasOciImages && (record.ociImages === void 0 || record.publishedOciImages === void 0) || typeof record.ready !== "boolean" || typeof record.published !== "boolean" || typeof record.updatedAt !== "string" || !Array.isArray(record.events) || hasArtifactDigests && record.artifactDigests === void 0) {
     throw new Error("SemVerge found an invalid release transaction marker.");
   }
   const failure = record.failure === void 0 ? void 0 : objectValue2(record.failure);
@@ -11878,10 +12023,12 @@ function parseReleaseTransaction(value) {
     packageIds: stringArray(record.packageIds, "packageIds"),
     tagNames: stringArray(record.tagNames, "tagNames"),
     publishingTargets: hasPublishingTargets ? stringArray(record.publishingTargets, "publishingTargets") : record.npmEnabled ? ["npm"] : [],
+    ociImages: hasOciImages ? stringArray(record.ociImages, "ociImages") : [],
     npmEnabled: record.npmEnabled,
     npmProvenance: hasNpmProvenance ? record.npmProvenance : false,
     artifactDigests: hasArtifactDigests ? digestMap(record.artifactDigests) : {},
     publishedPackages: stringArray(record.publishedPackages, "publishedPackages"),
+    publishedOciImages: hasOciImages ? stringArray(record.publishedOciImages, "publishedOciImages") : [],
     uploadedAssets: normalizeAssets(assetMap(record.uploadedAssets)),
     ready: record.ready,
     published: record.published,
@@ -11968,6 +12115,7 @@ function summarizeReleaseTransaction(state) {
     phase: state.phase,
     publishedPackages: `${state.publishedPackages.length}/${state.packageIds.length}`,
     publishingTargets: [...state.publishingTargets],
+    publishedOciImages: `${state.publishedOciImages.length}/${state.ociImages.length}`,
     uploadedAssets,
     artifactDigests: { ...state.artifactDigests },
     npmProvenance: state.npmProvenance,
@@ -11986,6 +12134,7 @@ function releaseTransactionSummaryMarkdown(state) {
     `- State: **${summary.phase}**`,
     `- Packages published: **${summary.publishedPackages}**`,
     `- Publishing targets: **${summary.publishingTargets.length > 0 ? summary.publishingTargets.join(", ") : "none"}**`,
+    `- OCI images published: **${summary.publishedOciImages}**`,
     `- npm provenance requested: **${summary.npmProvenance ? "yes" : "no"}**`,
     `- Uploaded assets recorded: **${summary.uploadedAssets}**`,
     `- Artifact SHA-256 digests recorded: **${Object.keys(summary.artifactDigests).length}**`,
@@ -12506,11 +12655,23 @@ function packageKey(packageItem, index) {
 function packageEcosystem(packageItem) {
   return packageItem.ecosystem ?? "node";
 }
+function ociReleaseVersion(mode, version) {
+  const normalized = version.trim();
+  if (mode === "independent") {
+    throw new Error("SemVerge OCI image publication requires a single or fixed workspace release; independent workspaces need package-specific image mappings.");
+  }
+  if (!parseVersion(normalized) || !/^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$/.test(normalized)) {
+    throw new Error(`SemVerge cannot use ${version} as an OCI image tag; release-level OCI publication requires a SemVer-compatible Docker tag.`);
+  }
+  return normalized;
+}
 function initialReleaseProgress(version, sourceCommit, publishablePackages, releaseTags, artifactDigestMap, config) {
   const packageIds = publishablePackages.map(packageKey);
-  const publishingTargets = [...new Set(publishablePackages.map(packageEcosystem).filter((ecosystem) => publishConfigForEcosystem(config, ecosystem).enabled).map((ecosystem) => ecosystem === "node" ? "npm" : ecosystem))];
+  const packagePublishingTargets = publishablePackages.map(packageEcosystem).filter((ecosystem) => publishConfigForEcosystem(config, ecosystem).enabled).map((ecosystem) => ecosystem === "node" ? "npm" : ecosystem);
+  const ociImages = config.publishing.oci.enabled ? [...config.publishing.oci.images] : [];
+  const publishingTargets = [.../* @__PURE__ */ new Set([...packagePublishingTargets, ...ociImages.map((image) => `oci:${image}`)])];
   const alreadyPublishedPackageIds = publishablePackages.filter((packageItem) => !publishConfigForEcosystem(config, packageEcosystem(packageItem)).enabled).map(packageKey);
-  let transaction = createReleaseTransaction({ version, sourceCommit, packageIds, tagNames: releaseTags, publishingTargets, alreadyPublishedPackageIds, artifactDigests: artifactDigestMap, npmEnabled: config.publishing.npm.enabled, npmProvenance: config.publishing.npm.provenance });
+  let transaction = createReleaseTransaction({ version, sourceCommit, packageIds, tagNames: releaseTags, publishingTargets, ociImages, alreadyPublishedPackageIds, artifactDigests: artifactDigestMap, npmEnabled: config.publishing.npm.enabled, npmProvenance: config.publishing.npm.provenance });
   transaction = advanceReleaseTransaction(transaction, "approved", { key: "approval", kind: "approval-verified", target: sourceCommit, detail: "Release PR merge commit verified." });
   transaction = advanceReleaseTransaction(transaction, "prepared", { key: "release-inputs", kind: "release-plan-prepared", target: version, detail: "Release manifest, package set, and tags validated." });
   return advanceReleaseTransaction(transaction, "built", { key: "artifact-build", kind: "artifacts-built", target: sourceCommit, detail: "Workspace and configured artifacts passed pre-publication validation." });
@@ -12600,6 +12761,20 @@ async function publishRelease(client, pr, config) {
   if (releasePackages.length === 0) {
     throw new Error("SemVerge found no packages to publish.");
   }
+  const version = manifest.version ?? packages.map((packageItem) => `${packageItem.name}@${packageItem.version}`).join(", ");
+  const ociConfig = config.publishing.oci;
+  if (ociConfig.enabled) {
+    if (ociConfig.images.length === 0) {
+      throw new Error("SemVerge OCI publishing requires at least one image repository.");
+    }
+    if (!ociConfig.idempotency) {
+      throw new Error("SemVerge requires publishing.oci.idempotency for custom commands; choose registry or declared.");
+    }
+    for (const image of ociConfig.images) {
+      parseOciImageRepository(image);
+    }
+  }
+  const ociVersion = ociConfig.enabled ? ociReleaseVersion(mode, version) : "";
   for (const ecosystem of ["node", "python", "rust"]) {
     const publisher = publishConfigForEcosystem(config, ecosystem);
     if (publisher.enabled && !publisher.idempotency) {
@@ -12607,7 +12782,7 @@ async function publishRelease(client, pr, config) {
     }
   }
   assertNpmProvenanceEnvironment(config.publishing.npm);
-  const publishingEnabled = releasePackages.some((packageItem) => publishConfigForEcosystem(config, packageEcosystem(packageItem)).enabled);
+  const publishingEnabled = ociConfig.enabled || releasePackages.some((packageItem) => publishConfigForEcosystem(config, packageEcosystem(packageItem)).enabled);
   const artifactCommand = input("artifact-command") || config.artifacts.command;
   const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
   if (artifactCommand || config.artifacts.paths.length > 0 || publishingEnabled) {
@@ -12637,7 +12812,6 @@ async function publishRelease(client, pr, config) {
     const customerNotes = await client.getFile(customerNotesPath, mergeSha) ?? `Release ${packageItem.version}`;
     return { packageItem, tag, customerNotes, existingRelease, existingProgress };
   }));
-  const version = manifest.version ?? packages.map((packageItem) => `${packageItem.name}@${packageItem.version}`).join(", ");
   const expectedProgress = initialReleaseProgress(version, mergeSha, publishablePackages, releaseInputs.map((item) => item.tag), artifactDigestMap, config);
   let progress = mergeReleaseProgress(releaseInputs.map((item) => item.existingProgress), expectedProgress);
   const executions = [];
@@ -12700,6 +12874,34 @@ async function publishRelease(client, pr, config) {
     progress = recordReleaseTransactionEvent(progress, { key: `package:${id}`, kind: "package-published", target: packageItem.name });
     await persistReleaseProgress(client, executions, progress);
   }
+  if (ociConfig.enabled) {
+    for (const image of ociConfig.images) {
+      if (progress.publishedOciImages.includes(image)) {
+        continue;
+      }
+      const alreadyPublished = ociConfig.idempotency === "registry" ? await ociImageVersionExists(image, ociVersion) : false;
+      if (alreadyPublished) {
+        log(`Found ${image}:${ociVersion} in the OCI registry; treating publication as already complete.`);
+        progress.publishedOciImages = [.../* @__PURE__ */ new Set([...progress.publishedOciImages, image])];
+        progress = recordReleaseTransactionEvent(progress, { key: `oci:${image}`, kind: "oci-image-published", target: `${image}:${ociVersion}`, detail: "The OCI registry already contains the requested image tag; no duplicate push was attempted." });
+        await persistReleaseProgress(client, executions, progress);
+        continue;
+      }
+      const publishCommand = renderOciPublishCommand(ociConfig.command, image, ociVersion);
+      log(`Publishing OCI image ${image}:${ociVersion}.`);
+      try {
+        injectTestFailure("oci-publish");
+        await exec2(publishCommand, { cwd: workspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
+      } catch (error) {
+        progress = recordReleaseTransactionEvent(progress, { key: `oci:${image}`, kind: "oci-image-published", target: `${image}:${ociVersion}`, status: "failed", detail: "OCI image publication failed; inspect runner logs before retrying." });
+        await persistReleaseProgress(client, executions, progress);
+        throw error;
+      }
+      progress.publishedOciImages = [.../* @__PURE__ */ new Set([...progress.publishedOciImages, image])];
+      progress = recordReleaseTransactionEvent(progress, { key: `oci:${image}`, kind: "oci-image-published", target: `${image}:${ociVersion}` });
+      await persistReleaseProgress(client, executions, progress);
+    }
+  }
   for (const execution of executions) {
     if (execution.release.draft !== true) {
       continue;
@@ -12731,7 +12933,7 @@ async function publishRelease(client, pr, config) {
     progress.uploadedAssets[execution.tag] = [...uploaded];
   }
   progress.ready = true;
-  progress = recordReleaseTransactionEvent(progress, { key: "release-ready", kind: "release-ready", target: version, detail: "All package publication and release asset steps completed." });
+  progress = recordReleaseTransactionEvent(progress, { key: "release-ready", kind: "release-ready", target: version, detail: "All package, OCI image, and release asset steps completed." });
   await persistReleaseProgress(client, executions, progress);
   progress.published = true;
   progress = advanceReleaseTransaction(progress, "published", { key: "release-published", kind: "release-published", target: version, detail: "All transactional side effects completed; GitHub release drafts are being finalized." });

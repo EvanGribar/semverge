@@ -170,10 +170,18 @@ export interface RegistryPublishConfig {
   idempotency?: "registry" | "declared";
 }
 
+export interface OciPublishConfig {
+  enabled: boolean;
+  images: string[];
+  command: string;
+  idempotency?: "registry" | "declared";
+}
+
 export interface PublishingConfig {
   npm: NpmPublishConfig;
   python: RegistryPublishConfig;
   rust: RegistryPublishConfig;
+  oci: OciPublishConfig;
 }
 
 export interface SemVergeConfig {

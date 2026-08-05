@@ -108,14 +108,14 @@ describe("release transaction state", () => {
     const parsedBody = parseReleaseTransactionBody(`${releaseTransactionMarker(state)}\nnotes`);
     const summary = summarizeReleaseTransaction(state);
 
-    expect(state.schemaVersion).toBe(5);
+    expect(state.schemaVersion).toBe(6);
     expect(state.phase).toBe("prepared");
     expect(parsedBody?.id).toBe(state.id);
     expect(summary.safeNextAction).toContain(state.id);
     expect(summary.publishedPackages).toBe("0/1");
 
     const v2 = { ...state, schemaVersion: 2, artifactDigests: undefined };
-    expect(parseReleaseTransaction(v2).schemaVersion).toBe(5);
+    expect(parseReleaseTransaction(v2).schemaVersion).toBe(6);
     expect(parseReleaseTransaction(v2).artifactDigests).toEqual({});
   });
 
@@ -163,6 +163,32 @@ describe("release transaction state", () => {
       publishingTargets: ["rust"]
     });
     expect(() => mergeReleaseTransactions([changed], expected)).toThrow("different release or publishing configuration");
+  });
+
+  it("binds OCI image repositories and merges their durable publication progress", () => {
+    const expected = createReleaseTransaction({
+      id: "release_01JOCI",
+      version: "1.0.0",
+      sourceCommit: "merge-sha",
+      packageIds: ["demo"],
+      tagNames: ["v1.0.0"],
+      ociImages: ["ghcr.io/acme/semverge"],
+      alreadyPublishedPackageIds: ["demo"],
+      npmEnabled: false
+    });
+    const partial = recordReleaseTransactionEvent({ ...expected, publishedOciImages: [] }, {
+      key: "oci:ghcr.io/acme/semverge",
+      kind: "oci-image-published",
+      target: "ghcr.io/acme/semverge:1.0.0",
+      now: "2026-08-04T00:01:00.000Z"
+    });
+    partial.publishedOciImages.push("ghcr.io/acme/semverge");
+
+    expect(expected.publishingTargets).toEqual(["oci:ghcr.io/acme/semverge"]);
+    expect(mergeReleaseTransactions([partial], expected).publishedOciImages).toEqual(["ghcr.io/acme/semverge"]);
+    expect(parseReleaseTransactionBody(releaseTransactionMarker(partial))?.ociImages).toEqual(["ghcr.io/acme/semverge"]);
+    expect(summarizeReleaseTransaction(partial).publishedOciImages).toBe("1/1");
+    expect(releaseTransactionBody("notes", partial)).toContain("OCI images published: **1/1**");
   });
 
   it("keeps a failure until the failed side effect succeeds on retry", () => {
