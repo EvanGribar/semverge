@@ -4,12 +4,21 @@ import { readPackageVersion, updateVersionFiles } from "../src/version-files.js"
 
 describe("configuration and version files", () => {
   it("parses simple progressive YAML configuration", () => {
-    const config = parseConfig(`release:\n  branch: release/bot\n  prerelease: beta\nreadiness:\n  requiredLabels: [ship:ready]\noutputs:\n  customerNotes: docs/RELEASE.md\n`);
+    const config = parseConfig(`release:\n  branch: release/bot\n  prerelease: beta\n  promotion: stable\nreadiness:\n  requiredLabels: [ship:ready]\noutputs:\n  customerNotes: docs/RELEASE.md\n`);
     expect(config.release.branch).toBe("release/bot");
     expect(config.release.prerelease).toBe("beta");
+    expect(config.release.promotion).toBe("stable");
     expect(config.readiness.requiredLabels).toEqual(["ship:ready"]);
     expect(config.outputs.customerNotes).toBe("docs/RELEASE.md");
     expect(config.publishing.npm.idempotency).toBe("registry");
+  });
+
+  it("rejects unknown release promotion policies", () => {
+    expect(validateConfigContent("release:\n  promotion: nightly\n")).toContainEqual({
+      path: "release.promotion",
+      severity: "error",
+      message: "must be one of: stable"
+    });
   });
 
   it("requires an explicit idempotency contract for custom npm commands", () => {

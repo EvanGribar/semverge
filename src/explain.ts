@@ -9,13 +9,17 @@ export function explainReleasePlan(plan: ReleasePlan): string {
   const lines = [
     "SemVerge release explanation",
     "",
-    `Version decision: ${plan.previousVersion} -> ${plan.version} (${bumpLabel(plan.bump)}).`
+    `Version decision: ${plan.previousVersion} -> ${plan.version} (${bumpLabel(plan.bump)}).`,
+    `Release channel: ${plan.channel}${plan.promotion ? ` (promoted from ${plan.previousVersion})` : "."}`
   ];
 
   if (!plan.hasRelease) {
     lines.push("Why: no release-worthy changes were found.");
   } else {
     lines.push("Why:");
+    if (plan.promotion) {
+      lines.push("- The prerelease was explicitly promoted to the stable channel.");
+    }
     for (const change of plan.releaseChanges) {
       const changeBump = bumpForChange(change);
       const scope = change.scope ? ` [${change.scope}]` : "";

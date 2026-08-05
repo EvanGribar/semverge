@@ -26,10 +26,11 @@ SemVerge is release automation that understands whether a release is ready and w
 - Dependency-free static public site with versioned Vercel configuration and a documented OSS hosting boundary
 - Explainable per-package release graphs in release PRs and manifests, including direct changes, dependency propagation, and unreleased packages
 - Checked-in single-package, fixed-pnpm, independent-workspace, retry, and large-repository fixtures for deterministic end-to-end proof
+- Explicit stable promotion from a prerelease, with channel and promotion decisions recorded in plans, release PRs, manifests, explanations, and action outputs
 
 ## Follow-on slices
 
-1. Explicit promotion from prerelease to stable and richer channel policies.
+1. Richer channel policies, including coordinated release candidates, nightly builds, and canary behavior.
 2. Python and Rust workspace discovery and publishing integrations.
 3. Richer independent-package dependency policies, including peer and optional dependency semantics.
 4. More artifact transports and registry-specific publishing adapters.

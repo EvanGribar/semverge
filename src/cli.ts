@@ -20,6 +20,7 @@ release:
   branch: semverge/release
   tagPrefix: v
   independentTagPrefix: pkg-
+  # promotion: stable  # explicitly promote the current prerelease to stable
 `;
 
 export interface CliIo {

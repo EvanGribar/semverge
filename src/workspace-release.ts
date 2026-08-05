@@ -16,6 +16,8 @@ export interface WorkspaceReleasePlan {
   mode: "single" | "fixed" | "independent";
   hasRelease: boolean;
   version: string;
+  channel: string;
+  promotion: boolean;
   packages: PackageRelease[];
   changes: ReleaseChange[];
   releaseChanges: ReleaseChange[];
@@ -358,6 +360,8 @@ function manifestContent(plan: WorkspaceReleasePlan): string {
     schemaVersion: 2,
     mode: plan.mode,
     version: plan.version,
+    channel: plan.channel,
+    promotion: plan.promotion,
     generatedAt: new Date().toISOString(),
     packages: plan.packages.map(({ package: packageItem, plan: packagePlan, explanation }) => ({
       id: packageItem.id,
@@ -367,6 +371,8 @@ function manifestContent(plan: WorkspaceReleasePlan): string {
       previousVersion: packageItem.version,
       version: packagePlan.version,
       bump: packagePlan.bump,
+      channel: packagePlan.channel,
+      promotion: packagePlan.promotion,
       changelog: packagePlan.outputs.find((output) => output.path.toLowerCase().endsWith("changelog.md"))?.path,
       customerNotes: packagePlan.outputs.find((output) => output.path.toLowerCase().endsWith("release_notes.md") || output.path.toLowerCase().endsWith("release-notes.md"))?.path,
       private: packageItem.private,
@@ -463,6 +469,10 @@ export function buildWorkspaceReleasePlan(input: BuildWorkspaceReleasePlanInput)
   const releaseChanges = input.mode === "independent" ? [...new Map(packageReleases.flatMap((item) => item.plan.releaseChanges.map((change) => [change.title, change] as const))).values()] : input.changes.filter((change) => !change.skipped);
   const readiness = mergeReadiness(packageReleases.length > 0 ? packageReleases.map((item) => item.plan.readiness) : [input.readinessContext ? { passed: true, missingLabels: [], missingFiles: [], failedCommands: [], missingTasks: [], requestedTasks: [] } : { passed: true, missingLabels: [], missingFiles: [], failedCommands: [], missingTasks: [], requestedTasks: [] }]);
   const version = input.mode === "independent" ? releasedPlans.map((item) => `${item.package.name}@${item.plan.version}`).join(", ") : plans[0]?.plan.version ?? input.packages[0]?.version ?? "0.0.0";
+  const channel = input.mode === "independent"
+    ? [...new Set(packageReleases.map((item) => item.plan.channel))].join(", ") || "stable"
+    : plans[0]?.plan.channel ?? "stable";
+  const promotion = packageReleases.some((item) => item.plan.promotion);
   const versionChangeMap = new Map<string, VersionFileChange>();
   const versionMap = new Map<string, string>();
   for (const item of packageReleases) {
@@ -514,6 +524,8 @@ export function buildWorkspaceReleasePlan(input: BuildWorkspaceReleasePlanInput)
     mode: input.mode,
     hasRelease,
     version,
+    channel,
+    promotion,
     packages: packageReleases,
     changes: input.changes,
     releaseChanges,

@@ -30,4 +30,15 @@ describe("release explanations", () => {
     expect(explanation).toContain("no release-worthy changes were found");
     expect(explanation).toContain("does not create a release PR");
   });
+
+  it("explains an explicit prerelease promotion", () => {
+    const plan = buildReleasePlan({
+      currentVersion: "1.4.0-beta.2",
+      changes: [parseChange({ title: "fix: stabilize beta", source: "pull_request", labels: ["ship:stable"] })]
+    });
+
+    const explanation = explainReleasePlan(plan);
+    expect(explanation).toContain("Release channel: stable (promoted from 1.4.0-beta.2)");
+    expect(explanation).toContain("The prerelease was explicitly promoted to the stable channel.");
+  });
 });
