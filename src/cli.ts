@@ -9,6 +9,7 @@ import { parseChange } from "./changes.js";
 import { parseConfig, validateConfig, validateConfigContent, type ConfigValidationIssue } from "./config.js";
 import { explainReleasePlan } from "./explain.js";
 import { GitHubClient } from "./github.js";
+import { inspectMigration, isMigrationTool, migrationReportMarkdown, MIGRATION_TOOLS, writeMigrationConfig } from "./migrate.js";
 import { parseVersion } from "./semver.js";
 import { parseReleaseTransaction, parseReleaseTransactionBody, releaseTransactionSummaryMarkdown } from "./transaction.js";
 import { readPackageVersion } from "./version-files.js";
@@ -38,12 +39,14 @@ function usage(): string {
     "  init                 Create a starter .semverge.yml without overwriting it",
     "  plan [title]         Print a deterministic local release plan",
     "  explain [title]      Explain the version decision, blockers, merge path, and recovery",
+    "  migrate <tool>       Inspect a Release Please, Changesets, or semantic-release setup",
     "  doctor               Validate repository files and SemVerge configuration",
     "  recover <release-id> Inspect durable release state and print the safe next action",
     "",
     "Options:",
     "  --config <path>      Read a different configuration file",
     "  --state <path>       Read a local transaction state file for recover",
+    "  --write              Write a migration-generated .semverge.yml (migrate only)",
     "  --force              Allow init to replace an existing configuration file",
     "  --help               Show this help"
   ].join("\n");
@@ -116,6 +119,20 @@ async function plan(cwd: string, configPath: string, title: string, io: CliIo): 
 
 async function explain(cwd: string, configPath: string, title: string, io: CliIo): Promise<number> {
   io.stdout(explainReleasePlan(await localPlan(cwd, configPath, title)));
+  return 0;
+}
+
+async function migrate(cwd: string, toolName: string, write: boolean, force: boolean, io: CliIo): Promise<number> {
+  if (!isMigrationTool(toolName)) {
+    io.stderr(`migrate requires one of: ${MIGRATION_TOOLS.join(", ")}.`);
+    return 1;
+  }
+  const report = await inspectMigration(cwd, toolName);
+  io.stdout(migrationReportMarkdown(report));
+  if (write) {
+    const path = await writeMigrationConfig(cwd, report, force);
+    io.stdout(`Wrote ${path}`);
+  }
   return 0;
 }
 
@@ -200,7 +217,7 @@ async function recover(cwd: string, id: string, statePath: string | undefined, i
 }
 
 export async function runCli(argv = process.argv.slice(2), cwd = process.cwd(), io: CliIo = defaultIo): Promise<number> {
-  const commandNames = new Set(["init", "plan", "explain", "doctor", "recover", "help"]);
+  const commandNames = new Set(["init", "plan", "explain", "migrate", "doctor", "recover", "help"]);
   const command = argv[0] && commandNames.has(argv[0]) ? argv[0] : "plan";
   const commandArgs = command === "plan" && argv[0] !== "plan" ? argv : argv.slice(1);
   if (command === "help" || command === "--help" || argv.includes("--help")) {
@@ -211,7 +228,8 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd(), 
   const configPath = configOption.value || ".semverge.yml";
   const stateOption = option(configOption.rest, "--state");
   const force = commandArgs.includes("--force");
-  const remaining = stateOption.rest.filter((arg) => arg !== "--force");
+  const write = commandArgs.includes("--write");
+  const remaining = stateOption.rest.filter((arg) => arg !== "--force" && arg !== "--write");
 
   try {
     if (command === "init") {
@@ -228,6 +246,9 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd(), 
     }
     if (command === "explain") {
       return await explain(cwd, configPath, remaining.join(" "), io);
+    }
+    if (command === "migrate") {
+      return await migrate(cwd, remaining[0] ?? "", write, force, io);
     }
     io.stderr(`Unknown command: ${command}\n\n${usage()}`);
     return 1;
