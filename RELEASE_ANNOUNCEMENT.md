@@ -1,5 +1,5 @@
-# SemVerge release announcement: 0.6.0
+# SemVerge release announcement: 0.7.0
 
-SemVerge 0.6.0 includes:
+SemVerge 0.7.0 includes:
 
-- add configurable channel policies
+- add Python and Rust registry adapters
