@@ -108,15 +108,39 @@ describe("release transaction state", () => {
     const parsedBody = parseReleaseTransactionBody(`${releaseTransactionMarker(state)}\nnotes`);
     const summary = summarizeReleaseTransaction(state);
 
-    expect(state.schemaVersion).toBe(3);
+    expect(state.schemaVersion).toBe(4);
     expect(state.phase).toBe("prepared");
     expect(parsedBody?.id).toBe(state.id);
     expect(summary.safeNextAction).toContain(state.id);
     expect(summary.publishedPackages).toBe("0/1");
 
     const v2 = { ...state, schemaVersion: 2, artifactDigests: undefined };
-    expect(parseReleaseTransaction(v2).schemaVersion).toBe(3);
+    expect(parseReleaseTransaction(v2).schemaVersion).toBe(4);
     expect(parseReleaseTransaction(v2).artifactDigests).toEqual({});
+  });
+
+  it("binds npm provenance intent to the retryable transaction", () => {
+    const expected = createReleaseTransaction({
+      id: "release_01JPROVENANCE",
+      version: "1.0.0",
+      sourceCommit: "merge-sha",
+      packageIds: ["demo"],
+      tagNames: ["v1.0.0"],
+      npmEnabled: true,
+      npmProvenance: true
+    });
+    const changed = createReleaseTransaction({
+      id: expected.id,
+      version: expected.version,
+      sourceCommit: expected.sourceCommit,
+      packageIds: expected.packageIds,
+      tagNames: expected.tagNames,
+      npmEnabled: true,
+      npmProvenance: false
+    });
+
+    expect(() => mergeReleaseTransactions([changed], expected)).toThrow("different release or publishing configuration");
+    expect(parseReleaseTransaction({ ...expected, schemaVersion: 3, npmProvenance: undefined }).npmProvenance).toBe(false);
   });
 
   it("keeps a failure until the failed side effect succeeds on retry", () => {

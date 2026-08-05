@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-export const RELEASE_TRANSACTION_SCHEMA_VERSION = 3 as const;
+export const RELEASE_TRANSACTION_SCHEMA_VERSION = 4 as const;
 export const RELEASE_TRANSACTION_MARKER = "<!-- semverge-progress ";
 
 export const RELEASE_PHASES = [
@@ -43,6 +43,7 @@ export interface ReleaseTransaction {
   packageIds: string[];
   tagNames: string[];
   npmEnabled: boolean;
+  npmProvenance: boolean;
   artifactDigests: Record<string, string>;
   publishedPackages: string[];
   uploadedAssets: Record<string, string[]>;
@@ -59,6 +60,7 @@ export interface CreateReleaseTransactionInput {
   packageIds: string[];
   tagNames: string[];
   npmEnabled: boolean;
+  npmProvenance?: boolean;
   artifactDigests?: Record<string, string>;
   id?: string;
   now?: string;
@@ -81,6 +83,7 @@ export interface ReleaseTransactionSummary {
   publishedPackages: string;
   uploadedAssets: number;
   artifactDigests: Record<string, string>;
+  npmProvenance: boolean;
   recordedEvents: number;
   safeNextAction: string;
   failure?: string;
@@ -174,6 +177,7 @@ export function createReleaseTransaction(input: CreateReleaseTransactionInput): 
     packageIds: unique(input.packageIds),
     tagNames: unique(input.tagNames),
     npmEnabled: input.npmEnabled,
+    npmProvenance: input.npmProvenance ?? false,
     artifactDigests: digestMap(input.artifactDigests ?? {}),
     publishedPackages: input.npmEnabled ? [] : unique(input.packageIds),
     uploadedAssets: Object.fromEntries(unique(input.tagNames).map((tag) => [tag, []])),
@@ -241,7 +245,7 @@ export function mergeReleaseTransactions(states: Array<ReleaseTransaction | null
     published: false
   };
   for (const state of present) {
-    if (state.version !== expected.version || state.npmEnabled !== expected.npmEnabled || (state.sourceCommit !== "unknown" && expected.sourceCommit !== "unknown" && state.sourceCommit !== expected.sourceCommit) || !sameValues(state.packageIds, expected.packageIds) || !sameValues(state.tagNames, expected.tagNames)) {
+    if (state.version !== expected.version || state.npmEnabled !== expected.npmEnabled || state.npmProvenance !== expected.npmProvenance || (state.sourceCommit !== "unknown" && expected.sourceCommit !== "unknown" && state.sourceCommit !== expected.sourceCommit) || !sameValues(state.packageIds, expected.packageIds) || !sameValues(state.tagNames, expected.tagNames)) {
       throw new Error("SemVerge found release transaction state for a different release or publishing configuration; verify the draft releases before retrying.");
     }
     if (phaseIndex(state.phase) > phaseIndex(merged.phase)) {
@@ -313,7 +317,8 @@ export function parseReleaseTransaction(value: unknown): ReleaseTransaction {
   if (record.schemaVersion === 1) {
     return upgradeLegacyTransaction(record);
   }
-  if ((record.schemaVersion !== 2 && record.schemaVersion !== RELEASE_TRANSACTION_SCHEMA_VERSION) || typeof record.id !== "string" || typeof record.version !== "string" || typeof record.sourceCommit !== "string" || typeof record.npmEnabled !== "boolean" || typeof record.ready !== "boolean" || typeof record.published !== "boolean" || typeof record.updatedAt !== "string" || !Array.isArray(record.events) || (record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION && record.artifactDigests === undefined)) {
+  const hasArtifactDigests = record.schemaVersion === 3 || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  if ((record.schemaVersion !== 2 && record.schemaVersion !== 3 && record.schemaVersion !== RELEASE_TRANSACTION_SCHEMA_VERSION) || typeof record.id !== "string" || typeof record.version !== "string" || typeof record.sourceCommit !== "string" || typeof record.npmEnabled !== "boolean" || (record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION && typeof record.npmProvenance !== "boolean") || typeof record.ready !== "boolean" || typeof record.published !== "boolean" || typeof record.updatedAt !== "string" || !Array.isArray(record.events) || (hasArtifactDigests && record.artifactDigests === undefined)) {
     throw new Error("SemVerge found an invalid release transaction marker.");
   }
   const failure = record.failure === undefined ? undefined : objectValue(record.failure);
@@ -330,7 +335,8 @@ export function parseReleaseTransaction(value: unknown): ReleaseTransaction {
     packageIds: stringArray(record.packageIds, "packageIds"),
     tagNames: stringArray(record.tagNames, "tagNames"),
     npmEnabled: record.npmEnabled,
-    artifactDigests: record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION ? digestMap(record.artifactDigests) : {},
+    npmProvenance: record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION ? record.npmProvenance as boolean : false,
+    artifactDigests: hasArtifactDigests ? digestMap(record.artifactDigests) : {},
     publishedPackages: stringArray(record.publishedPackages, "publishedPackages"),
     uploadedAssets: normalizeAssets(assetMap(record.uploadedAssets)),
     ready: record.ready,
@@ -418,6 +424,7 @@ export function summarizeReleaseTransaction(state: ReleaseTransaction): ReleaseT
     publishedPackages: `${state.publishedPackages.length}/${state.packageIds.length}`,
     uploadedAssets,
     artifactDigests: { ...state.artifactDigests },
+    npmProvenance: state.npmProvenance,
     recordedEvents: state.events.length,
     safeNextAction,
     ...(state.failure ? { failure: state.failure.message } : {})
@@ -433,6 +440,7 @@ export function releaseTransactionSummaryMarkdown(state: ReleaseTransaction): st
     `- Source commit: \`${summary.sourceCommit}\``,
     `- State: **${summary.phase}**`,
     `- Packages published: **${summary.publishedPackages}**`,
+    `- npm provenance requested: **${summary.npmProvenance ? "yes" : "no"}**`,
     `- Uploaded assets recorded: **${summary.uploadedAssets}**`,
     `- Artifact SHA-256 digests recorded: **${Object.keys(summary.artifactDigests).length}**`,
     ...Object.entries(summary.artifactDigests).sort(([left], [right]) => left.localeCompare(right)).map(([path, digest]) => "- Artifact `" + path + "`: `" + digest + "`"),

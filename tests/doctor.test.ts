@@ -35,6 +35,7 @@ describe("repository setup diagnostics", () => {
     writeFileSync(join(directory, "packages", "core", "package.json"), JSON.stringify({ name: "@demo/core", version: "1.1.0" }));
     writeFileSync(join(directory, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
     writeFileSync(join(directory, ".changeset", "config.json"), "{}\n");
+    writeFileSync(join(directory, ".semverge.yml"), "publishing:\n  npm:\n    enabled: true\n    provenance: true\n");
     writeFileSync(join(directory, ".npmrc"), "registry=https://user:secret@registry.npmjs.org/?token=secret\n//registry.npmjs.org/:_authToken=${NPM_TOKEN}\n");
     writeFileSync(join(directory, ".github", "workflows", "release.yml"), `name: Release
 permissions:
@@ -57,7 +58,7 @@ jobs:
       expect.objectContaining({ name: "semverge" })
     ]));
     expect(report.build.scripts).toEqual(["build", "prepare"]);
-    expect(report.registry).toMatchObject({ registry: "https://registry.npmjs.org/", trustedPublishing: "detected" });
+    expect(report.registry).toMatchObject({ registry: "https://registry.npmjs.org/", trustedPublishing: "detected", provenance: "detected" });
     expect(report.github).toMatchObject({ semvergeWorkflow: true, publishWorkflows: [".github/workflows/release.yml"] });
     expect(report.github.permissions).toEqual({ contents: "write", pullRequests: "write", idToken: "write", actions: "not declared" });
     expect(repositoryDoctorMarkdown(report)).not.toContain("NPM_TOKEN");
