@@ -8,7 +8,7 @@ The repositories under `fixtures/` are small, checked-in examples used by `tests
 - `node-retry` supplies a deliberately failing publish command so the action test can verify a draft release resumes safely on retry.
 - `node-large` contains 101 generated files so planning is exercised beyond the common 100-item API page size.
 
-The publication tests also use a test-only `SEMVERGE_TEST_FAILURE` seam for deterministic side-effect failure injection. It is active only under `NODE_ENV=test`, covers package publication, asset upload, release finalization, and post-release verification, and cannot be enabled by a normal hosted action run. The asset-upload case proves that the failed event is persisted, the draft is reused, and the final transaction completes without duplicating the release.
+The publication tests also use a test-only `SEMVERGE_TEST_FAILURE` seam for deterministic side-effect failure injection. It is active only under `NODE_ENV=test`, covers package publication, asset upload, release finalization, and post-release verification, and cannot be enabled by a normal hosted action run. The retry cases prove that failed or interrupted steps reuse the existing draft, do not duplicate the release, and eventually complete the transaction.
 
 Run the proof locally with:
 
