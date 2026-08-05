@@ -1,3 +1,5 @@
+import type { ReleasePluginInvocation } from "./plugin-sdk.js";
+
 export type ReleaseKind = "feature" | "fix" | "breaking" | "docs" | "internal" | "other";
 
 export type BumpLevel = "none" | "patch" | "minor" | "major";
@@ -192,6 +194,7 @@ export interface SemVergeConfig {
   monorepo: MonorepoConfig;
   health: HealthConfig;
   publishing: PublishingConfig;
+  plugins?: Array<unknown>;
 }
 
 export interface ReadinessContext {
@@ -231,4 +234,6 @@ export interface ReleasePlan {
   migrationGuide: string;
   announcement: string;
   manifest: string;
+  pluginInvocations?: ReleasePluginInvocation[];
 }
+

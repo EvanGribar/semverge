@@ -35,6 +35,8 @@ function manifestFor(plan: Omit<ReleasePlan, "manifest" | "outputs">): string {
   }, null, 2)}\n`;
 }
 
+import { createPluginRegistryFromConfig, runReleasePluginHookSync, type ReleasePluginInvocation } from "./plugin-sdk.js";
+
 export function buildReleasePlan(input: BuildReleasePlanInput): ReleasePlan {
   const config = input.config ?? DEFAULT_CONFIG;
   const releaseChanges = input.changes.filter((change) => !change.skipped);
@@ -52,6 +54,34 @@ export function buildReleasePlan(input: BuildReleasePlanInput): ReleasePlan {
       : bumpVersion(input.currentVersion, bump, config.release.prerelease ?? labelPrerelease)
     : input.currentVersion;
   const readiness = evaluateReadiness(config.readiness, releaseChanges, input.readinessContext);
+
+  const registry = createPluginRegistryFromConfig(config);
+  const pluginContext = {
+    sourceCommit: "HEAD",
+    version,
+    packages: [],
+    changes: releaseChanges.map((c) => ({
+      title: c.title,
+      source: c.source,
+      files: c.files ?? [],
+      labels: c.labels,
+      kind: c.kind,
+      scope: c.scope,
+      breaking: c.breaking,
+      customerSummary: c.customerSummary
+    })),
+    config
+  };
+  const analyzeInvocations = runReleasePluginHookSync(registry, "analyze", pluginContext);
+  const planInvocations = runReleasePluginHookSync(registry, "plan", pluginContext);
+  const pluginInvocations: ReleasePluginInvocation[] = [...analyzeInvocations, ...planInvocations];
+  for (const inv of pluginInvocations) {
+    if (inv.result.blocked) {
+      readiness.passed = false;
+      readiness.missingTasks.push(`Plugin ${inv.plugin} blocked release: ${inv.result.summary ?? "blocked"}`);
+    }
+  }
+
   if (!hasRelease) {
     return {
       hasRelease: false,
@@ -69,7 +99,8 @@ export function buildReleasePlan(input: BuildReleasePlanInput): ReleasePlan {
       internalSummary: "",
       migrationGuide: "",
       announcement: "",
-      manifest: ""
+      manifest: "",
+      pluginInvocations
     };
   }
 
@@ -105,5 +136,5 @@ export function buildReleasePlan(input: BuildReleasePlanInput): ReleasePlan {
     { path: config.outputs.manifest, content: manifest }
   ];
 
-  return { ...basePlan, outputs, manifest };
+  return { ...basePlan, outputs, manifest, pluginInvocations };
 }

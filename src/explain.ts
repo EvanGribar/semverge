@@ -42,6 +42,13 @@ export function explainReleasePlan(plan: ReleasePlan): string {
     if (plan.readiness.missingTasks.length > 0) lines.push(`- Missing tasks: ${plan.readiness.missingTasks.join(", ")}.`);
   }
 
+  if (plan.pluginInvocations && plan.pluginInvocations.length > 0) {
+    lines.push("", "Plugins:");
+    for (const inv of plan.pluginInvocations) {
+      lines.push(`- ${inv.plugin}: ${inv.result.blocked ? "blocked" : "executed"}${inv.result.summary ? ` (${inv.result.summary})` : ""}`);
+    }
+  }
+
   lines.push("", "When merged:");
   if (plan.hasRelease) {
     lines.push(

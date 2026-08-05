@@ -631,6 +631,9 @@ function mergeConfig(raw: unknown): SemVergeConfig {
   if (typeof artifacts.command === "string" && artifacts.command.trim()) {
     result.artifacts.command = artifacts.command.trim();
   }
+  if (Array.isArray(object.plugins)) {
+    result.plugins = object.plugins;
+  }
   return result;
 }
 
@@ -655,7 +658,8 @@ export function withOverrides(config: SemVergeConfig, overrides: { prerelease?: 
     artifacts: { ...config.artifacts, paths: [...config.artifacts.paths] },
     monorepo: { ...config.monorepo, packages: [...config.monorepo.packages], dependencyPolicy: { ...config.monorepo.dependencyPolicy } },
     health: { ...config.health, workflows: [...config.health.workflows], expectedArtifacts: [...config.health.expectedArtifacts], requiredLinks: [...config.health.requiredLinks], ...(config.health.monitoring ? { monitoring: { ...config.health.monitoring } } : {}) },
-    publishing: { ...config.publishing, npm: { ...config.publishing.npm }, python: { ...config.publishing.python }, rust: { ...config.publishing.rust }, oci: { ...config.publishing.oci, images: [...config.publishing.oci.images] } }
+    publishing: { ...config.publishing, npm: { ...config.publishing.npm }, python: { ...config.publishing.python }, rust: { ...config.publishing.rust }, oci: { ...config.publishing.oci, images: [...config.publishing.oci.images] } },
+    ...(config.plugins ? { plugins: [...config.plugins] } : {})
   };
   const prerelease = overrides.prerelease?.trim();
   if (prerelease) {

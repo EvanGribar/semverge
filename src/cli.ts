@@ -12,7 +12,8 @@ import { inspectRepository, repositoryDoctorMarkdown } from "./doctor.js";
 import { GitHubClient } from "./github.js";
 import { inspectMigration, isMigrationTool, migrationReportMarkdown, MIGRATION_TOOLS, writeMigrationConfig } from "./migrate.js";
 import { parseVersion } from "./semver.js";
-import { parseReleaseTransaction, parseReleaseTransactionBody, releaseTransactionSummaryMarkdown } from "./transaction.js";
+import { parseReleaseTransaction, parseReleaseTransactionBody, recordReleaseTransactionEvent, releaseTransactionSummaryMarkdown } from "./transaction.js";
+import { createPluginRegistryFromConfig, runTransactionOwnedPluginHook } from "./plugin-sdk.js";
 import { readPackageVersion } from "./version-files.js";
 
 export const DEFAULT_CONFIG_TEMPLATE = `# SemVerge configuration. Remove this file to use zero-configuration defaults.
@@ -215,6 +216,17 @@ async function recover(cwd: string, id: string, statePath: string | undefined, i
     io.stderr(`The transaction state at ${path} does not contain ${id}.`);
     return 1;
   }
+  const configContent = await readOptional(join(cwd, ".semverge.yml")) ?? "";
+  const config = parseConfig(configContent, ".semverge.yml");
+  const registry = createPluginRegistryFromConfig(config);
+  const recoverRes = await runTransactionOwnedPluginHook(
+    registry,
+    "recover",
+    { sourceCommit: transaction.sourceCommit, version: transaction.version, packages: [], changes: [], config },
+    transaction,
+    recordReleaseTransactionEvent
+  );
+  if (recoverRes.transaction) transaction = recoverRes.transaction;
   io.stdout(releaseTransactionSummaryMarkdown(transaction));
   return 0;
 }

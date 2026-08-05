@@ -15,6 +15,7 @@ import { assertNpmProvenanceEnvironment, npmPublishCommand, npmVersionExists } f
 import { ociImageVersionExists, parseOciImageRepository, publishConfigForEcosystem, publisherName, registryVersionExists, renderOciPublishCommand } from "./registries.js";
 import { assertWorkspaceAtCommit } from "./workspace-integrity.js";
 import { advanceReleaseTransaction, createReleaseTransaction, mergeReleaseTransactions, parseReleaseTransactionBody, recordReleaseTransactionEvent, releaseTransactionBody, updateReleaseTransactionBody, type ReleaseTransaction } from "./transaction.js";
+import { createPluginRegistryFromConfig, runTransactionOwnedPluginHook, type ReleasePluginPackage } from "./plugin-sdk.js";
 import type { Ecosystem, SemVergeConfig } from "./types.js";
 
 const exec = promisify(execCallback);
@@ -402,6 +403,15 @@ async function runPostReleaseVerification(client: GitHubClient, releaseEvent: No
         detail: `Post-release verification completed with status ${report.status}.`
       };
       next = next.phase === "completed" ? recordReleaseTransactionEvent(next, verification) : advanceReleaseTransaction(next, "verified", verification);
+      const pluginRegistry = createPluginRegistryFromConfig(config);
+      const verifyRes = await runTransactionOwnedPluginHook(
+        pluginRegistry,
+        "verify",
+        { sourceCommit: targetCommit, version: transaction.version, packages: [], changes: [], config },
+        next,
+        recordReleaseTransactionEvent
+      );
+      if (verifyRes.transaction) next = verifyRes.transaction;
       if (next.phase !== "completed") {
         next = advanceReleaseTransaction(next, "completed", {
           key: `completion:${releaseEvent.tag_name}`,
@@ -790,6 +800,22 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
 
   const expectedProgress = initialReleaseProgress(version, mergeSha, publishablePackages, releaseInputs.map((item) => item.tag), artifactDigestMap, config);
   let progress = mergeReleaseProgress(releaseInputs.map((item) => item.existingProgress), expectedProgress);
+  const pluginRegistry = createPluginRegistryFromConfig(config);
+  const pluginContextInput = {
+    sourceCommit: mergeSha,
+    version,
+    packages: publishablePackages.map((p) => ({ id: p.id, name: p.name, version: p.version, ecosystem: p.ecosystem ?? "node", directory: p.directory, private: p.private ?? false, releaseable: p.releaseable ?? true })),
+    changes: [],
+    config
+  };
+  const validateRes = await runTransactionOwnedPluginHook(pluginRegistry, "validate", pluginContextInput, progress, recordReleaseTransactionEvent);
+  if (validateRes.transaction) progress = validateRes.transaction;
+  const prepareRes = await runTransactionOwnedPluginHook(pluginRegistry, "prepare", pluginContextInput, progress, recordReleaseTransactionEvent);
+  if (prepareRes.transaction) progress = prepareRes.transaction;
+
+  const buildRes = await runTransactionOwnedPluginHook(pluginRegistry, "build", pluginContextInput, progress, recordReleaseTransactionEvent);
+  if (buildRes.transaction) progress = buildRes.transaction;
+
   const executions: ReleaseExecution[] = [];
 
   for (const item of releaseInputs) {
@@ -818,6 +844,9 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
   // The release body is the durable transaction record. Updating it after every
   // successful side effect lets a later run resume only the unfinished steps.
   await persistReleaseProgress(client, executions, progress);
+
+  const publishRes = await runTransactionOwnedPluginHook(pluginRegistry, "publish", pluginContextInput, progress, recordReleaseTransactionEvent);
+  if (publishRes.transaction) progress = publishRes.transaction;
 
   const packageIds = new Map(publishablePackages.map((packageItem, index) => [packageKey(packageItem, index), packageItem]));
   for (const [id, packageItem] of packageIds) {
@@ -889,6 +918,9 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
     }
   }
 
+  const uploadRes = await runTransactionOwnedPluginHook(pluginRegistry, "upload", pluginContextInput, progress, recordReleaseTransactionEvent);
+  if (uploadRes.transaction) progress = uploadRes.transaction;
+
   for (const execution of executions) {
     if (execution.release.draft !== true) {
       continue;
@@ -927,6 +959,9 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
   progress = advanceReleaseTransaction(progress, "published", { key: "release-published", kind: "release-published", target: version, detail: "All transactional side effects completed; GitHub release drafts are being finalized." });
   injectTestFailure("release-finalize");
   await persistReleaseProgress(client, executions, progress, true);
+
+  const announceRes = await runTransactionOwnedPluginHook(pluginRegistry, "announce", pluginContextInput, progress, recordReleaseTransactionEvent);
+  if (announceRes.transaction) progress = announceRes.transaction;
 
   if (mode === "independent") {
     const versions = publishablePackages.map((packageItem) => packageItem.version).filter((value) => parseVersion(value));

@@ -55,7 +55,7 @@ export interface ReleasePluginContext {
   packages: readonly ReleasePluginPackage[];
   changes: readonly ReleasePluginChange[];
   transaction?: Readonly<ReleasePluginTransaction>;
-  config: Readonly<Record<string, unknown>>;
+  config: unknown;
 }
 
 export type ReleasePluginContextInput = Omit<ReleasePluginContext, "hook">;
@@ -216,3 +216,118 @@ export async function runReleasePluginHook(registry: ReleasePluginRegistry, hook
   }
   return invocations;
 }
+
+export function runReleasePluginHookSync(registry: ReleasePluginRegistry, hook: ReleasePluginHookName, context: ReleasePluginContextInput): ReleasePluginInvocation[] {
+  const invocations: ReleasePluginInvocation[] = [];
+  for (const plugin of registry.list()) {
+    const handler = plugin.hooks[hook];
+    if (!handler) {
+      continue;
+    }
+    try {
+      const res = handler({ ...context, hook });
+      if (res && typeof (res as Promise<unknown>).then === "function") {
+        throw new Error(`SemVerge plugin ${plugin.name} returned a Promise from synchronous hook ${hook}.`);
+      }
+      const result = normalizePluginResult(plugin.name, hook, res as ReleasePluginResult | void);
+      invocations.push({ plugin: plugin.name, result });
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith(`SemVerge plugin ${plugin.name} returned`)) {
+        throw error;
+      }
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`SemVerge plugin ${plugin.name} failed during ${hook}: ${message}`, { cause: error });
+    }
+  }
+  return invocations;
+}
+
+export function createPluginRegistryFromConfig(config?: { plugins?: Array<unknown> }): ReleasePluginRegistry {
+  const registry = new ReleasePluginRegistry();
+  if (config?.plugins && Array.isArray(config.plugins)) {
+    for (const item of config.plugins) {
+      if (item && typeof item === "object" && "name" in item && "hooks" in item) {
+        registry.register(item as SemVergeReleasePlugin);
+      }
+    }
+  }
+  return registry;
+}
+
+export async function runTransactionOwnedPluginHook(
+  registry: ReleasePluginRegistry,
+  hook: ReleasePluginHookName,
+  context: ReleasePluginContextInput,
+  transaction?: import("./transaction.js").ReleaseTransaction,
+  recordEventFn?: typeof import("./transaction.js").recordReleaseTransactionEvent
+): Promise<{ invocations: ReleasePluginInvocation[]; transaction?: import("./transaction.js").ReleaseTransaction }> {
+  let currentState = transaction;
+  const invocations: ReleasePluginInvocation[] = [];
+
+  for (const plugin of registry.list()) {
+    const handler = plugin.hooks[hook];
+    if (!handler) {
+      continue;
+    }
+    const hookKey = `plugin:${plugin.name}:${hook}`;
+    if (currentState && currentState.events.some((e) => e.key === hookKey && e.status === "completed")) {
+      invocations.push({ plugin: plugin.name, result: { summary: `Skipped ${hook} (already completed in transaction)` } });
+      continue;
+    }
+
+    try {
+      const result = normalizePluginResult(plugin.name, hook, await handler({ ...context, hook, transaction: currentState ? { id: currentState.id, version: currentState.version, sourceCommit: currentState.sourceCommit, phase: currentState.phase, packageIds: currentState.packageIds, tagNames: currentState.tagNames } : undefined }));
+      invocations.push({ plugin: plugin.name, result });
+
+      if (currentState && recordEventFn) {
+        if (result.blocked) {
+          currentState = recordEventFn(currentState, {
+            key: hookKey,
+            kind: `plugin-hook-${hook}`,
+            target: plugin.name,
+            status: "failed",
+            detail: result.summary ?? `Plugin ${plugin.name} blocked execution during ${hook}.`
+          });
+        } else {
+          currentState = recordEventFn(currentState, {
+            key: hookKey,
+            kind: `plugin-hook-${hook}`,
+            target: plugin.name,
+            status: "completed",
+            detail: result.summary ?? `Plugin ${plugin.name} completed ${hook}.`
+          });
+          if (result.effects) {
+            for (const effect of result.effects) {
+              const effectKey = `effect:${plugin.name}:${effect.idempotencyKey}`;
+              currentState = recordEventFn(currentState, {
+                key: effectKey,
+                kind: `plugin-effect-${effect.kind}`,
+                target: effect.target,
+                status: "completed",
+                detail: `Plugin effect ${effect.id} executed by ${plugin.name}.`
+              });
+            }
+          }
+        }
+      }
+
+      if (result.blocked) {
+        throw new Error(`SemVerge plugin ${plugin.name} blocked the release during ${hook}: ${result.summary ?? "release blocked"}`);
+      }
+    } catch (error) {
+      if (currentState && recordEventFn && !(error instanceof Error && error.message.startsWith(`SemVerge plugin ${plugin.name} blocked`))) {
+        currentState = recordEventFn(currentState, {
+          key: hookKey,
+          kind: `plugin-hook-${hook}`,
+          target: plugin.name,
+          status: "failed",
+          detail: error instanceof Error ? error.message : String(error)
+        });
+      }
+      throw error;
+    }
+  }
+
+  return { invocations, transaction: currentState };
+}
+
