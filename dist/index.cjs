@@ -9655,7 +9655,8 @@ var DEFAULT_CONFIG = {
     monitoring: {
       enabled: false,
       windowHours: 24,
-      comment: true
+      comment: true,
+      checkRun: false
     }
   },
   publishing: {
@@ -9753,7 +9754,8 @@ function healthMonitoring(value, fallback) {
   return {
     enabled: booleanValue(object.enabled, fallback.enabled),
     windowHours: typeof object.windowHours === "number" && Number.isFinite(object.windowHours) && object.windowHours > 0 ? object.windowHours : fallback.windowHours,
-    comment: booleanValue(object.comment, fallback.comment)
+    comment: booleanValue(object.comment, fallback.comment),
+    checkRun: booleanValue(object.checkRun, fallback.checkRun)
   };
 }
 function channelPolicies(value) {
@@ -10081,6 +10083,32 @@ var GitHubClient = class {
   }
   async createIssueComment(number, body) {
     return await this.request(`/issues/${number}/comments`, { method: "POST", body: { body } });
+  }
+  async listCheckRuns(ref, name) {
+    const query = new URLSearchParams({ per_page: "100", page: "1" });
+    if (name) {
+      query.set("check_name", name);
+    }
+    return this.paginate(`/commits/${encodeURIComponent(ref)}/check-runs?${query.toString()}`, (payload) => {
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        return [];
+      }
+      const value = payload.check_runs;
+      return Array.isArray(value) ? value : [];
+    });
+  }
+  async createCheckRun(input2) {
+    return await this.request("/check-runs", {
+      method: "POST",
+      body: {
+        name: input2.name,
+        head_sha: input2.headSha,
+        status: "completed",
+        conclusion: input2.conclusion,
+        external_id: input2.externalId,
+        output: { title: input2.title, summary: input2.summary }
+      }
+    });
   }
   async listReleases() {
     return this.paginate("/releases?per_page=100&page=1", (payload) => Array.isArray(payload) ? payload : []);
@@ -12183,6 +12211,29 @@ ${markdown}
 Observed by the explicit SemVerge delayed-monitoring workflow.`);
   log(`Recorded delayed monitoring history for ${releaseEvent.tag_name} on release PR #${releasePullRequest.number}.`);
 }
+async function recordMonitoringCheckRun(client, releaseEvent, targetCommit, config, report) {
+  if (!config.health.monitoring?.checkRun || !targetCommit) {
+    return;
+  }
+  const name = "SemVerge delayed monitoring";
+  const runId = process.env.GITHUB_RUN_ID?.trim() || targetCommit;
+  const externalId = `semverge-monitor:${releaseEvent.tag_name}:${runId}`;
+  const existing = await client.listCheckRuns(targetCommit, name);
+  if (existing.some((checkRun) => checkRun.external_id === externalId)) {
+    log(`Delayed monitoring check run already exists for ${releaseEvent.tag_name} run ${runId}.`);
+    return;
+  }
+  const conclusion = report.status === "healthy" ? "success" : report.status === "failed" ? "failure" : "neutral";
+  await client.createCheckRun({
+    name,
+    headSha: targetCommit,
+    externalId,
+    conclusion,
+    title: `Delayed release monitoring: ${report.status}`,
+    summary: postReleaseVerificationMarkdown(report).trim()
+  });
+  log(`Recorded delayed monitoring check run for ${releaseEvent.tag_name}.`);
+}
 async function runPostReleaseVerification(client, releaseEvent, config, options = {}) {
   if (!config.health.enabled) {
     log("Post-release verification is disabled.");
@@ -12247,6 +12298,7 @@ async function runPostReleaseVerification(client, releaseEvent, config, options 
   }
   if (options.delayed) {
     await appendMonitoringComment(client, releaseEvent, targetCommit, config, report);
+    await recordMonitoringCheckRun(client, releaseEvent, targetCommit, config, report);
   }
   if (report.status === "failed") {
     throw new Error(`Post-release verification failed for ${releaseEvent.tag_name}.`);

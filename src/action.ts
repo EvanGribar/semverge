@@ -314,6 +314,30 @@ async function appendMonitoringComment(client: GitHubClient, releaseEvent: NonNu
   log(`Recorded delayed monitoring history for ${releaseEvent.tag_name} on release PR #${releasePullRequest.number}.`);
 }
 
+async function recordMonitoringCheckRun(client: GitHubClient, releaseEvent: NonNullable<ReleaseEvent["release"]>, targetCommit: string, config: SemVergeConfig, report: PostReleaseVerificationReport): Promise<void> {
+  if (!config.health.monitoring?.checkRun || !targetCommit) {
+    return;
+  }
+  const name = "SemVerge delayed monitoring";
+  const runId = process.env.GITHUB_RUN_ID?.trim() || targetCommit;
+  const externalId = `semverge-monitor:${releaseEvent.tag_name}:${runId}`;
+  const existing = await client.listCheckRuns(targetCommit, name);
+  if (existing.some((checkRun) => checkRun.external_id === externalId)) {
+    log(`Delayed monitoring check run already exists for ${releaseEvent.tag_name} run ${runId}.`);
+    return;
+  }
+  const conclusion = report.status === "healthy" ? "success" : report.status === "failed" ? "failure" : "neutral";
+  await client.createCheckRun({
+    name,
+    headSha: targetCommit,
+    externalId,
+    conclusion,
+    title: `Delayed release monitoring: ${report.status}`,
+    summary: postReleaseVerificationMarkdown(report).trim()
+  });
+  log(`Recorded delayed monitoring check run for ${releaseEvent.tag_name}.`);
+}
+
 async function runPostReleaseVerification(client: GitHubClient, releaseEvent: NonNullable<ReleaseEvent["release"]>, config: SemVergeConfig, options: PostReleaseVerificationOptions = {}): Promise<void> {
   if (!config.health.enabled) {
     log("Post-release verification is disabled.");
@@ -377,6 +401,7 @@ async function runPostReleaseVerification(client: GitHubClient, releaseEvent: No
   }
   if (options.delayed) {
     await appendMonitoringComment(client, releaseEvent, targetCommit, config, report);
+    await recordMonitoringCheckRun(client, releaseEvent, targetCommit, config, report);
   }
   if (report.status === "failed") {
     throw new Error(`Post-release verification failed for ${releaseEvent.tag_name}.`);

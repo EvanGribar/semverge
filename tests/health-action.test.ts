@@ -59,6 +59,7 @@ describe("published release post-release verification action", () => {
     writeFileSync(eventPath, JSON.stringify({}));
     const requests: Array<{ method: string; path: string; body?: Record<string, unknown> }> = [];
     const comments: string[] = [];
+    const checkRuns: string[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL, init?: RequestInit) => {
       const url = new URL(String(input));
       const body = init?.body && typeof init.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : undefined;
@@ -70,6 +71,7 @@ describe("published release post-release verification action", () => {
     enabled: true
     windowHours: 48
     comment: true
+    checkRun: true
 `) }), { status: 200 });
       }
       if (url.pathname.endsWith("/releases/tags/v1.0.0")) {
@@ -77,6 +79,14 @@ describe("published release post-release verification action", () => {
       }
       if (url.pathname.endsWith("/actions/runs")) {
         return new Response(JSON.stringify({ workflow_runs: [] }), { status: 200 });
+      }
+      if (url.pathname.endsWith("/check-runs") && init?.method === "POST") {
+        const externalId = typeof body?.external_id === "string" ? body.external_id : "";
+        checkRuns.push(externalId);
+        return new Response(JSON.stringify({ id: 11, name: body?.name, status: "completed", conclusion: body?.conclusion, external_id: externalId }), { status: 201 });
+      }
+      if (url.pathname.endsWith("/commits/merge-sha/check-runs")) {
+        return new Response(JSON.stringify({ check_runs: checkRuns.map((externalId, index) => ({ id: index + 11, name: "SemVerge delayed monitoring", status: "completed", conclusion: "success", external_id: externalId })) }), { status: 200 });
       }
       if (url.pathname.endsWith("/commits/merge-sha/pulls")) {
         return new Response(JSON.stringify([{ number: 7, title: "chore(release): v1.0.0", body: "", html_url: "https://github.com/demo/repo/pull/7", state: "closed", merged_at: "2026-08-05T00:00:00Z", merge_commit_sha: "merge-sha", head: { ref: "semverge/release", sha: "release-sha", repo: { full_name: "demo/repo" } }, base: { ref: "main", sha: "main-sha" }, labels: [] }]), { status: 200 });
@@ -110,5 +120,6 @@ describe("published release post-release verification action", () => {
     expect(comment?.body?.body).toContain("<!-- semverge-monitor v1.0.0 42 -->");
     expect(comment?.body?.body).toContain("SemVerge post-release verification");
     expect(requests.filter((request) => request.method === "POST" && request.path.endsWith("/issues/7/comments"))).toHaveLength(1);
+    expect(requests.filter((request) => request.method === "POST" && request.path.endsWith("/check-runs"))).toHaveLength(1);
   });
 });
