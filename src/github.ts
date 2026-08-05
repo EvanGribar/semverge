@@ -77,6 +77,12 @@ export interface GitHubWorkflowRun {
   updated_at: string;
 }
 
+export interface GitHubIssueComment {
+  id: number;
+  body?: string | null;
+  html_url?: string;
+}
+
 interface RequestOptions {
   method?: string;
   body?: unknown;
@@ -256,6 +262,14 @@ export class GitHubClient {
       const value = (payload as WorkflowRunsResult).workflow_runs;
       return Array.isArray(value) ? value : [];
     });
+  }
+
+  async listIssueComments(number: number): Promise<GitHubIssueComment[]> {
+    return this.paginate<GitHubIssueComment>(`/issues/${number}/comments?per_page=100&page=1`, (payload) => Array.isArray(payload) ? payload as GitHubIssueComment[] : []);
+  }
+
+  async createIssueComment(number: number, body: string): Promise<GitHubIssueComment> {
+    return (await this.request<GitHubIssueComment>(`/issues/${number}/comments`, { method: "POST", body: { body } })) as GitHubIssueComment;
   }
 
   async listReleases(): Promise<GitHubRelease[]> {

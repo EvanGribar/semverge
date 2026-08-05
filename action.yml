@@ -23,6 +23,9 @@ inputs:
     description: Calculate and print the release plan without writing branches, PRs, tags, or releases.
     required: false
     default: 'false'
+  monitor-tag:
+    description: Optional release tag to monitor during an explicit schedule or workflow_dispatch run.
+    required: false
 outputs:
   version:
     description: The version calculated or published by SemVerge.

@@ -139,11 +139,18 @@ export interface HealthWorkflow {
   required: boolean;
 }
 
+export interface HealthMonitoringConfig {
+  enabled: boolean;
+  windowHours: number;
+  comment: boolean;
+}
+
 export interface HealthConfig {
   enabled: boolean;
   workflows: HealthWorkflow[];
   expectedArtifacts: string[];
   requiredLinks: string[];
+  monitoring?: HealthMonitoringConfig;
 }
 
 export interface NpmPublishConfig {

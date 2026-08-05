@@ -1,5 +1,5 @@
 import { parse as parseYaml } from "yaml";
-import type { ArtifactConfig, BumpLevel, HealthWorkflow, NpmPublishConfig, OutputConfig, ReadinessCommand, ReadinessTask, RegistryPublishConfig, ReleaseChannelPolicy, ReleasePromotion, SemVergeConfig } from "./types.js";
+import type { ArtifactConfig, BumpLevel, HealthMonitoringConfig, HealthWorkflow, NpmPublishConfig, OutputConfig, ReadinessCommand, ReadinessTask, RegistryPublishConfig, ReleaseChannelPolicy, ReleasePromotion, SemVergeConfig } from "./types.js";
 
 export type ConfigValidationSeverity = "error" | "warning";
 
@@ -59,7 +59,12 @@ export const DEFAULT_CONFIG: SemVergeConfig = {
     enabled: true,
     workflows: [],
     expectedArtifacts: [],
-    requiredLinks: []
+    requiredLinks: [],
+    monitoring: {
+      enabled: false,
+      windowHours: 24,
+      comment: true
+    }
   },
   publishing: {
     npm: {
@@ -106,6 +111,12 @@ function stringField(value: Record<string, unknown>, key: string, path: string, 
 function booleanField(value: Record<string, unknown>, key: string, path: string, issues: ConfigValidationIssue[]): void {
   if (value[key] !== undefined && typeof value[key] !== "boolean") {
     issues.push({ path: `${path}.${key}`, severity: "error", message: "must be a boolean" });
+  }
+}
+
+function numberField(value: Record<string, unknown>, key: string, path: string, issues: ConfigValidationIssue[]): void {
+  if (value[key] !== undefined && (typeof value[key] !== "number" || !Number.isFinite(value[key]))) {
+    issues.push({ path: `${path}.${key}`, severity: "error", message: "must be a finite number" });
   }
 }
 
@@ -230,6 +241,15 @@ export function validateConfigContent(content: string, fileName = ".semverge.yml
     booleanField(health, "enabled", "health", issues);
     stringArrayField(health, "expectedArtifacts", "health", issues);
     stringArrayField(health, "requiredLinks", "health", issues);
+    const monitoring = section(health, "monitoring", issues);
+    if (monitoring) {
+      booleanField(monitoring, "enabled", "health.monitoring", issues);
+      numberField(monitoring, "windowHours", "health.monitoring", issues);
+      booleanField(monitoring, "comment", "health.monitoring", issues);
+      if (typeof monitoring.windowHours === "number" && Number.isFinite(monitoring.windowHours) && monitoring.windowHours <= 0) {
+        issues.push({ path: "health.monitoring.windowHours", severity: "error", message: "must be greater than zero" });
+      }
+    }
     if (health.workflows !== undefined && (!Array.isArray(health.workflows) || health.workflows.some((item) => !record(item) || typeof item.name !== "string" || (item.purpose !== undefined && !["package", "deployment", "custom", "rollback"].includes(String(item.purpose))) || (item.required !== undefined && typeof item.required !== "boolean")))) {
       issues.push({ path: "health.workflows", severity: "error", message: "must be an array of workflow objects with valid name, purpose, and required fields" });
     }
@@ -302,6 +322,10 @@ export function validateConfig(config: SemVergeConfig): ConfigValidationIssue[] 
     if (registry.enabled && !registry.idempotency) {
       issues.push({ path: `publishing.${name}.idempotency`, severity: "error", message: `is required for custom ${name} commands; choose registry or declared` });
     }
+  }
+  const monitoring = config.health.monitoring;
+  if (monitoring && (!Number.isFinite(monitoring.windowHours) || monitoring.windowHours <= 0)) {
+    issues.push({ path: "health.monitoring.windowHours", severity: "error", message: "must be greater than zero" });
   }
   for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"] as const) {
     if (!["none", "patch", "minor", "major"].includes(config.monorepo.dependencyPolicy[field])) {
@@ -399,6 +423,15 @@ function registryPublishConfig(value: unknown, fallback: RegistryPublishConfig):
   };
 }
 
+function healthMonitoring(value: unknown, fallback: HealthMonitoringConfig): HealthMonitoringConfig {
+  const object = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  return {
+    enabled: booleanValue(object.enabled, fallback.enabled),
+    windowHours: typeof object.windowHours === "number" && Number.isFinite(object.windowHours) && object.windowHours > 0 ? object.windowHours : fallback.windowHours,
+    comment: booleanValue(object.comment, fallback.comment)
+  };
+}
+
 function channelPolicies(value: unknown): Record<string, ReleaseChannelPolicy> {
   const result: Record<string, ReleaseChannelPolicy> = Object.fromEntries(Object.entries(DEFAULT_CHANNEL_POLICIES).map(([name, policy]) => [name, { ...policy }]));
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -433,6 +466,7 @@ function mergeConfig(raw: unknown): SemVergeConfig {
   const monorepo = object.monorepo && typeof object.monorepo === "object" ? object.monorepo as Record<string, unknown> : {};
   const dependencyPolicy = monorepo.dependencyPolicy && typeof monorepo.dependencyPolicy === "object" ? monorepo.dependencyPolicy as Record<string, unknown> : {};
   const health = object.health && typeof object.health === "object" ? object.health as Record<string, unknown> : {};
+  const healthMonitoringValue = health.monitoring;
   const publishing = object.publishing && typeof object.publishing === "object" ? object.publishing as Record<string, unknown> : {};
   const npm = publishing.npm && typeof publishing.npm === "object" ? publishing.npm as Record<string, unknown> : {};
   const python = publishing.python;
@@ -482,7 +516,8 @@ function mergeConfig(raw: unknown): SemVergeConfig {
       enabled: booleanValue(health.enabled, DEFAULT_CONFIG.health.enabled),
       workflows: healthWorkflows(health.workflows),
       expectedArtifacts: strings(health.expectedArtifacts),
-      requiredLinks: strings(health.requiredLinks)
+      requiredLinks: strings(health.requiredLinks),
+      monitoring: healthMonitoring(healthMonitoringValue, DEFAULT_CONFIG.health.monitoring as HealthMonitoringConfig)
     },
     publishing: {
       npm: {
@@ -529,7 +564,7 @@ export function withOverrides(config: SemVergeConfig, overrides: { prerelease?: 
     outputs: { ...config.outputs },
     artifacts: { ...config.artifacts, paths: [...config.artifacts.paths] },
     monorepo: { ...config.monorepo, packages: [...config.monorepo.packages], dependencyPolicy: { ...config.monorepo.dependencyPolicy } },
-    health: { ...config.health, workflows: [...config.health.workflows], expectedArtifacts: [...config.health.expectedArtifacts], requiredLinks: [...config.health.requiredLinks] },
+    health: { ...config.health, workflows: [...config.health.workflows], expectedArtifacts: [...config.health.expectedArtifacts], requiredLinks: [...config.health.requiredLinks], ...(config.health.monitoring ? { monitoring: { ...config.health.monitoring } } : {}) },
     publishing: { ...config.publishing, npm: { ...config.publishing.npm }, python: { ...config.publishing.python }, rust: { ...config.publishing.rust } }
   };
   const prerelease = overrides.prerelease?.trim();
