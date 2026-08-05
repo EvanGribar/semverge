@@ -1,3 +1,3 @@
-# Internal release summary for 0.4.0
+# Internal release summary for 0.5.0
 
-- cover finalization and verification recovery
+No internal-only changes were recorded.
