@@ -1,18 +1,18 @@
 {
   "schemaVersion": 2,
   "mode": "single",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "channel": "stable",
   "promotion": false,
-  "generatedAt": "2026-08-05T01:32:10.556Z",
+  "generatedAt": "2026-08-05T01:42:58.845Z",
   "packages": [
     {
       "id": "semverge",
       "name": "semverge",
       "directory": "",
       "ecosystem": "node",
-      "previousVersion": "0.3.0",
-      "version": "0.4.0",
+      "previousVersion": "0.4.0",
+      "version": "0.5.0",
       "bump": "minor",
       "channel": "stable",
       "promotion": false,
@@ -25,8 +25,7 @@
         "direct-change"
       ],
       "directChanges": [
-        "test: cover finalization and verification recovery",
-        "feat: add independent dependency policies"
+        "feat: discover Python and Rust workspaces"
       ],
       "dependencies": [],
       "dependencyTypes": {}

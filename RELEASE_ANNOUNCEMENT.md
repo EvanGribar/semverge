@@ -1,5 +1,5 @@
-# SemVerge release announcement: 0.4.0
+# SemVerge release announcement: 0.5.0
 
-SemVerge 0.4.0 includes:
+SemVerge 0.5.0 includes:
 
-- add independent dependency policies
+- discover Python and Rust workspaces
