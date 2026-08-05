@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseConfig, validateConfig, validateConfigContent } from "../src/config.js";
+import { channelBaseBranch, parseConfig, validateConfig, validateConfigContent, withChannelPolicy } from "../src/config.js";
 import { readPackageVersion, updateVersionFiles } from "../src/version-files.js";
 
 describe("configuration and version files", () => {
@@ -23,6 +23,31 @@ describe("configuration and version files", () => {
       path: "release.channels.preview.prerelease",
       severity: "error",
       message: "must be a non-empty string"
+    });
+  });
+
+  it("parses isolated channel pipeline branches and tag namespaces", () => {
+    const content = `release:\n  channels:\n    nightly:\n      label: ship:nightly\n      prerelease: nightly\n      branch: nightly\n      baseBranch: release/1.x\n      releaseBranch: semverge/release/nightly\n      tagPrefix: nightly-v\n`;
+    const config = parseConfig(content);
+    expect(config.release.channels.nightly).toEqual({
+      label: "ship:nightly",
+      prerelease: "nightly",
+      branch: "nightly",
+      baseBranch: "release/1.x",
+      releaseBranch: "semverge/release/nightly",
+      tagPrefix: "nightly-v"
+    });
+    expect(channelBaseBranch(config, "nightly", "main")).toBe("release/1.x");
+    expect(withChannelPolicy(config, "nightly").release).toMatchObject({
+      branch: "semverge/release/nightly",
+      tagPrefix: "nightly-v",
+      prerelease: "nightly"
+    });
+    expect(validateConfigContent(content)).toEqual([]);
+    expect(validateConfigContent("release:\n  channels:\n    nightly:\n      label: ship:nightly\n      prerelease: nightly\n      releaseBranch: ''\n")).toContainEqual({
+      path: "release.channels.nightly.releaseBranch",
+      severity: "error",
+      message: "must be a non-empty string when provided"
     });
   });
 

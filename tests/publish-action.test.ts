@@ -73,11 +73,12 @@ function restoreEnvironment(previous: Map<string, string | undefined>): void {
   }
 }
 
-function manifest(ecosystem?: "node" | "python" | "rust"): string {
+function manifest(ecosystem?: "node" | "python" | "rust", channel?: string): string {
   return JSON.stringify({
     schemaVersion: 2,
     mode: "single",
     version: "0.2.0",
+    ...(channel ? { channel } : {}),
     readiness: { passed: true },
     packages: [{ id: "demo", name: "demo", directory: "", version: "0.2.0", ...(ecosystem ? { ecosystem } : {}), customerNotes: "RELEASE_NOTES.md" }]
   });
@@ -123,28 +124,28 @@ describe("merged release publication", () => {
       const body = init?.body && typeof init.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : undefined;
       requests.push({ method: init?.method ?? "GET", path: `${url.pathname}${url.search}`, body });
       if (url.pathname.endsWith("/contents/.semverge.yml")) {
-        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded("release:\n  branch: release/bot\nhealth:\n  enabled: true\nartifacts:\n  paths:\n    - artifact.txt\n") }), { status: 200 });
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded("release:\n  branch: release/bot\n  channels:\n    nightly:\n      label: ship:nightly\n      prerelease: nightly\n      tagPrefix: nightly-v\nhealth:\n  enabled: true\nartifacts:\n  paths:\n    - artifact.txt\n") }), { status: 200 });
       }
       if (url.pathname.endsWith("/contents/release-manifest.json")) {
-        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded(manifest()) }), { status: 200 });
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded(manifest(undefined, "nightly")) }), { status: 200 });
       }
       if (url.pathname.endsWith("/contents/RELEASE_NOTES.md")) {
         return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded("# What's new\n") }), { status: 200 });
       }
-      if (url.pathname.endsWith("/git/ref/tags/v0.2.0")) {
+      if (url.pathname.endsWith("/git/ref/tags/nightly-v0.2.0")) {
         return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
       }
-      if (url.pathname.endsWith("/releases/tags/v0.2.0")) {
+      if (url.pathname.endsWith("/releases/tags/nightly-v0.2.0")) {
         return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
       }
       if (url.pathname.endsWith("/actions/runs")) {
         return new Response(JSON.stringify({ workflow_runs: [] }), { status: 200 });
       }
       if (url.pathname.endsWith("/releases") && init?.method === "POST") {
-        return new Response(JSON.stringify({ id: 3, tag_name: "v0.2.0", html_url: "https://github.com/demo/repo/releases/tag/v0.2.0", upload_url: "https://uploads.github.com/repos/demo/repo/releases/3/assets{?name,label}", body: body?.body, draft: true, assets: [] }), { status: 201 });
+        return new Response(JSON.stringify({ id: 3, tag_name: "nightly-v0.2.0", html_url: "https://github.com/demo/repo/releases/tag/nightly-v0.2.0", upload_url: "https://uploads.github.com/repos/demo/repo/releases/3/assets{?name,label}", body: body?.body, draft: true, assets: [] }), { status: 201 });
       }
       if (url.pathname.endsWith("/releases/3") && init?.method === "PATCH") {
-        return new Response(JSON.stringify({ id: 3, tag_name: "v0.2.0", html_url: "https://github.com/demo/repo/releases/tag/v0.2.0", upload_url: "https://uploads.github.com/repos/demo/repo/releases/3/assets{?name,label}", body: body?.body, draft: body?.draft ?? true, assets: [] }), { status: 200 });
+        return new Response(JSON.stringify({ id: 3, tag_name: "nightly-v0.2.0", html_url: "https://github.com/demo/repo/releases/tag/nightly-v0.2.0", upload_url: "https://uploads.github.com/repos/demo/repo/releases/3/assets{?name,label}", body: body?.body, draft: body?.draft ?? true, assets: [] }), { status: 200 });
       }
       if (url.pathname.endsWith("/assets") && init?.method === "POST") {
         return new Response(JSON.stringify({ name: "artifact.txt" }), { status: 201 });
@@ -166,15 +167,15 @@ describe("merged release publication", () => {
     const finalizeIndex = requests.findIndex((request) => request.method === "PATCH" && request.path.endsWith("/releases/3") && request.body?.draft === false);
     expect(createIndex).toBeGreaterThanOrEqual(0);
     expect(finalizeIndex).toBeGreaterThan(createIndex);
-    expect(requests[createIndex]?.body).toMatchObject({ draft: true, tag_name: "v0.2.0" });
-    expect(requests[finalizeIndex]?.body?.tag_name).toBe("v0.2.0");
+    expect(requests[createIndex]?.body).toMatchObject({ draft: true, tag_name: "nightly-v0.2.0" });
+    expect(requests[finalizeIndex]?.body?.tag_name).toBe("nightly-v0.2.0");
     expect(requests[createIndex]?.body?.body).toContain("semverge-progress");
     expect(String(requests[createIndex]?.body?.body)).toContain(`Artifact \`artifact.txt\`: \`${artifactDigest}\``);
     expect(requests.some((request) => request.method === "POST" && request.path.endsWith("/git/refs"))).toBe(false);
     expect(requests.some((request) => request.path.endsWith(`/actions/runs?head_sha=${mergeSha}&per_page=100&page=1`))).toBe(true);
     expect(output).toContain("post-release-verification");
     expect(output).toContain('"phase":"completed"');
-    expect(output).toContain("https://github.com/demo/repo/releases/tag/v0.2.0");
+    expect(output).toContain("https://github.com/demo/repo/releases/tag/nightly-v0.2.0");
   });
 
   it("publishes a Python package through its configured registry adapter", async () => {

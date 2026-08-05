@@ -9359,6 +9359,7 @@ var require_semver2 = __commonJS({
 var action_exports = {};
 __export(action_exports, {
   channelBranchAllowed: () => channelBranchAllowed,
+  channelFromBranch: () => channelFromBranch,
   run: () => run
 });
 module.exports = __toCommonJS(action_exports);
@@ -9775,6 +9776,15 @@ function channelPolicies(value) {
     if (typeof record.branch === "string" && record.branch.trim()) {
       policy.branch = record.branch.trim();
     }
+    if (typeof record.baseBranch === "string" && record.baseBranch.trim()) {
+      policy.baseBranch = record.baseBranch.trim();
+    }
+    if (typeof record.releaseBranch === "string" && record.releaseBranch.trim()) {
+      policy.releaseBranch = record.releaseBranch.trim();
+    }
+    if (typeof record.tagPrefix === "string") {
+      policy.tagPrefix = record.tagPrefix;
+    }
     result[name.trim()] = policy;
   }
   return result;
@@ -9895,6 +9905,37 @@ function withOverrides(config, overrides) {
     result.artifacts.command = artifactCommand;
   }
   return result;
+}
+function channelPolicy(config, channel) {
+  const normalized = channel.trim().toLowerCase();
+  if (!normalized) {
+    return void 0;
+  }
+  const match = Object.entries(config.release.channels).find(([name, policy]) => name.toLowerCase() === normalized || policy.prerelease.toLowerCase() === normalized);
+  return match ? { name: match[0], policy: match[1] } : void 0;
+}
+function withChannelPolicy(config, channel) {
+  const result = withOverrides(config, {});
+  if (!channel?.trim()) {
+    return result;
+  }
+  const match = channelPolicy(config, channel);
+  if (!match) {
+    throw new Error(`Unknown SemVerge release channel: ${channel}`);
+  }
+  delete result.release.promotion;
+  result.release.prerelease = match.policy.prerelease;
+  if (match.policy.releaseBranch) {
+    result.release.branch = match.policy.releaseBranch;
+  }
+  if (match.policy.tagPrefix !== void 0) {
+    result.release.tagPrefix = match.policy.tagPrefix;
+  }
+  return result;
+}
+function channelBaseBranch(config, channel, defaultBranch) {
+  const policy = channel ? channelPolicy(config, channel)?.policy : void 0;
+  return (policy?.baseBranch ?? policy?.branch ?? defaultBranch).replace(/^refs\/heads\//, "");
 }
 
 // src/readiness.ts
@@ -11961,6 +12002,21 @@ function channelBranchAllowed(branch, defaultBranch, configuredBranch) {
   const expectedBranch = configuredBranch?.replace(/^refs\/heads\//, "");
   return expectedBranch ? branch === expectedBranch : branch === defaultBranch;
 }
+function channelFromBranch(config, branch) {
+  const normalizedBranch = branch.replace(/^refs\/heads\//, "");
+  const match = Object.entries(config.release.channels).find(([, policy]) => policy.branch?.replace(/^refs\/heads\//, "") === normalizedBranch);
+  return match ? { name: match[0], policy: match[1] } : void 0;
+}
+function selectedChannel(config, changes, branch, requestedChannel) {
+  if (requestedChannel.trim()) {
+    const requested = channelPolicy(config, requestedChannel);
+    if (!requested) {
+      throw new Error(`Unknown SemVerge release channel: ${requestedChannel}`);
+    }
+    return requested;
+  }
+  return releaseChannelFromLabels(changes.flatMap((change) => change.labels), config.release.channels) ?? channelFromBranch(config, branch);
+}
 function input(name) {
   const normalized = name.toUpperCase().replace(/\s+/g, "_");
   return process.env[`INPUT_${normalized}`]?.trim() ?? process.env[`INPUT_${normalized.replace(/-/g, "_")}`]?.trim() ?? "";
@@ -12340,7 +12396,7 @@ async function monitorReleases(client, config, tagOverride) {
 ${failures.join("\n")}`);
   }
 }
-async function prepareRelease(client, head, config, branch, defaultBranch) {
+async function prepareRelease(client, head, config, branch, defaultBranch, requestedChannel = "") {
   const baseCommit = await client.getCommit(head);
   const repositoryTree = await client.getTree(baseCommit.tree.sha);
   const allPaths = repositoryTree.filter((entry) => entry.type === "blob").map((entry) => entry.path);
@@ -12348,15 +12404,20 @@ async function prepareRelease(client, head, config, branch, defaultBranch) {
   const manifestEntries = await Promise.all(manifestPaths.map(async (path) => [path, await fileAtHead(client, path, head)]));
   const manifestFiles = Object.fromEntries(manifestEntries.flatMap(([path, content]) => content === null ? [] : [[path, content]]));
   const discovered = discoverPackages(manifestFiles, allPaths, config);
-  const changes = await changesSinceTag(client, head, await latestReleaseTag(client, config));
-  const channel = releaseChannelFromLabels(changes.flatMap((change) => change.labels), config.release.channels);
-  const labelPrerelease = prereleaseChannelFromLabels(changes.flatMap((change) => change.labels), config.release.channels);
+  let changes = await changesSinceTag(client, head, await latestReleaseTag(client, config));
+  let channel = selectedChannel(config, changes, branch, requestedChannel);
+  let effectiveConfig = channel ? withChannelPolicy(config, channel.name) : config;
+  if (channel && effectiveConfig.release.tagPrefix !== config.release.tagPrefix) {
+    changes = await changesSinceTag(client, head, await latestReleaseTag(client, effectiveConfig));
+    channel = selectedChannel(config, changes, branch, requestedChannel) ?? channel;
+    effectiveConfig = withChannelPolicy(config, channel.name);
+  }
   const channelBranch = channel?.policy.branch?.replace(/^refs\/heads\//, "");
   if (!channelBranchAllowed(branch, defaultBranch, channelBranch)) {
     log(`Ignoring push to ${branch}; ${channel ? `${channel.name} channel requires ${channelBranch ?? defaultBranch}` : `release preparation runs on ${defaultBranch}`}.`);
     return;
   }
-  const effectiveConfig = labelPrerelease && !config.release.prerelease ? withOverrides(config, { prerelease: labelPrerelease }) : config;
+  const baseBranch = channelBaseBranch(config, channel?.name, defaultBranch);
   const packageOutputPaths = discovered.packages.flatMap((packageItem) => {
     const prefix = discovered.mode === "independent" && packageItem.directory ? `${packageItem.directory}/` : "";
     return Object.values(effectiveConfig.outputs).map((path) => prefix + path);
@@ -12420,13 +12481,17 @@ async function prepareRelease(client, head, config, branch, defaultBranch) {
   const titleVersion = plan.mode === "independent" ? plan.version : releaseTagName(effectiveConfig.release.tagPrefix, plan.version);
   const title = `chore(release): ${titleVersion}`;
   const body = releasePrBody(plan, effectiveConfig);
-  const existing = (await client.listPullRequests({ state: "open", head: `${repository.owner.login}:${effectiveConfig.release.branch}`, base: repository.default_branch }))[0];
-  const releasePr = existing ? await client.updatePullRequest(existing.number, { title, body }) : await client.createPullRequest({ title, body, head: effectiveConfig.release.branch, base: repository.default_branch });
+  const existing = (await client.listPullRequests({ state: "open", head: `${repository.owner.login}:${effectiveConfig.release.branch}`, base: baseBranch }))[0];
+  const releasePr = existing ? await client.updatePullRequest(existing.number, { title, body }) : await client.createPullRequest({ title, body, head: effectiveConfig.release.branch, base: baseBranch });
   setOutput("release-pr", releasePr.html_url);
   log(`${existing ? "Updated" : "Created"} release PR: ${releasePr.html_url}`);
 }
 function isSemVergeReleasePullRequest(pr, config) {
-  return (pr.head.ref === config.release.branch || pr.head.ref.startsWith("semverge/")) && /release/i.test(pr.title);
+  const releaseBranches = /* @__PURE__ */ new Set([
+    config.release.branch,
+    ...Object.values(config.release.channels).flatMap((policy) => policy.releaseBranch ? [policy.releaseBranch.replace(/^refs\/heads\//, "")] : [])
+  ]);
+  return (releaseBranches.has(pr.head.ref) || pr.head.ref.startsWith("semverge/")) && /release/i.test(pr.title);
 }
 function independentTagName(config, packageItem) {
   const safeName = packageItem.name.replace(/^@/, "").replace(/[\\/]/g, "-");
@@ -12509,6 +12574,9 @@ async function publishRelease(client, pr, config) {
   }
   const manifestContent2 = await client.getFile(config.outputs.manifest, mergeSha);
   const manifest = manifestContent2 ? JSON.parse(manifestContent2) : {};
+  if (manifest.channel) {
+    config = withChannelPolicy(config, manifest.channel);
+  }
   setOutput("release-channel", manifest.channel ?? "stable");
   setOutput("release-promotion", String(manifest.promotion === true));
   if (manifest.readiness?.passed === false) {
@@ -12732,6 +12800,7 @@ async function run() {
     prerelease: input("prerelease"),
     artifactCommand: input("artifact-command")
   });
+  const requestedChannel = input("release-channel");
   if (eventName === "release" && "release" in event && event.release && event.action === "published") {
     await runPostReleaseVerification(client, event.release, config);
     return;
@@ -12741,7 +12810,18 @@ async function run() {
     return;
   }
   if (eventName === "schedule" || eventName === "workflow_dispatch") {
-    await monitorReleases(client, config, input("monitor-tag"));
+    if (requestedChannel) {
+      const repositoryInfo2 = await client.repositoryInfo();
+      const configuredRef = process.env.GITHUB_REF_NAME || process.env.GITHUB_REF || repositoryInfo2.default_branch;
+      const branch2 = configuredRef.replace(/^refs\/heads\//, "");
+      const head = process.env.GITHUB_SHA?.trim();
+      if (!head) {
+        throw new Error("GITHUB_SHA is required for scheduled or manually dispatched channel preparation.");
+      }
+      await prepareRelease(client, head, config, branch2, repositoryInfo2.default_branch, requestedChannel);
+    } else {
+      await monitorReleases(client, config, input("monitor-tag"));
+    }
     return;
   }
   if (eventName !== "push") {
@@ -12765,7 +12845,7 @@ async function run() {
     }
   }
   const branch = (push.ref ?? process.env.GITHUB_REF_NAME ?? expectedRef.replace(/^refs\/heads\//, "")).replace(/^refs\/heads\//, "");
-  await prepareRelease(client, push.after || process.env.GITHUB_SHA || "", config, branch, repositoryInfo.default_branch);
+  await prepareRelease(client, push.after || process.env.GITHUB_SHA || "", config, branch, repositoryInfo.default_branch, requestedChannel);
 }
 if (process.env.NODE_ENV !== "test") {
   run().catch((error) => {
@@ -12777,6 +12857,7 @@ if (process.env.NODE_ENV !== "test") {
 // Annotate the CommonJS export names for ESM import in node:
 0 && (module.exports = {
   channelBranchAllowed,
+  channelFromBranch,
   run
 });
 //# sourceMappingURL=index.cjs.map
