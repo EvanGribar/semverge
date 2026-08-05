@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.6.0] - 2026-08-05
+
+### Features
+
+- [add configurable channel policies](https://github.com/EvanGribar/semverge/pull/71) (#71)
+
 ## [0.5.0] - 2026-08-05
 
 ### Features

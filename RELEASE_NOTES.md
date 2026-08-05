@@ -1,7 +1,7 @@
-# What's new in 0.5.0
+# What's new in 0.6.0
 
-This release includes 1 feature. Highest-impact change: discover Python and Rust workspaces.
+This release includes 1 feature. Highest-impact change: add configurable channel policies.
 
 ### Highlights
 
-- [discover Python and Rust workspaces](https://github.com/EvanGribar/semverge/pull/69) (#69)
+- [add configurable channel policies](https://github.com/EvanGribar/semverge/pull/71) (#71)

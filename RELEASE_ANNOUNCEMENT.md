@@ -1,5 +1,5 @@
-# SemVerge release announcement: 0.5.0
+# SemVerge release announcement: 0.6.0
 
-SemVerge 0.5.0 includes:
+SemVerge 0.6.0 includes:
 
-- discover Python and Rust workspaces
+- add configurable channel policies

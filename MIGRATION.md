@@ -1,3 +1,3 @@
-# Migration guide for 0.5.0
+# Migration guide for 0.6.0
 
 No migration steps are required for this release.
