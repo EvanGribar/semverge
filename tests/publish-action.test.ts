@@ -382,6 +382,67 @@ describe("merged release publication", () => {
     expect(finalState?.events.some((event) => event.key === "asset:v0.2.0:artifact.txt" && event.status === "failed")).toBe(true);
   });
 
+  it("resumes after finalization and verification failures without duplicating the release", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "semverge-finalization-retry-"));
+    const config = "release:\n  branch: release/bot\nhealth:\n  enabled: true\n";
+    const eventPath = publishEvent(directory);
+    const outputPath = join(directory, "outputs.txt");
+    const requests: Array<{ method: string; path: string; body?: Record<string, unknown> }> = [];
+    let release: Record<string, unknown> | null = null;
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      const body = init?.body && typeof init.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : undefined;
+      requests.push({ method: init?.method ?? "GET", path: `${url.pathname}${url.search}`, body });
+      if (url.pathname.endsWith("/contents/.semverge.yml")) {
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded(config) }), { status: 200 });
+      }
+      if (url.pathname.endsWith("/contents/release-manifest.json")) {
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded(manifest()) }), { status: 200 });
+      }
+      if (url.pathname.endsWith("/contents/RELEASE_NOTES.md")) {
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded("# What's new\n") }), { status: 200 });
+      }
+      if (url.pathname.endsWith("/git/ref/tags/v0.2.0")) {
+        return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
+      }
+      if (url.pathname.endsWith("/releases/tags/v0.2.0")) {
+        return release ? new Response(JSON.stringify(release), { status: 200 }) : new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
+      }
+      if (url.pathname.endsWith("/actions/runs")) {
+        return new Response(JSON.stringify({ workflow_runs: [] }), { status: 200 });
+      }
+      if (url.pathname.endsWith("/releases") && init?.method === "POST") {
+        release = { id: 3, tag_name: "v0.2.0", html_url: "https://github.com/demo/repo/releases/tag/v0.2.0", upload_url: "https://uploads.github.com/repos/demo/repo/releases/3/assets{?name,label}", body: body?.body, draft: true, assets: [] };
+        return new Response(JSON.stringify(release), { status: 201 });
+      }
+      if (url.pathname.endsWith("/releases/3") && init?.method === "PATCH") {
+        release = { ...release, body: body?.body, draft: body?.draft ?? release?.draft ?? true };
+        return new Response(JSON.stringify(release), { status: 200 });
+      }
+      return new Response(JSON.stringify({ message: `Unhandled ${init?.method ?? "GET"} ${url.pathname}` }), { status: 500 });
+    }));
+
+    const previous = setPublishEnvironment(directory, eventPath, outputPath);
+    const previousFailure = process.env.SEMVERGE_TEST_FAILURE;
+    try {
+      process.env.SEMVERGE_TEST_FAILURE = "release-finalize";
+      await expect(run()).rejects.toThrow("Injected SemVerge test failure at release-finalize.");
+      process.env.SEMVERGE_TEST_FAILURE = "post-release-verification";
+      await expect(run()).rejects.toThrow("Injected SemVerge test failure at post-release-verification.");
+      delete process.env.SEMVERGE_TEST_FAILURE;
+      await run();
+    } finally {
+      if (previousFailure === undefined) delete process.env.SEMVERGE_TEST_FAILURE; else process.env.SEMVERGE_TEST_FAILURE = previousFailure;
+      restoreEnvironment(previous);
+      rmSync(directory, { recursive: true, force: true });
+    }
+
+    expect(requests.filter((request) => request.method === "POST" && request.path.endsWith("/releases"))).toHaveLength(1);
+    expect(requests.filter((request) => request.method === "PATCH" && request.path.endsWith("/releases/3") && request.body?.draft === false)).toHaveLength(1);
+    const finalBody = requests.filter((request) => request.method === "PATCH" && request.path.endsWith("/releases/3")).at(-1)?.body?.body;
+    expect(parseReleaseTransactionBody(typeof finalBody === "string" ? finalBody : null)?.phase).toBe("completed");
+  });
+
   it("refuses provenance publication before creating a release side effect without OIDC", async () => {
     const directory = mkdtempSync(join(tmpdir(), "semverge-provenance-preflight-"));
     const workspace = prepareGitWorkspace(retryFixtureDirectory);
