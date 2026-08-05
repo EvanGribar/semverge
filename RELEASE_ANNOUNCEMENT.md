@@ -1,5 +1,5 @@
-# SemVerge release announcement: 0.9.0
+# SemVerge release announcement: 0.10.0
 
-SemVerge 0.9.0 includes:
+SemVerge 0.10.0 includes:
 
-- add monitoring check-run evidence
+- add scheduled channel release policies
