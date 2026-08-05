@@ -32,12 +32,12 @@ SemVerge is release automation that understands whether a release is ready and w
 - Configurable prerelease channel labels and identifiers, with optional branch-scoped preparation
 - Checked-in single-package, fixed-pnpm, independent-workspace, retry, and large-repository fixtures for deterministic end-to-end proof
 - Explicit stable promotion from a prerelease, with channel and promotion decisions recorded in plans, release PRs, manifests, explanations, and action outputs
+- Opt-in Python PyPI and Rust crates.io publishing adapters with exact-version idempotency checks and durable publication-target binding
 
 ## Follow-on slices
 
 1. Scheduled and coordinated channel policies for release candidates, nightly builds, and canary behavior.
-2. Python and Rust registry-specific publishing integrations.
-3. More artifact transports and registry-specific publishing adapters.
-4. Delayed release monitoring and history comments/check runs without growing into an analytics dashboard.
+2. More artifact transports and registry-specific publishing adapters.
+3. Delayed release monitoring and history comments/check runs without growing into an analytics dashboard.
 
 Advanced behavior should remain opt-in. A standard repository should continue to need only one workflow file.

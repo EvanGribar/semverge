@@ -55,6 +55,31 @@ describe("configuration and version files", () => {
     expect(parseConfig(`${content}    idempotency: declared\n`).publishing.npm.idempotency).toBe("declared");
   });
 
+  it("parses opt-in Python and Rust registry publishing policies", () => {
+    const content = `publishing:
+  python:
+    enabled: true
+    command: python -m twine upload dist/*
+  rust:
+    enabled: true
+    command: cargo publish --locked
+`;
+    const config = parseConfig(content);
+    expect(config.publishing.python).toEqual({ enabled: true, command: "python -m twine upload dist/*", idempotency: "registry" });
+    expect(config.publishing.rust).toEqual({ enabled: true, command: "cargo publish --locked", idempotency: "registry" });
+    expect(validateConfigContent(content)).toEqual([]);
+    expect(validateConfigContent("publishing:\n  python:\n    enabled: true\n    command: python -m build\n")).toContainEqual({
+      path: "publishing.python.idempotency",
+      severity: "error",
+      message: "is required for custom python commands; choose registry or declared"
+    });
+    expect(validateConfigContent("publishing:\n  rust:\n    enabled: true\n    command: cargo publish --dry-run\n")).toContainEqual({
+      path: "publishing.rust.idempotency",
+      severity: "error",
+      message: "is required for custom rust commands; choose registry or declared"
+    });
+  });
+
   it("keeps npm provenance opt-in and rejects unsafe command combinations", () => {
     const content = "publishing:\n  npm:\n    enabled: true\n    provenance: true\n";
     const config = parseConfig(content);

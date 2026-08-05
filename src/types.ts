@@ -153,8 +153,16 @@ export interface NpmPublishConfig {
   provenance: boolean;
 }
 
+export interface RegistryPublishConfig {
+  enabled: boolean;
+  command: string;
+  idempotency?: "registry" | "declared";
+}
+
 export interface PublishingConfig {
   npm: NpmPublishConfig;
+  python: RegistryPublishConfig;
+  rust: RegistryPublishConfig;
 }
 
 export interface SemVergeConfig {

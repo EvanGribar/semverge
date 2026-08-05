@@ -1,5 +1,5 @@
 import { parse as parseYaml } from "yaml";
-import type { ArtifactConfig, BumpLevel, HealthWorkflow, NpmPublishConfig, OutputConfig, ReadinessCommand, ReadinessTask, ReleaseChannelPolicy, ReleasePromotion, SemVergeConfig } from "./types.js";
+import type { ArtifactConfig, BumpLevel, HealthWorkflow, NpmPublishConfig, OutputConfig, ReadinessCommand, ReadinessTask, RegistryPublishConfig, ReleaseChannelPolicy, ReleasePromotion, SemVergeConfig } from "./types.js";
 
 export type ConfigValidationSeverity = "error" | "warning";
 
@@ -15,6 +15,9 @@ const DEFAULT_CHANNEL_POLICIES: Record<string, ReleaseChannelPolicy> = {
   nightly: { label: "ship:nightly", prerelease: "nightly" },
   canary: { label: "ship:canary", prerelease: "canary" }
 };
+
+const DEFAULT_PYTHON_PUBLISH_COMMAND = "python -m twine upload dist/*";
+const DEFAULT_RUST_PUBLISH_COMMAND = "cargo publish --locked";
 
 export const DEFAULT_CONFIG: SemVergeConfig = {
   release: {
@@ -64,6 +67,16 @@ export const DEFAULT_CONFIG: SemVergeConfig = {
       command: "npm publish",
       idempotency: "registry",
       provenance: false
+    },
+    python: {
+      enabled: false,
+      command: DEFAULT_PYTHON_PUBLISH_COMMAND,
+      idempotency: "registry"
+    },
+    rust: {
+      enabled: false,
+      command: DEFAULT_RUST_PUBLISH_COMMAND,
+      idempotency: "registry"
     }
   }
 };
@@ -113,6 +126,26 @@ function enumField(value: Record<string, unknown>, key: string, path: string, ch
   }
   if (typeof field !== "string" || !choices.includes(field)) {
     issues.push({ path: `${path}.${key}`, severity: "error", message: `must be one of: ${choices.join(", ")}` });
+  }
+}
+
+function validateRegistryPublishingSection(
+  publishing: Record<string, unknown>,
+  name: "python" | "rust",
+  defaultCommand: string,
+  issues: ConfigValidationIssue[]
+): void {
+  const registry = section(publishing, name, issues);
+  if (!registry) {
+    return;
+  }
+  const path = `publishing.${name}`;
+  booleanField(registry, "enabled", path, issues);
+  stringField(registry, "command", path, issues);
+  enumField(registry, "idempotency", path, ["registry", "declared"], issues);
+  const command = typeof registry.command === "string" ? registry.command.trim() : "";
+  if (registry.enabled === true && command && command !== defaultCommand && registry.idempotency === undefined) {
+    issues.push({ path: `${path}.idempotency`, severity: "error", message: `is required for custom ${name} commands; choose registry or declared` });
   }
 }
 
@@ -230,6 +263,8 @@ export function validateConfigContent(content: string, fileName = ".semverge.yml
         issues.push({ path: "publishing.npm.provenance", severity: "error", message: "requires the default npm publish command; custom commands must own their provenance flags" });
       }
     }
+    validateRegistryPublishingSection(publishing, "python", DEFAULT_PYTHON_PUBLISH_COMMAND, issues);
+    validateRegistryPublishingSection(publishing, "rust", DEFAULT_RUST_PUBLISH_COMMAND, issues);
   }
   return issues;
 }
@@ -261,6 +296,12 @@ export function validateConfig(config: SemVergeConfig): ConfigValidationIssue[] 
   }
   if (config.publishing.npm.provenance && config.publishing.npm.command !== DEFAULT_CONFIG.publishing.npm.command) {
     issues.push({ path: "publishing.npm.provenance", severity: "error", message: "requires the default npm publish command; custom commands must own their provenance flags" });
+  }
+  for (const name of ["python", "rust"] as const) {
+    const registry = config.publishing[name];
+    if (registry.enabled && !registry.idempotency) {
+      issues.push({ path: `publishing.${name}.idempotency`, severity: "error", message: `is required for custom ${name} commands; choose registry or declared` });
+    }
   }
   for (const field of ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"] as const) {
     if (!["none", "patch", "minor", "major"].includes(config.monorepo.dependencyPolicy[field])) {
@@ -345,6 +386,19 @@ function bumpLevel(value: unknown, fallback: BumpLevel): BumpLevel {
   return value === "none" || value === "patch" || value === "minor" || value === "major" ? value : fallback;
 }
 
+function registryPublishConfig(value: unknown, fallback: RegistryPublishConfig): RegistryPublishConfig {
+  const object = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const command = typeof object.command === "string" && object.command.trim() ? object.command.trim() : fallback.command;
+  const idempotency: RegistryPublishConfig["idempotency"] = object.idempotency === "registry" || object.idempotency === "declared"
+    ? object.idempotency
+    : command === fallback.command ? "registry" : undefined;
+  return {
+    enabled: booleanValue(object.enabled, fallback.enabled),
+    command,
+    idempotency
+  };
+}
+
 function channelPolicies(value: unknown): Record<string, ReleaseChannelPolicy> {
   const result: Record<string, ReleaseChannelPolicy> = Object.fromEntries(Object.entries(DEFAULT_CHANNEL_POLICIES).map(([name, policy]) => [name, { ...policy }]));
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -381,6 +435,8 @@ function mergeConfig(raw: unknown): SemVergeConfig {
   const health = object.health && typeof object.health === "object" ? object.health as Record<string, unknown> : {};
   const publishing = object.publishing && typeof object.publishing === "object" ? object.publishing as Record<string, unknown> : {};
   const npm = publishing.npm && typeof publishing.npm === "object" ? publishing.npm as Record<string, unknown> : {};
+  const python = publishing.python;
+  const rust = publishing.rust;
   const npmCommand = typeof npm.command === "string" && npm.command.trim() ? npm.command.trim() : DEFAULT_CONFIG.publishing.npm.command;
   const npmIdempotency: NpmPublishConfig["idempotency"] = npm.idempotency === "registry" || npm.idempotency === "declared"
     ? npm.idempotency
@@ -434,7 +490,9 @@ function mergeConfig(raw: unknown): SemVergeConfig {
         command: npmCommand,
         idempotency: npmIdempotency,
         provenance: booleanValue(npm.provenance, DEFAULT_CONFIG.publishing.npm.provenance)
-      }
+      },
+      python: registryPublishConfig(python, DEFAULT_CONFIG.publishing.python),
+      rust: registryPublishConfig(rust, DEFAULT_CONFIG.publishing.rust)
     }
   };
 
@@ -472,7 +530,7 @@ export function withOverrides(config: SemVergeConfig, overrides: { prerelease?: 
     artifacts: { ...config.artifacts, paths: [...config.artifacts.paths] },
     monorepo: { ...config.monorepo, packages: [...config.monorepo.packages], dependencyPolicy: { ...config.monorepo.dependencyPolicy } },
     health: { ...config.health, workflows: [...config.health.workflows], expectedArtifacts: [...config.health.expectedArtifacts], requiredLinks: [...config.health.requiredLinks] },
-    publishing: { ...config.publishing, npm: { ...config.publishing.npm } }
+    publishing: { ...config.publishing, npm: { ...config.publishing.npm }, python: { ...config.publishing.python }, rust: { ...config.publishing.rust } }
   };
   const prerelease = overrides.prerelease?.trim();
   if (prerelease) {

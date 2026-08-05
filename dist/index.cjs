@@ -9609,6 +9609,8 @@ var DEFAULT_CHANNEL_POLICIES = {
   nightly: { label: "ship:nightly", prerelease: "nightly" },
   canary: { label: "ship:canary", prerelease: "canary" }
 };
+var DEFAULT_PYTHON_PUBLISH_COMMAND = "python -m twine upload dist/*";
+var DEFAULT_RUST_PUBLISH_COMMAND = "cargo publish --locked";
 var DEFAULT_CONFIG = {
   release: {
     branch: "semverge/release",
@@ -9657,6 +9659,16 @@ var DEFAULT_CONFIG = {
       command: "npm publish",
       idempotency: "registry",
       provenance: false
+    },
+    python: {
+      enabled: false,
+      command: DEFAULT_PYTHON_PUBLISH_COMMAND,
+      idempotency: "registry"
+    },
+    rust: {
+      enabled: false,
+      command: DEFAULT_RUST_PUBLISH_COMMAND,
+      idempotency: "registry"
     }
   }
 };
@@ -9721,6 +9733,16 @@ function booleanValue(value, fallback) {
 function bumpLevel(value, fallback) {
   return value === "none" || value === "patch" || value === "minor" || value === "major" ? value : fallback;
 }
+function registryPublishConfig(value, fallback) {
+  const object = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const command = typeof object.command === "string" && object.command.trim() ? object.command.trim() : fallback.command;
+  const idempotency = object.idempotency === "registry" || object.idempotency === "declared" ? object.idempotency : command === fallback.command ? "registry" : void 0;
+  return {
+    enabled: booleanValue(object.enabled, fallback.enabled),
+    command,
+    idempotency
+  };
+}
 function channelPolicies(value) {
   const result = Object.fromEntries(Object.entries(DEFAULT_CHANNEL_POLICIES).map(([name, policy]) => [name, { ...policy }]));
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -9756,6 +9778,8 @@ function mergeConfig(raw) {
   const health = object.health && typeof object.health === "object" ? object.health : {};
   const publishing = object.publishing && typeof object.publishing === "object" ? object.publishing : {};
   const npm = publishing.npm && typeof publishing.npm === "object" ? publishing.npm : {};
+  const python = publishing.python;
+  const rust = publishing.rust;
   const npmCommand = typeof npm.command === "string" && npm.command.trim() ? npm.command.trim() : DEFAULT_CONFIG.publishing.npm.command;
   const npmIdempotency = npm.idempotency === "registry" || npm.idempotency === "declared" ? npm.idempotency : npmCommand === DEFAULT_CONFIG.publishing.npm.command ? "registry" : void 0;
   const result = {
@@ -9806,7 +9830,9 @@ function mergeConfig(raw) {
         command: npmCommand,
         idempotency: npmIdempotency,
         provenance: booleanValue(npm.provenance, DEFAULT_CONFIG.publishing.npm.provenance)
-      }
+      },
+      python: registryPublishConfig(python, DEFAULT_CONFIG.publishing.python),
+      rust: registryPublishConfig(rust, DEFAULT_CONFIG.publishing.rust)
     }
   };
   if (typeof release.prerelease === "string" && release.prerelease.trim()) {
@@ -9841,7 +9867,7 @@ function withOverrides(config, overrides) {
     artifacts: { ...config.artifacts, paths: [...config.artifacts.paths] },
     monorepo: { ...config.monorepo, packages: [...config.monorepo.packages], dependencyPolicy: { ...config.monorepo.dependencyPolicy } },
     health: { ...config.health, workflows: [...config.health.workflows], expectedArtifacts: [...config.health.expectedArtifacts], requiredLinks: [...config.health.requiredLinks] },
-    publishing: { ...config.publishing, npm: { ...config.publishing.npm } }
+    publishing: { ...config.publishing, npm: { ...config.publishing.npm }, python: { ...config.publishing.python }, rust: { ...config.publishing.rust } }
   };
   const prerelease = overrides.prerelease?.trim();
   if (prerelease) {
@@ -11399,6 +11425,89 @@ async function npmVersionExists(name, version, cwd, runner = defaultNpmViewRunne
   }
 }
 
+// src/registries.ts
+var PYPI_JSON_URL = "https://pypi.org/pypi";
+var CRATES_IO_API_URL = "https://crates.io/api/v1/crates";
+function defaultFetcher(input2, init) {
+  return fetch(input2, init);
+}
+function packageIdentity(name, version) {
+  const packageName = name.trim();
+  const packageVersion = version.trim();
+  if (!packageName || !packageVersion) {
+    throw new Error("SemVerge cannot check registry idempotency without a package name and version.");
+  }
+  return { name: packageName, version: packageVersion };
+}
+function registryError(registry, name, version, status) {
+  return new Error(`Could not verify ${name}@${version} in the ${registry} registry (HTTP ${status}). Fix registry access and retry; SemVerge will not assume the version is absent.`);
+}
+async function responseJson(response, registry, name, version) {
+  try {
+    return await response.json();
+  } catch {
+    throw new Error(`Could not verify ${name}@${version} in the ${registry} registry: the registry returned invalid JSON; SemVerge will not assume the version is absent.`);
+  }
+}
+async function pythonVersionExists(name, version, fetcher) {
+  const encodedName = encodeURIComponent(name);
+  const response = await fetcher(`${PYPI_JSON_URL}/${encodedName}/json`, {
+    headers: { accept: "application/json" }
+  });
+  if (response.status === 404) {
+    return false;
+  }
+  if (!response.ok) {
+    throw registryError("PyPI", name, version, response.status);
+  }
+  const payload = await responseJson(response, "PyPI", name, version);
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error(`Could not verify ${name}@${version} in the PyPI registry: the registry response was not an object; SemVerge will not assume the version is absent.`);
+  }
+  const releases = payload.releases;
+  if (!releases || typeof releases !== "object" || Array.isArray(releases)) {
+    throw new Error(`Could not verify ${name}@${version} in the PyPI registry: the registry response did not contain release metadata; SemVerge will not assume the version is absent.`);
+  }
+  return Object.prototype.hasOwnProperty.call(releases, version);
+}
+async function rustVersionExists(name, version, fetcher) {
+  const encodedName = encodeURIComponent(name);
+  const encodedVersion = encodeURIComponent(version);
+  const response = await fetcher(`${CRATES_IO_API_URL}/${encodedName}/${encodedVersion}`, {
+    headers: {
+      accept: "application/json",
+      "user-agent": "semverge-release-engine"
+    }
+  });
+  if (response.status === 404) {
+    return false;
+  }
+  if (!response.ok) {
+    throw registryError("crates.io", name, version, response.status);
+  }
+  await responseJson(response, "crates.io", name, version);
+  return true;
+}
+function publishConfigForEcosystem(config, ecosystem) {
+  if (ecosystem === "node") {
+    return config.publishing.npm;
+  }
+  return config.publishing[ecosystem];
+}
+function publisherName(ecosystem) {
+  if (ecosystem === "node") {
+    return "npm";
+  }
+  return ecosystem === "python" ? "PyPI" : "crates.io";
+}
+async function registryVersionExists(ecosystem, name, version, fetcher = defaultFetcher) {
+  const identity = packageIdentity(name, version);
+  if (ecosystem === "python") {
+    return pythonVersionExists(identity.name, identity.version, fetcher);
+  }
+  return rustVersionExists(identity.name, identity.version, fetcher);
+}
+
 // src/workspace-integrity.ts
 var import_node_child_process2 = require("node:child_process");
 var import_node_util2 = require("node:util");
@@ -11427,7 +11536,7 @@ async function assertWorkspaceAtCommit(workspace, mergeSha, readHead = readWorks
 
 // src/transaction.ts
 var import_node_crypto = require("node:crypto");
-var RELEASE_TRANSACTION_SCHEMA_VERSION = 4;
+var RELEASE_TRANSACTION_SCHEMA_VERSION = 5;
 var RELEASE_TRANSACTION_MARKER = "<!-- semverge-progress ";
 var RELEASE_PHASES = [
   "planned",
@@ -11506,6 +11615,7 @@ function normalizeAssets(value) {
 }
 function createReleaseTransaction(input2) {
   const now = timestamp(input2.now);
+  const publishingTargets = unique(input2.publishingTargets ?? (input2.npmEnabled ? ["npm"] : []));
   return {
     schemaVersion: RELEASE_TRANSACTION_SCHEMA_VERSION,
     id: input2.id ?? `release_${(0, import_node_crypto.randomUUID)().replace(/-/g, "")}`,
@@ -11514,10 +11624,11 @@ function createReleaseTransaction(input2) {
     phase: "planned",
     packageIds: unique(input2.packageIds),
     tagNames: unique(input2.tagNames),
+    publishingTargets,
     npmEnabled: input2.npmEnabled,
     npmProvenance: input2.npmProvenance ?? false,
     artifactDigests: digestMap(input2.artifactDigests ?? {}),
-    publishedPackages: input2.npmEnabled ? [] : unique(input2.packageIds),
+    publishedPackages: input2.alreadyPublishedPackageIds ? unique(input2.alreadyPublishedPackageIds) : publishingTargets.length > 0 ? [] : unique(input2.packageIds),
     uploadedAssets: Object.fromEntries(unique(input2.tagNames).map((tag) => [tag, []])),
     ready: false,
     published: false,
@@ -11570,6 +11681,7 @@ function mergeReleaseTransactions(states, expected) {
     sourceCommit: present.find((state) => state.sourceCommit !== "unknown")?.sourceCommit ?? expected.sourceCommit,
     packageIds: [...expected.packageIds],
     tagNames: [...expected.tagNames],
+    publishingTargets: [...expected.publishingTargets],
     artifactDigests: { ...expected.artifactDigests },
     publishedPackages: [...expected.publishedPackages],
     uploadedAssets: normalizeAssets(expected.uploadedAssets),
@@ -11578,7 +11690,7 @@ function mergeReleaseTransactions(states, expected) {
     published: false
   };
   for (const state of present) {
-    if (state.version !== expected.version || state.npmEnabled !== expected.npmEnabled || state.npmProvenance !== expected.npmProvenance || state.sourceCommit !== "unknown" && expected.sourceCommit !== "unknown" && state.sourceCommit !== expected.sourceCommit || !sameValues(state.packageIds, expected.packageIds) || !sameValues(state.tagNames, expected.tagNames)) {
+    if (state.version !== expected.version || state.npmEnabled !== expected.npmEnabled || state.npmProvenance !== expected.npmProvenance || !sameValues(state.publishingTargets, expected.publishingTargets) || state.sourceCommit !== "unknown" && expected.sourceCommit !== "unknown" && state.sourceCommit !== expected.sourceCommit || !sameValues(state.packageIds, expected.packageIds) || !sameValues(state.tagNames, expected.tagNames)) {
       throw new Error("SemVerge found release transaction state for a different release or publishing configuration; verify the draft releases before retrying.");
     }
     if (phaseIndex(state.phase) > phaseIndex(merged.phase)) {
@@ -11648,8 +11760,10 @@ function parseReleaseTransaction(value) {
   if (record.schemaVersion === 1) {
     return upgradeLegacyTransaction(record);
   }
-  const hasArtifactDigests = record.schemaVersion === 3 || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
-  if (record.schemaVersion !== 2 && record.schemaVersion !== 3 && record.schemaVersion !== RELEASE_TRANSACTION_SCHEMA_VERSION || typeof record.id !== "string" || typeof record.version !== "string" || typeof record.sourceCommit !== "string" || typeof record.npmEnabled !== "boolean" || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION && typeof record.npmProvenance !== "boolean" || typeof record.ready !== "boolean" || typeof record.published !== "boolean" || typeof record.updatedAt !== "string" || !Array.isArray(record.events) || hasArtifactDigests && record.artifactDigests === void 0) {
+  const hasArtifactDigests = record.schemaVersion === 3 || record.schemaVersion === 4 || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  const hasNpmProvenance = record.schemaVersion === 4 || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  const hasPublishingTargets = record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  if (record.schemaVersion !== 2 && record.schemaVersion !== 3 && record.schemaVersion !== 4 && record.schemaVersion !== RELEASE_TRANSACTION_SCHEMA_VERSION || typeof record.id !== "string" || typeof record.version !== "string" || typeof record.sourceCommit !== "string" || typeof record.npmEnabled !== "boolean" || hasNpmProvenance && typeof record.npmProvenance !== "boolean" || hasPublishingTargets && record.publishingTargets === void 0 || typeof record.ready !== "boolean" || typeof record.published !== "boolean" || typeof record.updatedAt !== "string" || !Array.isArray(record.events) || hasArtifactDigests && record.artifactDigests === void 0) {
     throw new Error("SemVerge found an invalid release transaction marker.");
   }
   const failure = record.failure === void 0 ? void 0 : objectValue2(record.failure);
@@ -11665,8 +11779,9 @@ function parseReleaseTransaction(value) {
     phase: phaseValue(record.phase),
     packageIds: stringArray(record.packageIds, "packageIds"),
     tagNames: stringArray(record.tagNames, "tagNames"),
+    publishingTargets: hasPublishingTargets ? stringArray(record.publishingTargets, "publishingTargets") : record.npmEnabled ? ["npm"] : [],
     npmEnabled: record.npmEnabled,
-    npmProvenance: record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION ? record.npmProvenance : false,
+    npmProvenance: hasNpmProvenance ? record.npmProvenance : false,
     artifactDigests: hasArtifactDigests ? digestMap(record.artifactDigests) : {},
     publishedPackages: stringArray(record.publishedPackages, "publishedPackages"),
     uploadedAssets: normalizeAssets(assetMap(record.uploadedAssets)),
@@ -11754,6 +11869,7 @@ function summarizeReleaseTransaction(state) {
     sourceCommit: state.sourceCommit,
     phase: state.phase,
     publishedPackages: `${state.publishedPackages.length}/${state.packageIds.length}`,
+    publishingTargets: [...state.publishingTargets],
     uploadedAssets,
     artifactDigests: { ...state.artifactDigests },
     npmProvenance: state.npmProvenance,
@@ -11771,6 +11887,7 @@ function releaseTransactionSummaryMarkdown(state) {
     `- Source commit: \`${summary.sourceCommit}\``,
     `- State: **${summary.phase}**`,
     `- Packages published: **${summary.publishedPackages}**`,
+    `- Publishing targets: **${summary.publishingTargets.length > 0 ? summary.publishingTargets.join(", ") : "none"}**`,
     `- npm provenance requested: **${summary.npmProvenance ? "yes" : "no"}**`,
     `- Uploaded assets recorded: **${summary.uploadedAssets}**`,
     `- Artifact SHA-256 digests recorded: **${Object.keys(summary.artifactDigests).length}**`,
@@ -12177,9 +12294,14 @@ function packageTagName(config, mode, packageItem) {
 function packageKey(packageItem, index) {
   return packageItem.id || packageItem.name || packageItem.directory || `package-${index + 1}`;
 }
+function packageEcosystem(packageItem) {
+  return packageItem.ecosystem ?? "node";
+}
 function initialReleaseProgress(version, sourceCommit, publishablePackages, releaseTags, artifactDigestMap, config) {
   const packageIds = publishablePackages.map(packageKey);
-  let transaction = createReleaseTransaction({ version, sourceCommit, packageIds, tagNames: releaseTags, artifactDigests: artifactDigestMap, npmEnabled: config.publishing.npm.enabled, npmProvenance: config.publishing.npm.provenance });
+  const publishingTargets = [...new Set(publishablePackages.map(packageEcosystem).filter((ecosystem) => publishConfigForEcosystem(config, ecosystem).enabled).map((ecosystem) => ecosystem === "node" ? "npm" : ecosystem))];
+  const alreadyPublishedPackageIds = publishablePackages.filter((packageItem) => !publishConfigForEcosystem(config, packageEcosystem(packageItem)).enabled).map(packageKey);
+  let transaction = createReleaseTransaction({ version, sourceCommit, packageIds, tagNames: releaseTags, publishingTargets, alreadyPublishedPackageIds, artifactDigests: artifactDigestMap, npmEnabled: config.publishing.npm.enabled, npmProvenance: config.publishing.npm.provenance });
   transaction = advanceReleaseTransaction(transaction, "approved", { key: "approval", kind: "approval-verified", target: sourceCommit, detail: "Release PR merge commit verified." });
   transaction = advanceReleaseTransaction(transaction, "prepared", { key: "release-inputs", kind: "release-plan-prepared", target: version, detail: "Release manifest, package set, and tags validated." });
   return advanceReleaseTransaction(transaction, "built", { key: "artifact-build", kind: "artifacts-built", target: sourceCommit, detail: "Workspace and configured artifacts passed pre-publication validation." });
@@ -12266,14 +12388,17 @@ async function publishRelease(client, pr, config) {
   if (releasePackages.length === 0) {
     throw new Error("SemVerge found no packages to publish.");
   }
-  if (config.publishing.npm.enabled && !config.publishing.npm.idempotency) {
-    throw new Error("SemVerge requires publishing.npm.idempotency for custom npm commands; choose registry or declared.");
+  for (const ecosystem of ["node", "python", "rust"]) {
+    const publisher = publishConfigForEcosystem(config, ecosystem);
+    if (publisher.enabled && !publisher.idempotency) {
+      throw new Error(`SemVerge requires publishing.${ecosystem}.idempotency for custom commands; choose registry or declared.`);
+    }
   }
   assertNpmProvenanceEnvironment(config.publishing.npm);
-  const npmCommand = config.publishing.npm.enabled ? npmPublishCommand(config.publishing.npm) : config.publishing.npm.command;
+  const publishingEnabled = releasePackages.some((packageItem) => publishConfigForEcosystem(config, packageEcosystem(packageItem)).enabled);
   const artifactCommand = input("artifact-command") || config.artifacts.command;
   const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
-  if (artifactCommand || config.artifacts.paths.length > 0 || config.publishing.npm.enabled) {
+  if (artifactCommand || config.artifacts.paths.length > 0 || publishingEnabled) {
     await assertWorkspaceAtCommit(workspace, mergeSha);
   }
   if (artifactCommand) {
@@ -12333,17 +12458,27 @@ async function publishRelease(client, pr, config) {
       continue;
     }
     const packageWorkspace = packageItem.directory ? (0, import_node_path3.resolve)(workspace, packageItem.directory) : workspace;
-    if (config.publishing.npm.idempotency === "registry" && await npmVersionExists(packageItem.name, packageItem.version, packageWorkspace)) {
-      log(`Found ${packageItem.name}@${packageItem.version} in the npm registry; treating publication as already complete.`);
+    const ecosystem = packageEcosystem(packageItem);
+    const publisher = publishConfigForEcosystem(config, ecosystem);
+    if (!publisher.enabled) {
       progress.publishedPackages = [.../* @__PURE__ */ new Set([...progress.publishedPackages, id])];
-      progress = recordReleaseTransactionEvent(progress, { key: `package:${id}`, kind: "package-published", target: packageItem.name, detail: "Registry already contains the requested version; no duplicate publish was attempted." });
+      progress = recordReleaseTransactionEvent(progress, { key: `package:${id}`, kind: "package-publication-skipped", target: packageItem.name, detail: `No ${publisherName(ecosystem)} publisher is enabled for this package; SemVerge recorded it as intentionally unmanaged.` });
       await persistReleaseProgress(client, executions, progress);
       continue;
     }
-    log(`Publishing ${packageItem.name} with npm command.`);
+    const alreadyPublished = publisher.idempotency === "registry" ? ecosystem === "node" ? await npmVersionExists(packageItem.name, packageItem.version, packageWorkspace) : await registryVersionExists(ecosystem, packageItem.name, packageItem.version) : false;
+    if (alreadyPublished) {
+      log(`Found ${packageItem.name}@${packageItem.version} in the ${publisherName(ecosystem)} registry; treating publication as already complete.`);
+      progress.publishedPackages = [.../* @__PURE__ */ new Set([...progress.publishedPackages, id])];
+      progress = recordReleaseTransactionEvent(progress, { key: `package:${id}`, kind: "package-published", target: packageItem.name, detail: `${publisherName(ecosystem)} already contains the requested version; no duplicate publish was attempted.` });
+      await persistReleaseProgress(client, executions, progress);
+      continue;
+    }
+    const publishCommand = ecosystem === "node" ? npmPublishCommand(config.publishing.npm) : publisher.command;
+    log(`Publishing ${packageItem.name} with ${publisherName(ecosystem)} command.`);
     try {
       injectTestFailure("package-publish");
-      await exec2(npmCommand, { cwd: packageWorkspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
+      await exec2(publishCommand, { cwd: packageWorkspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
     } catch (error) {
       progress = recordReleaseTransactionEvent(progress, { key: `package:${id}`, kind: "package-published", target: packageItem.name, status: "failed", detail: "Package publication failed; inspect runner logs before retrying." });
       await persistReleaseProgress(client, executions, progress);
