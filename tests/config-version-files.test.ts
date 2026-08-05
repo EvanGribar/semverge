@@ -26,6 +26,24 @@ describe("configuration and version files", () => {
     });
   });
 
+  it("keeps delayed monitoring opt-in and validates its observation window", () => {
+    const content = `health:
+  monitoring:
+    enabled: true
+    windowHours: 48
+    comment: false
+`;
+    const config = parseConfig(content);
+    expect(config.health.monitoring).toEqual({ enabled: true, windowHours: 48, comment: false });
+    expect(validateConfigContent(content)).toEqual([]);
+    expect(validateConfigContent("health:\n  monitoring:\n    enabled: true\n    windowHours: 0\n")).toContainEqual({
+      path: "health.monitoring.windowHours",
+      severity: "error",
+      message: "must be greater than zero"
+    });
+    expect(parseConfig("").health.monitoring).toEqual({ enabled: false, windowHours: 24, comment: true });
+  });
+
   it("parses and validates independent dependency release policies", () => {
     const content = `monorepo:\n  mode: independent\n  dependencyPolicy:\n    dependencies: patch\n    devDependencies: none\n    peerDependencies: major\n    optionalDependencies: minor\n`;
     const config = parseConfig(content);

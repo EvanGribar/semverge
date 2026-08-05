@@ -96,4 +96,23 @@ describe("GitHub API pagination", () => {
     expect(workflows.requests).toHaveLength(2);
     expect(workflows.requests[1]?.searchParams.get("page")).toBe("2");
   });
+
+  it("reads and creates issue comments for release history", async () => {
+    const requests: Array<{ method: string; url: URL; body?: Record<string, unknown> }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      const body = init?.body && typeof init.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : undefined;
+      requests.push({ method: init?.method ?? "GET", url, body });
+      if (init?.method === "POST") {
+        return new Response(JSON.stringify({ id: 9, body: body?.body, html_url: "comment-9" }), { status: 201 });
+      }
+      return new Response(JSON.stringify([{ id: 8, body: "existing" }]), { status: 200 });
+    }));
+
+    const client = new GitHubClient("", "demo/repo", "https://api.github.test");
+    await expect(client.listIssueComments(7)).resolves.toEqual([{ id: 8, body: "existing" }]);
+    await expect(client.createIssueComment(7, "history")).resolves.toMatchObject({ id: 9, body: "history" });
+    expect(requests.map((request) => `${request.method} ${request.url.pathname}`)).toEqual(["GET /repos/demo/repo/issues/7/comments", "POST /repos/demo/repo/issues/7/comments"]);
+    expect(requests[1]?.body).toEqual({ body: "history" });
+  });
 });

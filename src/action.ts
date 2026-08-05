@@ -9,7 +9,7 @@ import { readinessMarkdown } from "./readiness.js";
 import { releaseTagName, GitHubClient, type GitHubCommitSummary, type GitHubPullRequest, type GitHubRelease } from "./github.js";
 import { discoverPackages } from "./packages.js";
 import { buildWorkspaceReleasePlan, type WorkspaceReleasePlan } from "./workspace-release.js";
-import { evaluatePostReleaseVerification, postReleaseVerificationMarkdown, type PostReleaseVerificationObservation } from "./health.js";
+import { evaluatePostReleaseVerification, postReleaseVerificationMarkdown, versionFromReleaseTag, type PostReleaseVerificationObservation, type PostReleaseVerificationReport } from "./health.js";
 import { compareVersions, parseVersion } from "./semver.js";
 import { assertNpmProvenanceEnvironment, npmPublishCommand, npmVersionExists } from "./npm.js";
 import { publishConfigForEcosystem, publisherName, registryVersionExists } from "./registries.js";
@@ -289,7 +289,32 @@ async function checkLink(url: string): Promise<number | null> {
   }
 }
 
-async function runPostReleaseVerification(client: GitHubClient, releaseEvent: NonNullable<ReleaseEvent["release"]>, config: SemVergeConfig): Promise<void> {
+interface PostReleaseVerificationOptions {
+  delayed?: boolean;
+}
+
+async function appendMonitoringComment(client: GitHubClient, releaseEvent: NonNullable<ReleaseEvent["release"]>, targetCommit: string, config: SemVergeConfig, report: PostReleaseVerificationReport): Promise<void> {
+  if (!config.health.monitoring?.comment || !targetCommit) {
+    return;
+  }
+  const releasePullRequest = (await client.commitPullRequests(targetCommit)).find((pullRequest) => isSemVergeReleasePullRequest(pullRequest, config));
+  if (!releasePullRequest) {
+    log(`Could not find the SemVerge release PR for delayed monitoring of ${releaseEvent.tag_name}; no history comment was added.`);
+    return;
+  }
+  const runId = process.env.GITHUB_RUN_ID?.trim() || targetCommit;
+  const marker = `<!-- semverge-monitor ${releaseEvent.tag_name} ${runId} -->`;
+  const comments = await client.listIssueComments(releasePullRequest.number);
+  if (comments.some((comment) => comment.body?.includes(marker))) {
+    log(`Delayed monitoring comment already exists for ${releaseEvent.tag_name} run ${runId}.`);
+    return;
+  }
+  const markdown = postReleaseVerificationMarkdown(report).trim();
+  await client.createIssueComment(releasePullRequest.number, `${marker}\n\n${markdown}\n\nObserved by the explicit SemVerge delayed-monitoring workflow.`);
+  log(`Recorded delayed monitoring history for ${releaseEvent.tag_name} on release PR #${releasePullRequest.number}.`);
+}
+
+async function runPostReleaseVerification(client: GitHubClient, releaseEvent: NonNullable<ReleaseEvent["release"]>, config: SemVergeConfig, options: PostReleaseVerificationOptions = {}): Promise<void> {
   if (!config.health.enabled) {
     log("Post-release verification is disabled.");
     return;
@@ -350,8 +375,49 @@ async function runPostReleaseVerification(client: GitHubClient, releaseEvent: No
     });
     setOutput("transaction", JSON.stringify(next));
   }
+  if (options.delayed) {
+    await appendMonitoringComment(client, releaseEvent, targetCommit, config, report);
+  }
   if (report.status === "failed") {
     throw new Error(`Post-release verification failed for ${releaseEvent.tag_name}.`);
+  }
+}
+
+async function monitorReleases(client: GitHubClient, config: SemVergeConfig, tagOverride: string): Promise<void> {
+  const monitoring = config.health.monitoring;
+  if (!config.health.enabled || !monitoring?.enabled) {
+    log("Delayed release monitoring is disabled; no release history was changed.");
+    return;
+  }
+  const requestedTag = tagOverride.trim();
+  const releases = requestedTag
+    ? [await client.getReleaseByTag(requestedTag)]
+    : (await client.listReleases()).filter((release) => {
+      if (release.draft === true || !versionFromReleaseTag(release.tag_name, config.release.tagPrefix)) {
+        return false;
+      }
+      const publishedAt = release.published_at ?? release.created_at;
+      const timestamp = publishedAt ? Date.parse(publishedAt) : Number.NaN;
+      return Number.isFinite(timestamp) && Date.now() - timestamp <= monitoring.windowHours * 60 * 60 * 1000;
+    });
+  if (requestedTag && !releases[0]) {
+    throw new Error(`SemVerge could not find the release ${requestedTag} for delayed monitoring.`);
+  }
+  const targets = releases.filter((release): release is NonNullable<typeof release> => Boolean(release));
+  if (targets.length === 0) {
+    log("No published semantic release was found inside the delayed-monitoring window.");
+    return;
+  }
+  const failures: string[] = [];
+  for (const release of targets) {
+    try {
+      await runPostReleaseVerification(client, release, config, { delayed: true });
+    } catch (error) {
+      failures.push(`${release.tag_name}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(`Delayed release monitoring failed:\n${failures.join("\n")}`);
   }
 }
 
@@ -830,6 +896,10 @@ export async function run(): Promise<void> {
   }
   if (eventName === "pull_request" && "pull_request" in event && event.pull_request && event.action === "closed" && event.pull_request.merged && isSemVergeReleasePullRequest(event.pull_request, config)) {
     await publishRelease(client, event.pull_request, config);
+    return;
+  }
+  if (eventName === "schedule" || eventName === "workflow_dispatch") {
+    await monitorReleases(client, config, input("monitor-tag"));
     return;
   }
   if (eventName !== "push") {

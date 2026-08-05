@@ -182,7 +182,9 @@ Stable promotion is explicit. Add `ship:stable` to a release-bearing change, or 
 
 Independent workspaces use `monorepo.dependencyPolicy` to decide which internal dependency fields release a dependent package and at what bump level (`none`, `patch`, `minor`, or `major`). `dependencies`, `optionalDependencies`, and `peerDependencies` default to patch propagation; `devDependencies` default to no dependent release. Internal ranges and lockfiles still follow released package versions, while the release manifest records the dependency field that caused each propagated release.
 
-The `health` configuration namespace provides immediate post-release verification: configured assets, documentation links, and workflow results visible after the publication transaction or on a `release.published` event. A workflow that has not started or completed is reported as a warning so the check can be rerun after it finishes. SemVerge does not infer rollback or hotfix signals from a single event; delayed monitoring is planned separately.
+The `health` configuration namespace provides immediate post-release verification: configured assets, documentation links, and workflow results visible after the publication transaction or on a `release.published` event. A workflow that has not started or completed is reported as a warning so the check can be rerun after it finishes. `health.monitoring` is a separate opt-in for an explicit scheduled or manually dispatched workflow; it can inspect one `monitor-tag` or recent semantic releases and append an idempotent observation comment to the release PR. SemVerge does not create a scheduler, dashboard, or hosted surface.
+
+See [docs/monitoring.md](docs/monitoring.md) for the explicit workflow and permission contract.
 
 Configured commands and artifact commands run in the runner workspace. When artifacts or any registry publishing is enabled, SemVerge requires `GITHUB_WORKSPACE` to be checked out at the merged release PR's exact `merge_commit_sha`; the workflow above provides that checkout. The zero-configuration path does not need a checkout. Standard `npm publish` uses `idempotency: registry` to query the exact package version before publishing. Opt-in Python publishing checks PyPI's JSON release metadata, and Rust publishing checks the exact crates.io version endpoint. Custom commands must explicitly choose `idempotency: declared` when the command owns its own retry-safe behavior, or `idempotency: registry` when SemVerge's registry check is appropriate.
 
@@ -196,7 +198,7 @@ SemVerge now exports a versioned, explicitly registered lifecycle plugin contrac
 
 SemVerge is intentionally Node.js and GitHub first. The dependable path covers single packages, fixed and independent npm/pnpm workspaces, conventional commits, PR label overrides, version and lockfile updates, dependency-aware release graphs, changelog and release notes, readiness rules, idempotent npm publishing, opt-in PyPI and crates.io publishing adapters, artifacts, GitHub releases, and immediate post-release verification.
 
-Python `pyproject.toml` and Rust `Cargo.toml` package/workspace discovery, deterministic version planning, and opt-in registry-specific publication commands are available. Live credentials, provider-side trusted publishing, registry acceptance, and delayed release monitoring remain external or follow-on proof gates.
+Python `pyproject.toml` and Rust `Cargo.toml` package/workspace discovery, deterministic version planning, opt-in registry-specific publication commands, and explicit delayed monitoring are available. Live credentials, provider-side trusted publishing, registry acceptance, and deployment behavior remain external proof gates.
 
 See [docs/registries.md](docs/registries.md) for the built-in adapter contracts and fail-closed idempotency behavior.
 

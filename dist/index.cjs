@@ -9651,7 +9651,12 @@ var DEFAULT_CONFIG = {
     enabled: true,
     workflows: [],
     expectedArtifacts: [],
-    requiredLinks: []
+    requiredLinks: [],
+    monitoring: {
+      enabled: false,
+      windowHours: 24,
+      comment: true
+    }
   },
   publishing: {
     npm: {
@@ -9743,6 +9748,14 @@ function registryPublishConfig(value, fallback) {
     idempotency
   };
 }
+function healthMonitoring(value, fallback) {
+  const object = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    enabled: booleanValue(object.enabled, fallback.enabled),
+    windowHours: typeof object.windowHours === "number" && Number.isFinite(object.windowHours) && object.windowHours > 0 ? object.windowHours : fallback.windowHours,
+    comment: booleanValue(object.comment, fallback.comment)
+  };
+}
 function channelPolicies(value) {
   const result = Object.fromEntries(Object.entries(DEFAULT_CHANNEL_POLICIES).map(([name, policy]) => [name, { ...policy }]));
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -9776,6 +9789,7 @@ function mergeConfig(raw) {
   const monorepo = object.monorepo && typeof object.monorepo === "object" ? object.monorepo : {};
   const dependencyPolicy = monorepo.dependencyPolicy && typeof monorepo.dependencyPolicy === "object" ? monorepo.dependencyPolicy : {};
   const health = object.health && typeof object.health === "object" ? object.health : {};
+  const healthMonitoringValue = health.monitoring;
   const publishing = object.publishing && typeof object.publishing === "object" ? object.publishing : {};
   const npm = publishing.npm && typeof publishing.npm === "object" ? publishing.npm : {};
   const python = publishing.python;
@@ -9822,7 +9836,8 @@ function mergeConfig(raw) {
       enabled: booleanValue(health.enabled, DEFAULT_CONFIG.health.enabled),
       workflows: healthWorkflows(health.workflows),
       expectedArtifacts: strings(health.expectedArtifacts),
-      requiredLinks: strings(health.requiredLinks)
+      requiredLinks: strings(health.requiredLinks),
+      monitoring: healthMonitoring(healthMonitoringValue, DEFAULT_CONFIG.health.monitoring)
     },
     publishing: {
       npm: {
@@ -9866,7 +9881,7 @@ function withOverrides(config, overrides) {
     outputs: { ...config.outputs },
     artifacts: { ...config.artifacts, paths: [...config.artifacts.paths] },
     monorepo: { ...config.monorepo, packages: [...config.monorepo.packages], dependencyPolicy: { ...config.monorepo.dependencyPolicy } },
-    health: { ...config.health, workflows: [...config.health.workflows], expectedArtifacts: [...config.health.expectedArtifacts], requiredLinks: [...config.health.requiredLinks] },
+    health: { ...config.health, workflows: [...config.health.workflows], expectedArtifacts: [...config.health.expectedArtifacts], requiredLinks: [...config.health.requiredLinks], ...config.health.monitoring ? { monitoring: { ...config.health.monitoring } } : {} },
     publishing: { ...config.publishing, npm: { ...config.publishing.npm }, python: { ...config.publishing.python }, rust: { ...config.publishing.rust } }
   };
   const prerelease = overrides.prerelease?.trim();
@@ -10060,6 +10075,12 @@ var GitHubClient = class {
       const value = payload.workflow_runs;
       return Array.isArray(value) ? value : [];
     });
+  }
+  async listIssueComments(number) {
+    return this.paginate(`/issues/${number}/comments?per_page=100&page=1`, (payload) => Array.isArray(payload) ? payload : []);
+  }
+  async createIssueComment(number, body) {
+    return await this.request(`/issues/${number}/comments`, { method: "POST", body: { body } });
   }
   async listReleases() {
     return this.paginate("/releases?per_page=100&page=1", (payload) => Array.isArray(payload) ? payload : []);
@@ -11300,6 +11321,14 @@ function buildWorkspaceReleasePlan(input2) {
 }
 
 // src/health.ts
+function versionFromReleaseTag(tag, tagPrefix) {
+  const direct = tag.startsWith(tagPrefix) ? tag.slice(tagPrefix.length) : tag;
+  if (parseVersion(direct)) {
+    return direct;
+  }
+  const suffix = /@(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(tag)?.[1];
+  return suffix && parseVersion(suffix) ? suffix : void 0;
+}
 function workflowCheck(config, observation) {
   return config.workflows.map((expected) => {
     const matches = observation.workflows.filter((run2) => run2.name.toLowerCase() === expected.name.toLowerCase());
@@ -12130,7 +12159,31 @@ async function checkLink(url) {
     clearTimeout(timeout);
   }
 }
-async function runPostReleaseVerification(client, releaseEvent, config) {
+async function appendMonitoringComment(client, releaseEvent, targetCommit, config, report) {
+  if (!config.health.monitoring?.comment || !targetCommit) {
+    return;
+  }
+  const releasePullRequest = (await client.commitPullRequests(targetCommit)).find((pullRequest) => isSemVergeReleasePullRequest(pullRequest, config));
+  if (!releasePullRequest) {
+    log(`Could not find the SemVerge release PR for delayed monitoring of ${releaseEvent.tag_name}; no history comment was added.`);
+    return;
+  }
+  const runId = process.env.GITHUB_RUN_ID?.trim() || targetCommit;
+  const marker = `<!-- semverge-monitor ${releaseEvent.tag_name} ${runId} -->`;
+  const comments = await client.listIssueComments(releasePullRequest.number);
+  if (comments.some((comment) => comment.body?.includes(marker))) {
+    log(`Delayed monitoring comment already exists for ${releaseEvent.tag_name} run ${runId}.`);
+    return;
+  }
+  const markdown = postReleaseVerificationMarkdown(report).trim();
+  await client.createIssueComment(releasePullRequest.number, `${marker}
+
+${markdown}
+
+Observed by the explicit SemVerge delayed-monitoring workflow.`);
+  log(`Recorded delayed monitoring history for ${releaseEvent.tag_name} on release PR #${releasePullRequest.number}.`);
+}
+async function runPostReleaseVerification(client, releaseEvent, config, options = {}) {
   if (!config.health.enabled) {
     log("Post-release verification is disabled.");
     return;
@@ -12192,8 +12245,47 @@ async function runPostReleaseVerification(client, releaseEvent, config) {
     });
     setOutput("transaction", JSON.stringify(next));
   }
+  if (options.delayed) {
+    await appendMonitoringComment(client, releaseEvent, targetCommit, config, report);
+  }
   if (report.status === "failed") {
     throw new Error(`Post-release verification failed for ${releaseEvent.tag_name}.`);
+  }
+}
+async function monitorReleases(client, config, tagOverride) {
+  const monitoring = config.health.monitoring;
+  if (!config.health.enabled || !monitoring?.enabled) {
+    log("Delayed release monitoring is disabled; no release history was changed.");
+    return;
+  }
+  const requestedTag = tagOverride.trim();
+  const releases = requestedTag ? [await client.getReleaseByTag(requestedTag)] : (await client.listReleases()).filter((release) => {
+    if (release.draft === true || !versionFromReleaseTag(release.tag_name, config.release.tagPrefix)) {
+      return false;
+    }
+    const publishedAt = release.published_at ?? release.created_at;
+    const timestamp2 = publishedAt ? Date.parse(publishedAt) : Number.NaN;
+    return Number.isFinite(timestamp2) && Date.now() - timestamp2 <= monitoring.windowHours * 60 * 60 * 1e3;
+  });
+  if (requestedTag && !releases[0]) {
+    throw new Error(`SemVerge could not find the release ${requestedTag} for delayed monitoring.`);
+  }
+  const targets = releases.filter((release) => Boolean(release));
+  if (targets.length === 0) {
+    log("No published semantic release was found inside the delayed-monitoring window.");
+    return;
+  }
+  const failures = [];
+  for (const release of targets) {
+    try {
+      await runPostReleaseVerification(client, release, config, { delayed: true });
+    } catch (error) {
+      failures.push(`${release.tag_name}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+  if (failures.length > 0) {
+    throw new Error(`Delayed release monitoring failed:
+${failures.join("\n")}`);
   }
 }
 async function prepareRelease(client, head, config, branch, defaultBranch) {
@@ -12594,6 +12686,10 @@ async function run() {
   }
   if (eventName === "pull_request" && "pull_request" in event && event.pull_request && event.action === "closed" && event.pull_request.merged && isSemVergeReleasePullRequest(event.pull_request, config)) {
     await publishRelease(client, event.pull_request, config);
+    return;
+  }
+  if (eventName === "schedule" || eventName === "workflow_dispatch") {
+    await monitorReleases(client, config, input("monitor-tag"));
     return;
   }
   if (eventName !== "push") {
