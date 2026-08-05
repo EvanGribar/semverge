@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, readFileSync, statSync, readdirSync } from "node:fs";
 import { exec as execCallback } from "node:child_process";
 import { promisify } from "node:util";
@@ -458,9 +459,9 @@ function packageKey(packageItem: PublishedPackage, index: number): string {
   return packageItem.id || packageItem.name || packageItem.directory || `package-${index + 1}`;
 }
 
-function initialReleaseProgress(version: string, sourceCommit: string, publishablePackages: PublishedPackage[], releaseTags: string[], config: SemVergeConfig): ReleaseProgress {
+function initialReleaseProgress(version: string, sourceCommit: string, publishablePackages: PublishedPackage[], releaseTags: string[], artifactDigestMap: Record<string, string>, config: SemVergeConfig): ReleaseProgress {
   const packageIds = publishablePackages.map(packageKey);
-  let transaction = createReleaseTransaction({ version, sourceCommit, packageIds, tagNames: releaseTags, npmEnabled: config.publishing.npm.enabled });
+  let transaction = createReleaseTransaction({ version, sourceCommit, packageIds, tagNames: releaseTags, artifactDigests: artifactDigestMap, npmEnabled: config.publishing.npm.enabled });
   transaction = advanceReleaseTransaction(transaction, "approved", { key: "approval", kind: "approval-verified", target: sourceCommit, detail: "Release PR merge commit verified." });
   transaction = advanceReleaseTransaction(transaction, "prepared", { key: "release-inputs", kind: "release-plan-prepared", target: version, detail: "Release manifest, package set, and tags validated." });
   return advanceReleaseTransaction(transaction, "built", { key: "artifact-build", kind: "artifacts-built", target: sourceCommit, detail: "Workspace and configured artifacts passed pre-publication validation." });
@@ -517,6 +518,14 @@ function collectFiles(target: string, root: string): string[] {
   return readdirSync(absolute, { withFileTypes: true }).flatMap((entry) => collectFiles(join(target, entry.name), root));
 }
 
+function artifactDigests(files: string[], workspace: string): Record<string, string> {
+  return Object.fromEntries(files.map((file) => {
+    const path = relative(workspace, file).split(sep).join("/");
+    const digest = createHash("sha256").update(readFileSync(file)).digest("hex");
+    return [path, digest];
+  }));
+}
+
 async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, config: SemVergeConfig): Promise<void> {
   const mergeSha = pr.merge_commit_sha;
   if (!mergeSha) {
@@ -562,6 +571,7 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
     await exec(artifactCommand, { cwd: workspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
   }
   const artifactFiles = config.artifacts.paths.flatMap((path) => collectFiles(path, workspace));
+  const artifactDigestMap = artifactDigests(artifactFiles, workspace);
 
   const releaseInputs = await Promise.all(releasePackages.map(async (packageItem) => {
     const tag = packageTagName(config, mode, packageItem);
@@ -583,7 +593,7 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
   }));
 
   const version = manifest.version ?? packages.map((packageItem) => `${packageItem.name}@${packageItem.version}`).join(", ");
-  const expectedProgress = initialReleaseProgress(version, mergeSha, publishablePackages, releaseInputs.map((item) => item.tag), config);
+  const expectedProgress = initialReleaseProgress(version, mergeSha, publishablePackages, releaseInputs.map((item) => item.tag), artifactDigestMap, config);
   let progress = mergeReleaseProgress(releaseInputs.map((item) => item.existingProgress), expectedProgress);
   const executions: ReleaseExecution[] = [];
 

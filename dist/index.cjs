@@ -9361,6 +9361,7 @@ __export(action_exports, {
   run: () => run
 });
 module.exports = __toCommonJS(action_exports);
+var import_node_crypto2 = require("node:crypto");
 var import_node_fs = require("node:fs");
 var import_node_child_process3 = require("node:child_process");
 var import_node_util3 = require("node:util");
@@ -11227,7 +11228,7 @@ async function assertWorkspaceAtCommit(workspace, mergeSha, readHead = readWorks
 
 // src/transaction.ts
 var import_node_crypto = require("node:crypto");
-var RELEASE_TRANSACTION_SCHEMA_VERSION = 2;
+var RELEASE_TRANSACTION_SCHEMA_VERSION = 3;
 var RELEASE_TRANSACTION_MARKER = "<!-- semverge-progress ";
 var RELEASE_PHASES = [
   "planned",
@@ -11272,6 +11273,19 @@ function assetMap(value) {
   }
   return Object.fromEntries(Object.entries(object).map(([tag, assets]) => [tag, stringArray(assets, `uploadedAssets.${tag}`)]));
 }
+function digestMap(value, field = "artifactDigests") {
+  const object = objectValue2(value);
+  if (!object) {
+    throw new Error(`SemVerge transaction field ${field} must be an object.`);
+  }
+  const entries = Object.entries(object).map(([path, digest]) => {
+    if (!path || typeof digest !== "string" || !/^[0-9a-f]{64}$/i.test(digest)) {
+      throw new Error(`SemVerge transaction field ${field} must contain SHA-256 hex digests.`);
+    }
+    return [path, digest.toLowerCase()];
+  });
+  return Object.fromEntries(entries);
+}
 function eventValue(value) {
   const object = objectValue2(value);
   if (!object || typeof object.key !== "string" || typeof object.phase !== "string" || typeof object.kind !== "string" || typeof object.target !== "string" || object.status !== "completed" && object.status !== "failed" || typeof object.attempt !== "number" || !Number.isInteger(object.attempt) || object.attempt < 1 || typeof object.at !== "string") {
@@ -11302,6 +11316,7 @@ function createReleaseTransaction(input2) {
     packageIds: unique(input2.packageIds),
     tagNames: unique(input2.tagNames),
     npmEnabled: input2.npmEnabled,
+    artifactDigests: digestMap(input2.artifactDigests ?? {}),
     publishedPackages: input2.npmEnabled ? [] : unique(input2.packageIds),
     uploadedAssets: Object.fromEntries(unique(input2.tagNames).map((tag) => [tag, []])),
     ready: false,
@@ -11355,6 +11370,7 @@ function mergeReleaseTransactions(states, expected) {
     sourceCommit: present.find((state) => state.sourceCommit !== "unknown")?.sourceCommit ?? expected.sourceCommit,
     packageIds: [...expected.packageIds],
     tagNames: [...expected.tagNames],
+    artifactDigests: { ...expected.artifactDigests },
     publishedPackages: [...expected.publishedPackages],
     uploadedAssets: normalizeAssets(expected.uploadedAssets),
     events: [...expected.events],
@@ -11373,6 +11389,13 @@ function mergeReleaseTransactions(states, expected) {
     merged.published ||= state.published;
     for (const tag of expected.tagNames) {
       merged.uploadedAssets[tag] = unique([...merged.uploadedAssets[tag] ?? [], ...state.uploadedAssets[tag] ?? []]);
+    }
+    for (const [path, digest] of Object.entries(state.artifactDigests)) {
+      const expectedDigest = merged.artifactDigests[path];
+      if (expectedDigest && expectedDigest !== digest) {
+        throw new Error(`SemVerge found a different artifact digest for ${path}; verify the release workspace before retrying.`);
+      }
+      merged.artifactDigests[path] = digest;
     }
     const events = new Map(merged.events.map((event) => [`${event.key}:${event.status}:${event.attempt}`, event]));
     for (const event of state.events) {
@@ -11425,7 +11448,7 @@ function parseReleaseTransaction(value) {
   if (record.schemaVersion === 1) {
     return upgradeLegacyTransaction(record);
   }
-  if (record.schemaVersion !== RELEASE_TRANSACTION_SCHEMA_VERSION || typeof record.id !== "string" || typeof record.version !== "string" || typeof record.sourceCommit !== "string" || typeof record.npmEnabled !== "boolean" || typeof record.ready !== "boolean" || typeof record.published !== "boolean" || typeof record.updatedAt !== "string" || !Array.isArray(record.events)) {
+  if (record.schemaVersion !== 2 && record.schemaVersion !== RELEASE_TRANSACTION_SCHEMA_VERSION || typeof record.id !== "string" || typeof record.version !== "string" || typeof record.sourceCommit !== "string" || typeof record.npmEnabled !== "boolean" || typeof record.ready !== "boolean" || typeof record.published !== "boolean" || typeof record.updatedAt !== "string" || !Array.isArray(record.events) || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION && record.artifactDigests === void 0) {
     throw new Error("SemVerge found an invalid release transaction marker.");
   }
   const failure = record.failure === void 0 ? void 0 : objectValue2(record.failure);
@@ -11442,6 +11465,7 @@ function parseReleaseTransaction(value) {
     packageIds: stringArray(record.packageIds, "packageIds"),
     tagNames: stringArray(record.tagNames, "tagNames"),
     npmEnabled: record.npmEnabled,
+    artifactDigests: record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION ? digestMap(record.artifactDigests) : {},
     publishedPackages: stringArray(record.publishedPackages, "publishedPackages"),
     uploadedAssets: normalizeAssets(assetMap(record.uploadedAssets)),
     ready: record.ready,
@@ -11529,6 +11553,7 @@ function summarizeReleaseTransaction(state) {
     phase: state.phase,
     publishedPackages: `${state.publishedPackages.length}/${state.packageIds.length}`,
     uploadedAssets,
+    artifactDigests: { ...state.artifactDigests },
     recordedEvents: state.events.length,
     safeNextAction,
     ...state.failure ? { failure: state.failure.message } : {}
@@ -11544,6 +11569,8 @@ function releaseTransactionSummaryMarkdown(state) {
     `- State: **${summary.phase}**`,
     `- Packages published: **${summary.publishedPackages}**`,
     `- Uploaded assets recorded: **${summary.uploadedAssets}**`,
+    `- Artifact SHA-256 digests recorded: **${Object.keys(summary.artifactDigests).length}**`,
+    ...Object.entries(summary.artifactDigests).sort(([left], [right]) => left.localeCompare(right)).map(([path, digest]) => "- Artifact `" + path + "`: `" + digest + "`"),
     `- Recorded side effects: **${summary.recordedEvents}**`,
     ...summary.failure ? [`- Recorded failure: ${summary.failure}`] : [],
     `- Safe next action: ${summary.safeNextAction}`
@@ -11923,9 +11950,9 @@ function packageTagName(config, mode, packageItem) {
 function packageKey(packageItem, index) {
   return packageItem.id || packageItem.name || packageItem.directory || `package-${index + 1}`;
 }
-function initialReleaseProgress(version, sourceCommit, publishablePackages, releaseTags, config) {
+function initialReleaseProgress(version, sourceCommit, publishablePackages, releaseTags, artifactDigestMap, config) {
   const packageIds = publishablePackages.map(packageKey);
-  let transaction = createReleaseTransaction({ version, sourceCommit, packageIds, tagNames: releaseTags, npmEnabled: config.publishing.npm.enabled });
+  let transaction = createReleaseTransaction({ version, sourceCommit, packageIds, tagNames: releaseTags, artifactDigests: artifactDigestMap, npmEnabled: config.publishing.npm.enabled });
   transaction = advanceReleaseTransaction(transaction, "approved", { key: "approval", kind: "approval-verified", target: sourceCommit, detail: "Release PR merge commit verified." });
   transaction = advanceReleaseTransaction(transaction, "prepared", { key: "release-inputs", kind: "release-plan-prepared", target: version, detail: "Release manifest, package set, and tags validated." });
   return advanceReleaseTransaction(transaction, "built", { key: "artifact-build", kind: "artifacts-built", target: sourceCommit, detail: "Workspace and configured artifacts passed pre-publication validation." });
@@ -11975,6 +12002,13 @@ function collectFiles(target, root) {
   }
   return (0, import_node_fs.readdirSync)(absolute, { withFileTypes: true }).flatMap((entry) => collectFiles((0, import_node_path3.join)(target, entry.name), root));
 }
+function artifactDigests(files, workspace) {
+  return Object.fromEntries(files.map((file) => {
+    const path = (0, import_node_path3.relative)(workspace, file).split(import_node_path3.sep).join("/");
+    const digest = (0, import_node_crypto2.createHash)("sha256").update((0, import_node_fs.readFileSync)(file)).digest("hex");
+    return [path, digest];
+  }));
+}
 async function publishRelease(client, pr, config) {
   const mergeSha = pr.merge_commit_sha;
   if (!mergeSha) {
@@ -12016,6 +12050,7 @@ async function publishRelease(client, pr, config) {
     await exec2(artifactCommand, { cwd: workspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
   }
   const artifactFiles = config.artifacts.paths.flatMap((path) => collectFiles(path, workspace));
+  const artifactDigestMap = artifactDigests(artifactFiles, workspace);
   const releaseInputs = await Promise.all(releasePackages.map(async (packageItem) => {
     const tag = packageTagName(config, mode, packageItem);
     const existingTag = await client.getRef(`tags/${tag}`);
@@ -12035,7 +12070,7 @@ async function publishRelease(client, pr, config) {
     return { packageItem, tag, customerNotes, existingRelease, existingProgress };
   }));
   const version = manifest.version ?? packages.map((packageItem) => `${packageItem.name}@${packageItem.version}`).join(", ");
-  const expectedProgress = initialReleaseProgress(version, mergeSha, publishablePackages, releaseInputs.map((item) => item.tag), config);
+  const expectedProgress = initialReleaseProgress(version, mergeSha, publishablePackages, releaseInputs.map((item) => item.tag), artifactDigestMap, config);
   let progress = mergeReleaseProgress(releaseInputs.map((item) => item.existingProgress), expectedProgress);
   const executions = [];
   for (const item of releaseInputs) {

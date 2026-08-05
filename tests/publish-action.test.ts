@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -95,14 +96,23 @@ describe("merged release publication", () => {
   it("builds before creating a draft and publishes only after the transaction is ready", async () => {
     const directory = mkdtempSync(join(tmpdir(), "semverge-publish-"));
     const eventPath = publishEvent(directory);
+    writeFileSync(join(directory, "artifact.txt"), "artifact");
+    execFileSync("git", ["init"], { cwd: directory, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "test@example.com"], { cwd: directory, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "SemVerge Test"], { cwd: directory, stdio: "ignore" });
+    execFileSync("git", ["add", "."], { cwd: directory, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "fixture"], { cwd: directory, stdio: "ignore" });
+    const mergeSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: directory, encoding: "utf8" }).trim();
+    publishEvent(directory, mergeSha);
     const outputPath = join(directory, "outputs.txt");
+    const artifactDigest = createHash("sha256").update("artifact").digest("hex");
     const requests: Array<{ method: string; path: string; body?: Record<string, unknown> }> = [];
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL, init?: RequestInit) => {
       const url = new URL(String(input));
       const body = init?.body && typeof init.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : undefined;
       requests.push({ method: init?.method ?? "GET", path: `${url.pathname}${url.search}`, body });
       if (url.pathname.endsWith("/contents/.semverge.yml")) {
-        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded("release:\n  branch: release/bot\nhealth:\n  enabled: true\n") }), { status: 200 });
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded("release:\n  branch: release/bot\nhealth:\n  enabled: true\nartifacts:\n  paths:\n    - artifact.txt\n") }), { status: 200 });
       }
       if (url.pathname.endsWith("/contents/release-manifest.json")) {
         return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded(manifest()) }), { status: 200 });
@@ -125,10 +135,13 @@ describe("merged release publication", () => {
       if (url.pathname.endsWith("/releases/3") && init?.method === "PATCH") {
         return new Response(JSON.stringify({ id: 3, tag_name: "v0.2.0", html_url: "https://github.com/demo/repo/releases/tag/v0.2.0", upload_url: "https://uploads.github.com/repos/demo/repo/releases/3/assets{?name,label}", body: body?.body, draft: body?.draft ?? true, assets: [] }), { status: 200 });
       }
+      if (url.pathname.endsWith("/assets") && init?.method === "POST") {
+        return new Response(JSON.stringify({ name: "artifact.txt" }), { status: 201 });
+      }
       return new Response(JSON.stringify({ message: `Unhandled ${init?.method ?? "GET"} ${url.pathname}` }), { status: 500 });
     }));
 
-    const previous = setPublishEnvironment(directory, eventPath, outputPath);
+    const previous = setPublishEnvironment(directory, eventPath, outputPath, directory, mergeSha);
     let output = "";
     try {
       await run();
@@ -145,8 +158,9 @@ describe("merged release publication", () => {
     expect(requests[createIndex]?.body).toMatchObject({ draft: true, tag_name: "v0.2.0" });
     expect(requests[finalizeIndex]?.body?.tag_name).toBe("v0.2.0");
     expect(requests[createIndex]?.body?.body).toContain("semverge-progress");
+    expect(String(requests[createIndex]?.body?.body)).toContain(`Artifact \`artifact.txt\`: \`${artifactDigest}\``);
     expect(requests.some((request) => request.method === "POST" && request.path.endsWith("/git/refs"))).toBe(false);
-    expect(requests.some((request) => request.path.endsWith("/actions/runs?head_sha=merge-sha&per_page=100&page=1"))).toBe(true);
+    expect(requests.some((request) => request.path.endsWith(`/actions/runs?head_sha=${mergeSha}&per_page=100&page=1`))).toBe(true);
     expect(output).toContain("post-release-verification");
     expect(output).toContain('"phase":"completed"');
     expect(output).toContain("https://github.com/demo/repo/releases/tag/v0.2.0");

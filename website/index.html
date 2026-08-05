@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="SemVerge makes software releases understandable, recoverable, and safe.">
+    <title>SemVerge — Release with certainty</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" aria-label="SemVerge home"><span class="brand-mark">S</span> SemVerge</a>
+      <nav aria-label="Primary navigation">
+        <a href="#workflow">Workflow</a>
+        <a href="#proof">Proof</a>
+        <a class="nav-cta" href="https://github.com/EvanGribar/semverge">View on GitHub</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero">
+        <p class="eyebrow">Release operations for real repositories</p>
+        <h1>Ship releases with certainty.</h1>
+        <p class="hero-copy">SemVerge turns changes into an explainable release plan, prepares what customers need to know, publishes every configured artifact safely, and leaves a durable recovery path when something fails.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="https://github.com/EvanGribar/semverge#quick-start">Start with GitHub Actions</a>
+          <a class="button button-secondary" href="https://github.com/EvanGribar/semverge/blob/main/docs/migration.md">Migrate safely</a>
+        </div>
+        <p class="hero-note">Open source · Node.js and GitHub first · No secrets in the release plan</p>
+      </section>
+
+      <section id="workflow" class="section">
+        <div class="section-heading">
+          <p class="eyebrow">One understandable workflow</p>
+          <h2>Every release has a story you can inspect.</h2>
+        </div>
+        <ol class="workflow" aria-label="SemVerge release workflow">
+          <li><span>01</span><strong>Plan</strong><p>Read commits, pull requests, labels, and package relationships.</p></li>
+          <li><span>02</span><strong>Explain</strong><p>Show the version decision, readiness blockers, and dependency graph.</p></li>
+          <li><span>03</span><strong>Publish</strong><p>Build first, then record idempotent package, tag, release, and asset effects.</p></li>
+          <li><span>04</span><strong>Verify</strong><p>Check the published release and keep a safe next action for recovery.</p></li>
+        </ol>
+      </section>
+
+      <section id="proof" class="section proof-section">
+        <div class="section-heading">
+          <p class="eyebrow">Proof over promises</p>
+          <h2>Designed to earn trust one release at a time.</h2>
+        </div>
+        <div class="cards">
+          <article class="card"><span class="card-number">01</span><h3>Durable transactions</h3><p>Release state records phases, side effects, retries, failures, and SHA-256 digests for configured assets.</p></article>
+          <article class="card"><span class="card-number">02</span><h3>Human-readable decisions</h3><p><code>semverge explain</code>, migration reports, and release graphs make automation reviewable before merge.</p></article>
+          <article class="card"><span class="card-number">03</span><h3>Conservative migration</h3><p>Release Please, Changesets, and semantic-release detection maps only deterministic settings and keeps publication opt-in.</p></article>
+          <article class="card"><span class="card-number">04</span><h3>Honest boundaries</h3><p>Fixtures and hosted checks are documented as evidence; provider credentials, adoption, and live registry proof are never implied.</p></article>
+        </div>
+      </section>
+
+      <section class="callout">
+        <p class="eyebrow">Built in public</p>
+        <h2>Help make the safest release tool easier to trust.</h2>
+        <p>Read the roadmap, try the local CLI, test a fixture, or open an issue with a release workflow SemVerge should understand next.</p>
+        <a class="button button-primary" href="https://github.com/EvanGribar/semverge/blob/main/docs/product-roadmap.md">Read the roadmap</a>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <span>SemVerge is open source.</span>
+      <span><a href="https://github.com/EvanGribar/semverge/blob/main/LICENSE">MIT License</a> · <a href="https://github.com/EvanGribar/semverge/blob/main/SECURITY.md">Security</a> · <a href="https://github.com/EvanGribar/semverge/blob/main/CODE_OF_CONDUCT.md">Code of Conduct</a></span>
+    </footer>
+  </body>
+</html>

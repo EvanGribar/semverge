@@ -46,7 +46,7 @@ jobs:
         # - uses: EvanGribar/semverge@c0a62caddd16e581b5a1bd3577540c54e0102739
 ```
 
-On pushes to `main`, SemVerge reads conventional commits and merged pull requests, calculates the next semantic version, and maintains a release pull request. When that pull request merges, SemVerge verifies that the runner workspace is checked out at the exact merge commit, builds artifacts, prepares a draft release, publishes configured npm packages, uploads assets, and only then publishes the GitHub release. A durable transaction marker in the release body records explicit phases and side effects, so retries resume completed steps, including a registry check that recognizes an already-published npm version. The action's `transaction` output exposes the same state as JSON.
+On pushes to `main`, SemVerge reads conventional commits and merged pull requests, calculates the next semantic version, and maintains a release pull request. When that pull request merges, SemVerge verifies that the runner workspace is checked out at the exact merge commit, builds artifacts, records SHA-256 digests for configured assets, prepares a draft release, publishes configured npm packages, uploads assets, and only then publishes the GitHub release. A durable transaction marker in the release body records explicit phases and side effects, so retries resume completed steps, including a registry check that recognizes an already-published npm version and a digest check that rejects changed artifacts. The action's `transaction` output exposes the same state as JSON.
 
 The default repository needs no configuration. SemVerge also understands product-oriented labels:
 
@@ -75,6 +75,8 @@ npx semverge recover release_01J... --state .semverge/release-state.json
 
 `init` is safe by default and requires `--force` to replace an existing file. `plan` prints the same release-plan shape used by the action, `explain` turns that plan into a human-readable decision and recovery guide, while `doctor` reports local package-manager, workspace, tag, release-tool, registry, build, workflow-permission, and configuration signals before a hosted run. It never prints auth settings and cannot prove provider-side eligibility. See [docs/doctor.md](docs/doctor.md).
 `migrate` detects Release Please, Changesets, and semantic-release configuration and produces a conservative report; add `--write` only after reviewing it. `recover` prints the durable transaction state and safe next action. With `GITHUB_REPOSITORY` and a token it searches GitHub releases; `--state` is useful for a local exported marker or fixture. See [docs/migration.md](docs/migration.md).
+
+The dependency-free [public site](website/README.md) is intended to be hosted from `website/` on Vercel. See [docs/vercel.md](docs/vercel.md) for the deployment boundary and Open Source Program evidence notes.
 
 For independent workspaces, the plan and release PR include a release graph for every bumped package: direct changes, dependent-package propagation, and packages left unreleased by the current strategy are shown explicitly.
 
