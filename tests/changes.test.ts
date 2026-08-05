@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseChange } from "../src/changes.js";
+import { parseChange, prereleaseChannelFromLabels } from "../src/changes.js";
 
 describe("release change parsing", () => {
   it("uses product labels as a conventional-commit override", () => {
@@ -29,5 +29,12 @@ describe("release change parsing", () => {
   it("allows ship:skip to suppress a release contribution", () => {
     const change = parseChange({ title: "feat: hidden experiment", source: "pull_request", labels: ["ship:skip"] });
     expect(change.skipped).toBe(true);
+  });
+
+  it("maps named prerelease channel labels", () => {
+    expect(prereleaseChannelFromLabels(["ship:rc"])).toBe("rc");
+    expect(prereleaseChannelFromLabels(["SHIP:NIGHTLY"])).toBe("nightly");
+    expect(prereleaseChannelFromLabels(["ship:canary"])).toBe("canary");
+    expect(prereleaseChannelFromLabels(["ship:stable"])).toBeUndefined();
   });
 });
