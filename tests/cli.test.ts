@@ -38,6 +38,8 @@ describe("SemVerge CLI", () => {
 
       const doctorOutput = capture();
       expect(await runCli(["doctor"], directory, doctorOutput.io)).toBe(0);
+      expect(doctorOutput.stdout.join("\n")).toContain("Repository setup report");
+      expect(doctorOutput.stdout.join("\n")).toContain("Package manager: unknown");
       expect(doctorOutput.stdout.join("\n")).toContain("OK");
     } finally {
       rmSync(directory, { recursive: true, force: true });
