@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, readFileSync, statSync, readdirSync } from 
 import { exec as execCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve, relative, join, basename, sep } from "node:path";
-import { formatChangeReference, parseChange } from "./changes.js";
+import { formatChangeReference, parseChange, prereleaseChannelFromLabels } from "./changes.js";
 import { parseConfig, withOverrides } from "./config.js";
 import { readinessMarkdown } from "./readiness.js";
 import { releaseTagName, GitHubClient, type GitHubCommitSummary, type GitHubPullRequest, type GitHubRelease } from "./github.js";
@@ -358,8 +358,8 @@ async function prepareRelease(client: GitHubClient, head: string, config: SemVer
   const manifestFiles = Object.fromEntries(manifestEntries.flatMap(([path, content]) => content === null ? [] : [[path, content]]));
   const discovered = discoverPackages(manifestFiles, allPaths, config);
   const changes = await changesSinceTag(client, head, await latestReleaseTag(client, config));
-  const betaLabelPresent = changes.some((change) => change.labels.includes("ship:beta"));
-  const effectiveConfig = betaLabelPresent && !config.release.prerelease ? withOverrides(config, { prerelease: "beta" }) : config;
+  const labelPrerelease = prereleaseChannelFromLabels(changes.flatMap((change) => change.labels));
+  const effectiveConfig = labelPrerelease && !config.release.prerelease ? withOverrides(config, { prerelease: labelPrerelease }) : config;
   const packageOutputPaths = discovered.packages.flatMap((packageItem) => {
     const prefix = discovered.mode === "independent" && packageItem.directory ? `${packageItem.directory}/` : "";
     return Object.values(effectiveConfig.outputs).map((path) => prefix + path);

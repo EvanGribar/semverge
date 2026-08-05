@@ -137,4 +137,13 @@ describe("release planning", () => {
 
     expect(plan).toMatchObject({ version: "2.1.0-rc.0", channel: "rc", promotion: false });
   });
+
+  it("uses named channel labels when no channel is configured", () => {
+    const plan = buildReleasePlan({
+      currentVersion: "2.0.0",
+      changes: [parseChange({ title: "feat: add release candidates", source: "pull_request", labels: ["ship:rc"] })]
+    });
+
+    expect(plan).toMatchObject({ version: "2.1.0-rc.0", channel: "rc", promotion: false });
+  });
 });

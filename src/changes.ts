@@ -10,6 +10,18 @@ const LABEL_KIND: Record<string, ReleaseKind> = {
   "ship:docs": "docs"
 };
 
+export const PRERELEASE_CHANNEL_LABELS = {
+  "ship:beta": "beta",
+  "ship:rc": "rc",
+  "ship:nightly": "nightly",
+  "ship:canary": "canary"
+} as const;
+
+export function prereleaseChannelFromLabels(labels: Iterable<string>): string | undefined {
+  const normalized = new Set([...labels].map((label) => label.trim().toLowerCase()));
+  return Object.entries(PRERELEASE_CHANNEL_LABELS).find(([label]) => normalized.has(label))?.[1];
+}
+
 function normalizeLabels(labels: string[] | undefined): string[] {
   return [...new Set((labels ?? []).map((label) => label.trim().toLowerCase()).filter(Boolean))];
 }

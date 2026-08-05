@@ -9468,6 +9468,16 @@ var LABEL_KIND = {
   "ship:internal": "internal",
   "ship:docs": "docs"
 };
+var PRERELEASE_CHANNEL_LABELS = {
+  "ship:beta": "beta",
+  "ship:rc": "rc",
+  "ship:nightly": "nightly",
+  "ship:canary": "canary"
+};
+function prereleaseChannelFromLabels(labels) {
+  const normalized = new Set([...labels].map((label) => label.trim().toLowerCase()));
+  return Object.entries(PRERELEASE_CHANNEL_LABELS).find(([label]) => normalized.has(label))?.[1];
+}
 function normalizeLabels(labels) {
   return [...new Set((labels ?? []).map((label) => label.trim().toLowerCase()).filter(Boolean))];
 }
@@ -10580,7 +10590,7 @@ function buildReleasePlan(input2) {
   const releaseChanges = input2.changes.filter((change) => !change.skipped);
   const skippedChanges = input2.changes.filter((change) => change.skipped);
   const bump = highestBump(releaseChanges.map((change) => bumpForChange(change)));
-  const labelPrerelease = releaseChanges.some((change) => change.labels.includes("ship:beta")) ? "beta" : void 0;
+  const labelPrerelease = prereleaseChannelFromLabels(releaseChanges.flatMap((change) => change.labels));
   const stableRequested = config.release.promotion === "stable" || releaseChanges.some((change) => change.labels.includes("ship:stable"));
   const currentVersion = parseVersion(input2.currentVersion);
   const promotion = stableRequested && Boolean(currentVersion?.prerelease.length);
@@ -11909,8 +11919,8 @@ async function prepareRelease(client, head, config) {
   const manifestFiles = Object.fromEntries(manifestEntries.flatMap(([path, content]) => content === null ? [] : [[path, content]]));
   const discovered = discoverPackages(manifestFiles, allPaths, config);
   const changes = await changesSinceTag(client, head, await latestReleaseTag(client, config));
-  const betaLabelPresent = changes.some((change) => change.labels.includes("ship:beta"));
-  const effectiveConfig = betaLabelPresent && !config.release.prerelease ? withOverrides(config, { prerelease: "beta" }) : config;
+  const labelPrerelease = prereleaseChannelFromLabels(changes.flatMap((change) => change.labels));
+  const effectiveConfig = labelPrerelease && !config.release.prerelease ? withOverrides(config, { prerelease: labelPrerelease }) : config;
   const packageOutputPaths = discovered.packages.flatMap((packageItem) => {
     const prefix = discovered.mode === "independent" && packageItem.directory ? `${packageItem.directory}/` : "";
     return Object.values(effectiveConfig.outputs).map((path) => prefix + path);

@@ -59,6 +59,9 @@ The default repository needs no configuration. SemVerge also understands product
 | `ship:docs` | Documentation-only change |
 | `ship:skip` | Exclude the pull request from a release |
 | `ship:beta` | Use the beta prerelease channel |
+| `ship:rc` | Use the release-candidate prerelease channel |
+| `ship:nightly` | Use the nightly prerelease channel |
+| `ship:canary` | Use the canary prerelease channel |
 | `ship:stable` | Explicitly promote the current prerelease to stable |
 
 ## Local CLI
@@ -149,7 +152,7 @@ health:
 
 Readiness checks are reported in the release PR. A missing required label or file blocks publication but does not hide the proposed version or generated communication.
 
-Stable promotion is explicit. Add `ship:stable` to a release-bearing change, or set `release.promotion: stable`, to turn a current version such as `1.4.0-beta.2` into `1.4.0`. The release PR, JSON manifest, local plan, explanation, and `release-channel`/`release-promotion` action outputs record the decision. Without that opt-in, configured prerelease channels continue to create the next prerelease version.
+Stable promotion is explicit. Add `ship:stable` to a release-bearing change, or set `release.promotion: stable`, to turn a current version such as `1.4.0-beta.2` into `1.4.0`. The release PR, JSON manifest, local plan, explanation, and `release-channel`/`release-promotion` action outputs record the decision. Without that opt-in, configured prerelease channels continue to create the next prerelease version. When no `release.prerelease` is configured, `ship:beta`, `ship:rc`, `ship:nightly`, and `ship:canary` select their named channels; use one channel label per release.
 
 The `health` configuration namespace provides immediate post-release verification: configured assets, documentation links, and workflow results visible after the publication transaction or on a `release.published` event. A workflow that has not started or completed is reported as a warning so the check can be rerun after it finishes. SemVerge does not infer rollback or hotfix signals from a single event; delayed monitoring is planned separately.
 
