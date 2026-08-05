@@ -40,7 +40,7 @@ export function buildReleasePlan(input: BuildReleasePlanInput): ReleasePlan {
   const releaseChanges = input.changes.filter((change) => !change.skipped);
   const skippedChanges = input.changes.filter((change) => change.skipped);
   const bump = highestBump(releaseChanges.map((change) => bumpForChange(change)));
-  const labelPrerelease = prereleaseChannelFromLabels(releaseChanges.flatMap((change) => change.labels));
+  const labelPrerelease = prereleaseChannelFromLabels(releaseChanges.flatMap((change) => change.labels), config.release.channels);
   const stableRequested = config.release.promotion === "stable" || releaseChanges.some((change) => change.labels.includes("ship:stable"));
   const currentVersion = parseVersion(input.currentVersion);
   const promotion = stableRequested && Boolean(currentVersion?.prerelease.length);

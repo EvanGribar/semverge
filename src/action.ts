@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, readFileSync, statSync, readdirSync } from 
 import { exec as execCallback } from "node:child_process";
 import { promisify } from "node:util";
 import { resolve, relative, join, basename, sep } from "node:path";
-import { formatChangeReference, parseChange, prereleaseChannelFromLabels } from "./changes.js";
+import { formatChangeReference, parseChange, prereleaseChannelFromLabels, releaseChannelFromLabels } from "./changes.js";
 import { parseConfig, withOverrides } from "./config.js";
 import { readinessMarkdown } from "./readiness.js";
 import { releaseTagName, GitHubClient, type GitHubCommitSummary, type GitHubPullRequest, type GitHubRelease } from "./github.js";
@@ -40,6 +40,11 @@ interface ReleaseEvent {
     body?: string | null;
     assets?: Array<{ name: string }>;
   };
+}
+
+export function channelBranchAllowed(branch: string, defaultBranch: string, configuredBranch?: string): boolean {
+  const expectedBranch = configuredBranch?.replace(/^refs\/heads\//, "");
+  return expectedBranch ? branch === expectedBranch : branch === defaultBranch;
 }
 
 function input(name: string): string {
@@ -349,7 +354,7 @@ async function runPostReleaseVerification(client: GitHubClient, releaseEvent: No
   }
 }
 
-async function prepareRelease(client: GitHubClient, head: string, config: SemVergeConfig): Promise<void> {
+async function prepareRelease(client: GitHubClient, head: string, config: SemVergeConfig, branch: string, defaultBranch: string): Promise<void> {
   const baseCommit = await client.getCommit(head);
   const repositoryTree = await client.getTree(baseCommit.tree.sha);
   const allPaths = repositoryTree.filter((entry) => entry.type === "blob").map((entry) => entry.path);
@@ -358,7 +363,13 @@ async function prepareRelease(client: GitHubClient, head: string, config: SemVer
   const manifestFiles = Object.fromEntries(manifestEntries.flatMap(([path, content]) => content === null ? [] : [[path, content]]));
   const discovered = discoverPackages(manifestFiles, allPaths, config);
   const changes = await changesSinceTag(client, head, await latestReleaseTag(client, config));
-  const labelPrerelease = prereleaseChannelFromLabels(changes.flatMap((change) => change.labels));
+  const channel = releaseChannelFromLabels(changes.flatMap((change) => change.labels), config.release.channels);
+  const labelPrerelease = prereleaseChannelFromLabels(changes.flatMap((change) => change.labels), config.release.channels);
+  const channelBranch = channel?.policy.branch?.replace(/^refs\/heads\//, "");
+  if (!channelBranchAllowed(branch, defaultBranch, channelBranch)) {
+    log(`Ignoring push to ${branch}; ${channel ? `${channel.name} channel requires ${channelBranch ?? defaultBranch}` : `release preparation runs on ${defaultBranch}`}.`);
+    return;
+  }
   const effectiveConfig = labelPrerelease && !config.release.prerelease ? withOverrides(config, { prerelease: labelPrerelease }) : config;
   const packageOutputPaths = discovered.packages.flatMap((packageItem) => {
     const prefix = discovered.mode === "independent" && packageItem.directory ? `${packageItem.directory}/` : "";
@@ -798,7 +809,10 @@ export async function run(): Promise<void> {
   const repositoryInfo = await client.repositoryInfo();
   const push = event as PushEvent;
   const expectedRef = `refs/heads/${repositoryInfo.default_branch}`;
-  if (push.ref && push.ref !== expectedRef) {
+  const channelRefs = Object.values(config.release.channels)
+    .flatMap((policy) => policy.branch ? [`refs/heads/${policy.branch.replace(/^refs\/heads\//, "")}`] : []);
+  const allowedRefs = new Set([expectedRef, ...channelRefs]);
+  if (push.ref && !allowedRefs.has(push.ref)) {
     log(`Ignoring push to ${push.ref}; release preparation runs on ${expectedRef}.`);
     return;
   }
@@ -809,7 +823,8 @@ export async function run(): Promise<void> {
       return;
     }
   }
-  await prepareRelease(client, push.after || process.env.GITHUB_SHA || "", config);
+  const branch = (push.ref ?? process.env.GITHUB_REF_NAME ?? expectedRef.replace(/^refs\/heads\//, "")).replace(/^refs\/heads\//, "");
+  await prepareRelease(client, push.after || process.env.GITHUB_SHA || "", config, branch, repositoryInfo.default_branch);
 }
 
 if (process.env.NODE_ENV !== "test") {

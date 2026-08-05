@@ -1,5 +1,5 @@
 import { parseSemVergeMetadata } from "./metadata.js";
-import type { BumpLevel, ChangeInput, ReleaseChange, ReleaseKind } from "./types.js";
+import type { BumpLevel, ChangeInput, ReleaseChannelPolicy, ReleaseChange, ReleaseKind } from "./types.js";
 
 const HEADER_PATTERN = /^(?<type>[a-z]+)(?:\((?<scope>[^)]+)\))?(?<breaking>!)?:\s*(?<description>.+)$/i;
 const LABEL_KIND: Record<string, ReleaseKind> = {
@@ -17,9 +17,26 @@ export const PRERELEASE_CHANNEL_LABELS = {
   "ship:canary": "canary"
 } as const;
 
-export function prereleaseChannelFromLabels(labels: Iterable<string>): string | undefined {
+const BUILTIN_CHANNEL_POLICIES: Record<string, ReleaseChannelPolicy> = {
+  beta: { label: "ship:beta", prerelease: "beta" },
+  rc: { label: "ship:rc", prerelease: "rc" },
+  nightly: { label: "ship:nightly", prerelease: "nightly" },
+  canary: { label: "ship:canary", prerelease: "canary" }
+};
+
+export interface ReleaseChannelMatch {
+  name: string;
+  policy: ReleaseChannelPolicy;
+}
+
+export function releaseChannelFromLabels(labels: Iterable<string>, channels?: Record<string, ReleaseChannelPolicy>): ReleaseChannelMatch | undefined {
   const normalized = new Set([...labels].map((label) => label.trim().toLowerCase()));
-  return Object.entries(PRERELEASE_CHANNEL_LABELS).find(([label]) => normalized.has(label))?.[1];
+  const match = Object.entries(channels ?? BUILTIN_CHANNEL_POLICIES).find(([, policy]) => normalized.has(policy.label.toLowerCase()));
+  return match ? { name: match[0], policy: match[1] } : undefined;
+}
+
+export function prereleaseChannelFromLabels(labels: Iterable<string>, channels?: Record<string, ReleaseChannelPolicy>): string | undefined {
+  return releaseChannelFromLabels(labels, channels)?.policy.prerelease;
 }
 
 function normalizeLabels(labels: string[] | undefined): string[] {
