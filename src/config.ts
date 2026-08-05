@@ -63,7 +63,8 @@ export const DEFAULT_CONFIG: SemVergeConfig = {
     monitoring: {
       enabled: false,
       windowHours: 24,
-      comment: true
+      comment: true,
+      checkRun: false
     }
   },
   publishing: {
@@ -246,6 +247,7 @@ export function validateConfigContent(content: string, fileName = ".semverge.yml
       booleanField(monitoring, "enabled", "health.monitoring", issues);
       numberField(monitoring, "windowHours", "health.monitoring", issues);
       booleanField(monitoring, "comment", "health.monitoring", issues);
+      booleanField(monitoring, "checkRun", "health.monitoring", issues);
       if (typeof monitoring.windowHours === "number" && Number.isFinite(monitoring.windowHours) && monitoring.windowHours <= 0) {
         issues.push({ path: "health.monitoring.windowHours", severity: "error", message: "must be greater than zero" });
       }
@@ -428,7 +430,8 @@ function healthMonitoring(value: unknown, fallback: HealthMonitoringConfig): Hea
   return {
     enabled: booleanValue(object.enabled, fallback.enabled),
     windowHours: typeof object.windowHours === "number" && Number.isFinite(object.windowHours) && object.windowHours > 0 ? object.windowHours : fallback.windowHours,
-    comment: booleanValue(object.comment, fallback.comment)
+    comment: booleanValue(object.comment, fallback.comment),
+    checkRun: booleanValue(object.checkRun, fallback.checkRun)
   };
 }
 

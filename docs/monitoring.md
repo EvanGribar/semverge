@@ -11,6 +11,7 @@ health:
     enabled: true
     windowHours: 48
     comment: true
+    checkRun: true
 ```
 
 Then add an explicit scheduled or manually dispatched workflow:
@@ -31,6 +32,7 @@ on:
 permissions:
   contents: write
   issues: write
+  checks: write
   actions: read
 
 jobs:
@@ -42,6 +44,6 @@ jobs:
           monitor-tag: ${{ inputs.monitor-tag }}
 ```
 
-The workflow must be supplied by the repository; SemVerge does not schedule jobs. `windowHours` applies when no exact tag is supplied. A monitor run checks configured assets, links, and workflow conclusions, updates the durable release transaction when one is present, and adds one idempotent history comment to the associated SemVerge release PR. The comment marker includes the GitHub run ID so later scheduled observations form a readable history without duplicating retries.
+The workflow must be supplied by the repository; SemVerge does not schedule jobs. `windowHours` applies when no exact tag is supplied. A monitor run checks configured assets, links, and workflow conclusions, updates the durable release transaction when one is present, and adds one idempotent history comment to the associated SemVerge release PR. When `checkRun: true`, it also creates one completed GitHub check run with an external ID derived from the release tag and GitHub run ID. Both evidence paths look up their marker before creating a new record, so retries do not duplicate them. The comment marker and check-run external ID include the GitHub run ID so later scheduled observations form a readable history.
 
 Monitoring is fail-closed for configured checks. It does not infer rollback or hotfix events, delete releases, deploy applications, or create a frontend. GitHub permissions, deployment observability, and any provider-side evidence remain external gates.

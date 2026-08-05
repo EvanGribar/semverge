@@ -83,6 +83,15 @@ export interface GitHubIssueComment {
   html_url?: string;
 }
 
+export interface GitHubCheckRun {
+  id: number;
+  name: string;
+  status: string;
+  conclusion: string | null;
+  external_id?: string | null;
+  html_url?: string;
+}
+
 interface RequestOptions {
   method?: string;
   body?: unknown;
@@ -105,6 +114,10 @@ interface GitTreeResult {
 
 interface WorkflowRunsResult {
   workflow_runs: GitHubWorkflowRun[];
+}
+
+interface CheckRunsResult {
+  check_runs: GitHubCheckRun[];
 }
 
 interface GitTreeEntry {
@@ -270,6 +283,34 @@ export class GitHubClient {
 
   async createIssueComment(number: number, body: string): Promise<GitHubIssueComment> {
     return (await this.request<GitHubIssueComment>(`/issues/${number}/comments`, { method: "POST", body: { body } })) as GitHubIssueComment;
+  }
+
+  async listCheckRuns(ref: string, name?: string): Promise<GitHubCheckRun[]> {
+    const query = new URLSearchParams({ per_page: "100", page: "1" });
+    if (name) {
+      query.set("check_name", name);
+    }
+    return this.paginate<GitHubCheckRun>(`/commits/${encodeURIComponent(ref)}/check-runs?${query.toString()}`, (payload) => {
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+        return [];
+      }
+      const value = (payload as CheckRunsResult).check_runs;
+      return Array.isArray(value) ? value : [];
+    });
+  }
+
+  async createCheckRun(input: { name: string; headSha: string; externalId: string; conclusion: "success" | "failure" | "neutral"; title: string; summary: string }): Promise<GitHubCheckRun> {
+    return (await this.request<GitHubCheckRun>("/check-runs", {
+      method: "POST",
+      body: {
+        name: input.name,
+        head_sha: input.headSha,
+        status: "completed",
+        conclusion: input.conclusion,
+        external_id: input.externalId,
+        output: { title: input.title, summary: input.summary }
+      }
+    })) as GitHubCheckRun;
   }
 
   async listReleases(): Promise<GitHubRelease[]> {

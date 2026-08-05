@@ -115,4 +115,23 @@ describe("GitHub API pagination", () => {
     expect(requests.map((request) => `${request.method} ${request.url.pathname}`)).toEqual(["GET /repos/demo/repo/issues/7/comments", "POST /repos/demo/repo/issues/7/comments"]);
     expect(requests[1]?.body).toEqual({ body: "history" });
   });
+
+  it("reads and creates completed check runs with external identifiers", async () => {
+    const requests: Array<{ method: string; url: URL; body?: Record<string, unknown> }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      const body = init?.body && typeof init.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : undefined;
+      requests.push({ method: init?.method ?? "GET", url, body });
+      if (init?.method === "POST") {
+        return new Response(JSON.stringify({ id: 12, name: body?.name, status: "completed", conclusion: body?.conclusion, external_id: body?.external_id }), { status: 201 });
+      }
+      return new Response(JSON.stringify({ check_runs: [{ id: 11, name: "SemVerge delayed monitoring", status: "completed", conclusion: "success", external_id: "monitor-1" }] }), { status: 200 });
+    }));
+
+    const client = new GitHubClient("", "demo/repo", "https://api.github.test");
+    await expect(client.listCheckRuns("merge-sha", "SemVerge delayed monitoring")).resolves.toMatchObject([{ external_id: "monitor-1" }]);
+    await expect(client.createCheckRun({ name: "SemVerge delayed monitoring", headSha: "merge-sha", externalId: "monitor-2", conclusion: "neutral", title: "Observed", summary: "summary" })).resolves.toMatchObject({ id: 12, external_id: "monitor-2" });
+    expect(requests[0]?.url.searchParams.get("check_name")).toBe("SemVerge delayed monitoring");
+    expect(requests[1]?.body).toMatchObject({ name: "SemVerge delayed monitoring", head_sha: "merge-sha", status: "completed", conclusion: "neutral", external_id: "monitor-2" });
+  });
 });

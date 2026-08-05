@@ -143,6 +143,7 @@ export interface HealthMonitoringConfig {
   enabled: boolean;
   windowHours: number;
   comment: boolean;
+  checkRun: boolean;
 }
 
 export interface HealthConfig {

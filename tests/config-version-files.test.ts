@@ -32,16 +32,17 @@ describe("configuration and version files", () => {
     enabled: true
     windowHours: 48
     comment: false
+    checkRun: true
 `;
     const config = parseConfig(content);
-    expect(config.health.monitoring).toEqual({ enabled: true, windowHours: 48, comment: false });
+    expect(config.health.monitoring).toEqual({ enabled: true, windowHours: 48, comment: false, checkRun: true });
     expect(validateConfigContent(content)).toEqual([]);
     expect(validateConfigContent("health:\n  monitoring:\n    enabled: true\n    windowHours: 0\n")).toContainEqual({
       path: "health.monitoring.windowHours",
       severity: "error",
       message: "must be greater than zero"
     });
-    expect(parseConfig("").health.monitoring).toEqual({ enabled: false, windowHours: 24, comment: true });
+    expect(parseConfig("").health.monitoring).toEqual({ enabled: false, windowHours: 24, comment: true, checkRun: false });
   });
 
   it("parses and validates independent dependency release policies", () => {
