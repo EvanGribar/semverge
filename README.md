@@ -220,3 +220,14 @@ pnpm verify
 The action bundle in `dist/` is generated with `pnpm bundle` and is committed because GitHub executes JavaScript actions from the repository contents.
 
 SemVerge does not use AI to create release communication. It uses explicit PR metadata, labels, and conventional commits with deterministic templates.
+
+## Agent Quickstart
+
+If you are developing this repository using an AI coding assistant (like Antigravity), copy and paste the prompt below to immediately boot the agent with full context, rules, and commands:
+
+```text
+Initialize your development session for the SemVerge repository. 
+Read the repository guidelines in `.agents/rules/semverge.md` and load the workflows skill in `.agents/skills/semverge-workflows/SKILL.md` before making any changes. 
+Verify your setup by running the test suite: `npm run test`.
+```
+
