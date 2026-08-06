@@ -1,18 +1,18 @@
 {
   "schemaVersion": 2,
   "mode": "single",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "channel": "stable",
   "promotion": false,
-  "generatedAt": "2026-08-05T03:25:03.232Z",
+  "generatedAt": "2026-08-06T02:03:40.554Z",
   "packages": [
     {
       "id": "semverge",
       "name": "semverge",
       "directory": "",
       "ecosystem": "node",
-      "previousVersion": "0.11.0",
-      "version": "0.12.0",
+      "previousVersion": "0.12.0",
+      "version": "0.13.0",
       "bump": "minor",
       "channel": "stable",
       "promotion": false,
@@ -25,7 +25,12 @@
         "direct-change"
       ],
       "directChanges": [
-        "feat: add durable OCI release targets"
+        "feat: complete core release engine with transaction-owned plugin execution",
+        "fix(ci): update pnpm-lock.yaml for pnpm 10 compatibility and rebuild bundle",
+        "fix: allow failure injection to trigger in live runs",
+        "docs: document live provider publication and recovery proof for GHCR",
+        "feat: complete core release engine with transaction-owned plugin execution and load support",
+        "test(conformance): add comprehensive conformance test suite"
       ],
       "dependencies": [],
       "dependencyTypes": {}

@@ -1,3 +1,4 @@
-# Internal release summary for 0.12.0
+# Internal release summary for 0.13.0
 
-No internal-only changes were recorded.
+- document live provider publication and recovery proof for GHCR
+- add comprehensive conformance test suite
