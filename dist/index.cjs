@@ -12433,7 +12433,7 @@ function isDryRun() {
   return input("dry-run").toLowerCase() === "true";
 }
 function injectTestFailure(point) {
-  if (process.env.NODE_ENV === "test" && process.env.SEMVERGE_TEST_FAILURE === point) {
+  if (process.env.SEMVERGE_TEST_FAILURE === point) {
     throw new Error(`Injected SemVerge test failure at ${point}.`);
   }
 }

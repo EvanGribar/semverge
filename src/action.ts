@@ -99,7 +99,7 @@ function isDryRun(): boolean {
 type TestFailurePoint = "package-publish" | "oci-publish" | "asset-upload" | "release-finalize" | "post-release-verification";
 
 function injectTestFailure(point: TestFailurePoint): void {
-  if (process.env.NODE_ENV === "test" && process.env.SEMVERGE_TEST_FAILURE === point) {
+  if (process.env.SEMVERGE_TEST_FAILURE === point) {
     throw new Error(`Injected SemVerge test failure at ${point}.`);
   }
 }
