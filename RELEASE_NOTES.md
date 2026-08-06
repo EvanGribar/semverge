@@ -1,7 +1,13 @@
-# What's new in 0.12.0
+# What's new in 0.13.0
 
-This release includes 1 feature. Highest-impact change: add durable OCI release targets.
+This release includes 2 features and 2 fixes. Highest-impact change: complete core release engine with transaction-owned plugin execution.
 
 ### Highlights
 
-- [add durable OCI release targets](https://github.com/EvanGribar/semverge/pull/83) (#83)
+- complete core release engine with transaction-owned plugin execution
+- complete core release engine with transaction-owned plugin execution and load support
+
+### Improvements and Fixes
+
+- update pnpm-lock.yaml for pnpm 10 compatibility and rebuild bundle
+- allow failure injection to trigger in live runs

@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.13.0] - 2026-08-06
+
+### Features
+
+- complete core release engine with transaction-owned plugin execution
+- complete core release engine with transaction-owned plugin execution and load support
+
+### Bug Fixes
+
+- update pnpm-lock.yaml for pnpm 10 compatibility and rebuild bundle
+- allow failure injection to trigger in live runs
+
+### Internal Changes
+
+- document live provider publication and recovery proof for GHCR
+- [add comprehensive conformance test suite](https://github.com/EvanGribar/semverge/pull/86) (#86)
+
 ## [0.12.0] - 2026-08-05
 
 ### Features
