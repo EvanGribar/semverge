@@ -14,7 +14,7 @@ export const RELEASE_PHASES = [
 ] as const;
 
 export type ReleasePhase = typeof RELEASE_PHASES[number];
-export type ReleaseTransactionEventStatus = "completed" | "failed";
+export type ReleaseTransactionEventStatus = "planned" | "started" | "completed" | "failed";
 
 export interface ReleaseTransactionEvent {
   key: string;
@@ -156,7 +156,7 @@ function digestMap(value: unknown, field = "artifactDigests"): Record<string, st
 
 function eventValue(value: unknown): ReleaseTransactionEvent {
   const object = objectValue(value);
-  if (!object || typeof object.key !== "string" || typeof object.phase !== "string" || typeof object.kind !== "string" || typeof object.target !== "string" || (object.status !== "completed" && object.status !== "failed") || typeof object.attempt !== "number" || !Number.isInteger(object.attempt) || object.attempt < 1 || typeof object.at !== "string") {
+  if (!object || typeof object.key !== "string" || typeof object.phase !== "string" || typeof object.kind !== "string" || typeof object.target !== "string" || (object.status !== "planned" && object.status !== "started" && object.status !== "completed" && object.status !== "failed") || typeof object.attempt !== "number" || !Number.isInteger(object.attempt) || object.attempt < 1 || typeof object.at !== "string") {
     throw new Error("SemVerge transaction contains an invalid event.");
   }
   return {

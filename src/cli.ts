@@ -12,7 +12,7 @@ import { inspectRepository, repositoryDoctorMarkdown } from "./doctor.js";
 import { GitHubClient } from "./github.js";
 import { inspectMigration, isMigrationTool, migrationReportMarkdown, MIGRATION_TOOLS, writeMigrationConfig } from "./migrate.js";
 import { parseVersion } from "./semver.js";
-import { parseReleaseTransaction, parseReleaseTransactionBody, recordReleaseTransactionEvent, releaseTransactionSummaryMarkdown } from "./transaction.js";
+import { parseReleaseTransaction, parseReleaseTransactionBody, recordReleaseTransactionEvent, releaseTransactionSummaryMarkdown, updateReleaseTransactionBody } from "./transaction.js";
 import { createPluginRegistryFromConfig, runTransactionOwnedPluginHook } from "./plugin-sdk.js";
 import { readPackageVersion } from "./version-files.js";
 
@@ -185,13 +185,31 @@ async function recover(cwd: string, id: string, statePath: string | undefined, i
 
   const repository = process.env.GITHUB_REPOSITORY;
   const token = process.env.GITHUB_TOKEN ?? process.env.INPUT_GITHUB_TOKEN ?? "";
+  const configContent = await readOptional(join(cwd, ".semverge.yml")) ?? "";
+  const config = parseConfig(configContent, ".semverge.yml");
+  const registry = await createPluginRegistryFromConfig(config, cwd);
+
   if (repository && !statePath) {
     const client = new GitHubClient(token, repository);
     const releases = await client.listReleases();
     for (const release of releases) {
       const transaction = parseReleaseTransactionBody(release.body);
       if (transaction?.id === id) {
-        io.stdout(`${release.html_url}\n${releaseTransactionSummaryMarkdown(transaction)}`);
+        const persist = async (tx: import("./transaction.js").ReleaseTransaction) => {
+          await client.updateRelease(release.id, {
+            body: updateReleaseTransactionBody(release.body ?? "", tx)
+          });
+        };
+        const recoverRes = await runTransactionOwnedPluginHook(
+          registry,
+          "recover",
+          { sourceCommit: transaction.sourceCommit, version: transaction.version, packages: [], changes: [], config },
+          transaction,
+          recordReleaseTransactionEvent,
+          persist
+        );
+        const finalTx = recoverRes.transaction ?? transaction;
+        io.stdout(`${release.html_url}\n${releaseTransactionSummaryMarkdown(finalTx)}`);
         return 0;
       }
     }
@@ -216,18 +234,26 @@ async function recover(cwd: string, id: string, statePath: string | undefined, i
     io.stderr(`The transaction state at ${path} does not contain ${id}.`);
     return 1;
   }
-  const configContent = await readOptional(join(cwd, ".semverge.yml")) ?? "";
-  const config = parseConfig(configContent, ".semverge.yml");
-  const registry = createPluginRegistryFromConfig(config);
+
+  const persist = async (tx: import("./transaction.js").ReleaseTransaction) => {
+    try {
+      JSON.parse(content);
+      await writeFile(path, JSON.stringify(tx, null, 2), "utf8");
+    } catch {
+      await writeFile(path, updateReleaseTransactionBody(content, tx), "utf8");
+    }
+  };
+
   const recoverRes = await runTransactionOwnedPluginHook(
     registry,
     "recover",
     { sourceCommit: transaction.sourceCommit, version: transaction.version, packages: [], changes: [], config },
     transaction,
-    recordReleaseTransactionEvent
+    recordReleaseTransactionEvent,
+    persist
   );
-  if (recoverRes.transaction) transaction = recoverRes.transaction;
-  io.stdout(releaseTransactionSummaryMarkdown(transaction));
+  const finalTx = recoverRes.transaction ?? transaction;
+  io.stdout(releaseTransactionSummaryMarkdown(finalTx));
   return 0;
 }
 

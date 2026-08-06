@@ -12,6 +12,7 @@ export interface BuildReleasePlanInput {
   existingChangelog?: string;
   date?: string;
   readinessContext?: ReadinessContext;
+  registry?: import("./plugin-sdk.js").ReleasePluginRegistry;
 }
 
 function manifestFor(plan: Omit<ReleasePlan, "manifest" | "outputs">): string {
@@ -35,7 +36,7 @@ function manifestFor(plan: Omit<ReleasePlan, "manifest" | "outputs">): string {
   }, null, 2)}\n`;
 }
 
-import { createPluginRegistryFromConfig, runReleasePluginHookSync, type ReleasePluginInvocation } from "./plugin-sdk.js";
+import { createPluginRegistryFromConfigSync, runReleasePluginHookSync, type ReleasePluginInvocation } from "./plugin-sdk.js";
 
 export function buildReleasePlan(input: BuildReleasePlanInput): ReleasePlan {
   const config = input.config ?? DEFAULT_CONFIG;
@@ -55,7 +56,7 @@ export function buildReleasePlan(input: BuildReleasePlanInput): ReleasePlan {
     : input.currentVersion;
   const readiness = evaluateReadiness(config.readiness, releaseChanges, input.readinessContext);
 
-  const registry = createPluginRegistryFromConfig(config);
+  const registry = input.registry ?? createPluginRegistryFromConfigSync(config);
   const pluginContext = {
     sourceCommit: "HEAD",
     version,

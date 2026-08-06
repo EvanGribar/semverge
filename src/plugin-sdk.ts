@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
+import { resolve, join } from "node:path";
+
 export const SEMVERGE_PLUGIN_API_VERSION = 1 as const;
 
 export const RELEASE_PLUGIN_HOOKS = [
@@ -78,12 +82,18 @@ export interface ReleasePluginResult {
 
 export type ReleasePluginHook = (context: ReleasePluginContext) => ReleasePluginResult | void | Promise<ReleasePluginResult | void>;
 
+export interface ReleasePluginEffectExecutor {
+  execute(effect: ReleasePluginEffect, context: ReleasePluginContextInput): Promise<void>;
+  detect?(effect: ReleasePluginEffect, context: ReleasePluginContextInput): Promise<boolean>;
+}
+
 export interface SemVergeReleasePlugin {
   apiVersion: typeof SEMVERGE_PLUGIN_API_VERSION;
   name: string;
   version?: string;
   capabilities?: readonly string[];
   hooks: Partial<Record<ReleasePluginHookName, ReleasePluginHook>>;
+  executors?: Partial<Record<string, ReleasePluginEffectExecutor>>;
 }
 
 export interface ReleasePluginValidationIssue {
@@ -137,6 +147,22 @@ export function validateReleasePlugin(plugin: unknown): ReleasePluginValidationI
   }
   if (value.capabilities !== undefined && (!Array.isArray(value.capabilities) || value.capabilities.some((item) => typeof item !== "string" || !item.trim()))) {
     issues.push(issue("capabilities", "must be an array of non-empty strings when provided"));
+  }
+  const executors = objectValue(value.executors);
+  if (value.executors !== undefined) {
+    if (!executors) {
+      issues.push(issue("executors", "must be an object"));
+    } else {
+      for (const [name, executor] of Object.entries(executors)) {
+        const execObj = objectValue(executor);
+        if (!execObj || typeof execObj.execute !== "function") {
+          issues.push(issue(`executors.${name}`, "must be an object with an execute function"));
+        }
+        if (execObj && execObj.detect !== undefined && typeof execObj.detect !== "function") {
+          issues.push(issue(`executors.${name}.detect`, "must be a function when provided"));
+        }
+      }
+    }
   }
   return issues;
 }
@@ -242,7 +268,70 @@ export function runReleasePluginHookSync(registry: ReleasePluginRegistry, hook: 
   return invocations;
 }
 
-export function createPluginRegistryFromConfig(config?: { plugins?: Array<unknown> }): ReleasePluginRegistry {
+export async function loadPlugin(descriptor: unknown, workspace: string): Promise<SemVergeReleasePlugin> {
+  let pluginName = "";
+  let resolvedPath = "";
+
+  if (typeof descriptor === "string") {
+    const target = descriptor.trim();
+    if (target.startsWith(".") || target.startsWith("/") || target.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(target)) {
+      // Local module
+      resolvedPath = resolve(workspace, target);
+    } else {
+      // Pinned package
+      const workspaceRequire = createRequire(join(workspace, "package.json"));
+      resolvedPath = workspaceRequire.resolve(target);
+    }
+  } else if (descriptor && typeof descriptor === "object") {
+    const obj = descriptor as Record<string, unknown>;
+    if (typeof obj.package === "string") {
+      const workspaceRequire = createRequire(join(workspace, "package.json"));
+      resolvedPath = workspaceRequire.resolve(obj.package.trim());
+    } else if (typeof obj.module === "string") {
+      resolvedPath = resolve(workspace, obj.module.trim());
+    } else {
+      throw new Error('Plugin descriptor must specify either "package" or "module".');
+    }
+    if (typeof obj.name === "string") {
+      pluginName = obj.name.trim();
+    }
+  } else {
+    throw new Error("Invalid plugin descriptor; must be a string or object.");
+  }
+
+  const moduleUrl = pathToFileURL(resolvedPath).toString();
+  const loadedModule = await import(moduleUrl);
+  const pluginObject = loadedModule.default ?? loadedModule;
+
+  const finalPlugin = {
+    ...pluginObject,
+    ...(pluginName ? { name: pluginName } : {})
+  } as SemVergeReleasePlugin;
+
+  const issues = validateReleasePlugin(finalPlugin);
+  if (issues.length > 0) {
+    throw new Error(`Invalid loaded plugin from ${resolvedPath}: ${issues.map((i) => `${i.path} ${i.message}`).join("; ")}`);
+  }
+
+  return finalPlugin;
+}
+
+export async function createPluginRegistryFromConfig(config?: { plugins?: Array<unknown> }, workspace = process.cwd()): Promise<ReleasePluginRegistry> {
+  const registry = new ReleasePluginRegistry();
+  if (config?.plugins && Array.isArray(config.plugins)) {
+    for (const item of config.plugins) {
+      if (item && typeof item === "object" && "name" in item && "hooks" in item) {
+        registry.register(item as SemVergeReleasePlugin);
+      } else {
+        const plugin = await loadPlugin(item, workspace);
+        registry.register(plugin);
+      }
+    }
+  }
+  return registry;
+}
+
+export function createPluginRegistryFromConfigSync(config?: { plugins?: Array<unknown> }): ReleasePluginRegistry {
   const registry = new ReleasePluginRegistry();
   if (config?.plugins && Array.isArray(config.plugins)) {
     for (const item of config.plugins) {
@@ -259,10 +348,12 @@ export async function runTransactionOwnedPluginHook(
   hook: ReleasePluginHookName,
   context: ReleasePluginContextInput,
   transaction?: import("./transaction.js").ReleaseTransaction,
-  recordEventFn?: typeof import("./transaction.js").recordReleaseTransactionEvent
+  recordEventFn?: typeof import("./transaction.js").recordReleaseTransactionEvent,
+  persistFn?: (tx: import("./transaction.js").ReleaseTransaction) => Promise<void>
 ): Promise<{ invocations: ReleasePluginInvocation[]; transaction?: import("./transaction.js").ReleaseTransaction }> {
   let currentState = transaction;
   const invocations: ReleasePluginInvocation[] = [];
+  const persist = persistFn ?? (async (tx) => { currentState = tx; });
 
   for (const plugin of registry.list()) {
     const handler = plugin.hooks[hook];
@@ -288,6 +379,7 @@ export async function runTransactionOwnedPluginHook(
             status: "failed",
             detail: result.summary ?? `Plugin ${plugin.name} blocked execution during ${hook}.`
           });
+          await persist(currentState);
         } else {
           currentState = recordEventFn(currentState, {
             key: hookKey,
@@ -296,16 +388,90 @@ export async function runTransactionOwnedPluginHook(
             status: "completed",
             detail: result.summary ?? `Plugin ${plugin.name} completed ${hook}.`
           });
-          if (result.effects) {
+          await persist(currentState);
+
+          if (result.effects && result.effects.length > 0) {
+            // First record all as planned
             for (const effect of result.effects) {
               const effectKey = `effect:${plugin.name}:${effect.idempotencyKey}`;
+              if (!currentState.events.some((e) => e.key === effectKey)) {
+                currentState = recordEventFn(currentState, {
+                  key: effectKey,
+                  kind: `plugin-effect-${effect.kind}`,
+                  target: effect.target,
+                  status: "planned",
+                  detail: `Plugin effect ${effect.id} planned.`
+                });
+              }
+            }
+            await persist(currentState);
+
+            // Execute each effect
+            for (const effect of result.effects) {
+              const effectKey = `effect:${plugin.name}:${effect.idempotencyKey}`;
+              const existingEvent = currentState.events.find((e) => e.key === effectKey);
+              if (existingEvent && existingEvent.status === "completed") {
+                continue;
+              }
+
+              const executor = plugin.executors?.[effect.kind];
+              if (!executor) {
+                throw new Error(`No executor registered for effect kind "${effect.kind}" in plugin "${plugin.name}".`);
+              }
+
+              // Try external detection
+              if (executor.detect) {
+                try {
+                  const detected = await executor.detect(effect, context);
+                  if (detected) {
+                    currentState = recordEventFn(currentState, {
+                      key: effectKey,
+                      kind: `plugin-effect-${effect.kind}`,
+                      target: effect.target,
+                      status: "completed",
+                      detail: `Plugin effect ${effect.id} detected as already completed.`
+                    });
+                    await persist(currentState);
+                    continue;
+                  }
+                } catch (err) {
+                  // If detection fails, proceed to execute
+                }
+              }
+
+              // Mark as started
               currentState = recordEventFn(currentState, {
                 key: effectKey,
                 kind: `plugin-effect-${effect.kind}`,
                 target: effect.target,
-                status: "completed",
-                detail: `Plugin effect ${effect.id} executed by ${plugin.name}.`
+                status: "started",
+                detail: `Plugin effect ${effect.id} execution started.`
               });
+              await persist(currentState);
+
+              // Run execute
+              try {
+                await executor.execute(effect, context);
+                currentState = recordEventFn(currentState, {
+                  key: effectKey,
+                  kind: `plugin-effect-${effect.kind}`,
+                  target: effect.target,
+                  status: "completed",
+                  detail: `Plugin effect ${effect.id} completed.`
+                });
+                await persist(currentState);
+              } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                currentState = recordEventFn(currentState, {
+                  key: effectKey,
+                  kind: `plugin-effect-${effect.kind}`,
+                  target: effect.target,
+                  status: "failed",
+                  detail: message
+                });
+                await persist(currentState);
+                throw err;
+              }
             }
           }
         }
@@ -323,6 +489,7 @@ export async function runTransactionOwnedPluginHook(
           status: "failed",
           detail: error instanceof Error ? error.message : String(error)
         });
+        await persist(currentState);
       }
       throw error;
     }

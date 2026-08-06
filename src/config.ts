@@ -338,6 +338,17 @@ export function validateConfigContent(content: string, fileName = ".semverge.yml
     validateRegistryPublishingSection(publishing, "rust", DEFAULT_RUST_PUBLISH_COMMAND, issues);
     validateOciPublishingSection(publishing, issues);
   }
+  if (raw.plugins !== undefined) {
+    if (!Array.isArray(raw.plugins)) {
+      issues.push({ path: "plugins", severity: "error", message: "must be an array of plugin descriptors" });
+    } else {
+      raw.plugins.forEach((plugin, index) => {
+        if (typeof plugin !== "string" && (!record(plugin) || (typeof plugin.package !== "string" && typeof plugin.module !== "string"))) {
+          issues.push({ path: `plugins[${index}]`, severity: "error", message: "must be a string or an object specifying package or module" });
+        }
+      });
+    }
+  }
   return issues;
 }
 

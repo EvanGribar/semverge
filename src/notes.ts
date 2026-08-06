@@ -23,7 +23,11 @@ function listWithAnd(values: string[]): string {
 }
 
 function countLabel(count: number, singular: string): string {
-  return `${count} ${singular}${count === 1 ? "" : "s"}`;
+  if (count === 1) {
+    return `1 ${singular}`;
+  }
+  const plural = singular === "fix" ? "fixes" : `${singular}s`;
+  return `${count} ${plural}`;
 }
 
 function sentence(value: string): string {

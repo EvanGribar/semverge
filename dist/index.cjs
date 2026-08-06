@@ -9367,7 +9367,7 @@ var import_node_crypto2 = require("node:crypto");
 var import_node_fs = require("node:fs");
 var import_node_child_process3 = require("node:child_process");
 var import_node_util3 = require("node:util");
-var import_node_path3 = require("node:path");
+var import_node_path4 = require("node:path");
 
 // src/metadata.ts
 var METADATA_BLOCK = /<!--\s*semverge(?:\s+release)?\s*([\s\S]*?)-->/i;
@@ -10895,7 +10895,7 @@ function discoverPackages(files, allPaths, config) {
 }
 
 // src/workspace-release.ts
-var import_node_path2 = require("node:path");
+var import_node_path3 = require("node:path");
 var import_yaml3 = __toESM(require_dist(), 1);
 
 // src/notes.ts
@@ -10918,7 +10918,11 @@ function listWithAnd(values) {
   return `${values.slice(0, -1).join(", ")}, and ${values.at(-1)}`;
 }
 function countLabel(count, singular) {
-  return `${count} ${singular}${count === 1 ? "" : "s"}`;
+  if (count === 1) {
+    return `1 ${singular}`;
+  }
+  const plural = singular === "fix" ? "fixes" : `${singular}s`;
+  return `${count} ${plural}`;
 }
 function sentence(value) {
   const trimmed = value.trim();
@@ -11030,6 +11034,9 @@ function renderAnnouncement(version, changes) {
 }
 
 // src/plugin-sdk.ts
+var import_node_module = require("node:module");
+var import_node_url = require("node:url");
+var import_node_path2 = require("node:path");
 var SEMVERGE_PLUGIN_API_VERSION = 1;
 var RELEASE_PLUGIN_HOOKS = [
   "analyze",
@@ -11082,6 +11089,22 @@ function validateReleasePlugin(plugin) {
   }
   if (value.capabilities !== void 0 && (!Array.isArray(value.capabilities) || value.capabilities.some((item) => typeof item !== "string" || !item.trim()))) {
     issues.push(issue("capabilities", "must be an array of non-empty strings when provided"));
+  }
+  const executors = objectValue(value.executors);
+  if (value.executors !== void 0) {
+    if (!executors) {
+      issues.push(issue("executors", "must be an object"));
+    } else {
+      for (const [name, executor] of Object.entries(executors)) {
+        const execObj = objectValue(executor);
+        if (!execObj || typeof execObj.execute !== "function") {
+          issues.push(issue(`executors.${name}`, "must be an object with an execute function"));
+        }
+        if (execObj && execObj.detect !== void 0 && typeof execObj.detect !== "function") {
+          issues.push(issue(`executors.${name}.detect`, "must be a function when provided"));
+        }
+      }
+    }
   }
   return issues;
 }
@@ -11158,7 +11181,61 @@ function runReleasePluginHookSync(registry, hook, context) {
   }
   return invocations;
 }
-function createPluginRegistryFromConfig(config) {
+async function loadPlugin(descriptor2, workspace) {
+  let pluginName = "";
+  let resolvedPath = "";
+  if (typeof descriptor2 === "string") {
+    const target = descriptor2.trim();
+    if (target.startsWith(".") || target.startsWith("/") || target.startsWith("\\") || /^[A-Za-z]:[\\/]/.test(target)) {
+      resolvedPath = (0, import_node_path2.resolve)(workspace, target);
+    } else {
+      const workspaceRequire = (0, import_node_module.createRequire)((0, import_node_path2.join)(workspace, "package.json"));
+      resolvedPath = workspaceRequire.resolve(target);
+    }
+  } else if (descriptor2 && typeof descriptor2 === "object") {
+    const obj = descriptor2;
+    if (typeof obj.package === "string") {
+      const workspaceRequire = (0, import_node_module.createRequire)((0, import_node_path2.join)(workspace, "package.json"));
+      resolvedPath = workspaceRequire.resolve(obj.package.trim());
+    } else if (typeof obj.module === "string") {
+      resolvedPath = (0, import_node_path2.resolve)(workspace, obj.module.trim());
+    } else {
+      throw new Error('Plugin descriptor must specify either "package" or "module".');
+    }
+    if (typeof obj.name === "string") {
+      pluginName = obj.name.trim();
+    }
+  } else {
+    throw new Error("Invalid plugin descriptor; must be a string or object.");
+  }
+  const moduleUrl = (0, import_node_url.pathToFileURL)(resolvedPath).toString();
+  const loadedModule = await import(moduleUrl);
+  const pluginObject = loadedModule.default ?? loadedModule;
+  const finalPlugin = {
+    ...pluginObject,
+    ...pluginName ? { name: pluginName } : {}
+  };
+  const issues = validateReleasePlugin(finalPlugin);
+  if (issues.length > 0) {
+    throw new Error(`Invalid loaded plugin from ${resolvedPath}: ${issues.map((i) => `${i.path} ${i.message}`).join("; ")}`);
+  }
+  return finalPlugin;
+}
+async function createPluginRegistryFromConfig(config, workspace = process.cwd()) {
+  const registry = new ReleasePluginRegistry();
+  if (config?.plugins && Array.isArray(config.plugins)) {
+    for (const item of config.plugins) {
+      if (item && typeof item === "object" && "name" in item && "hooks" in item) {
+        registry.register(item);
+      } else {
+        const plugin = await loadPlugin(item, workspace);
+        registry.register(plugin);
+      }
+    }
+  }
+  return registry;
+}
+function createPluginRegistryFromConfigSync(config) {
   const registry = new ReleasePluginRegistry();
   if (config?.plugins && Array.isArray(config.plugins)) {
     for (const item of config.plugins) {
@@ -11169,9 +11246,12 @@ function createPluginRegistryFromConfig(config) {
   }
   return registry;
 }
-async function runTransactionOwnedPluginHook(registry, hook, context, transaction, recordEventFn) {
+async function runTransactionOwnedPluginHook(registry, hook, context, transaction, recordEventFn, persistFn) {
   let currentState = transaction;
   const invocations = [];
+  const persist = persistFn ?? (async (tx) => {
+    currentState = tx;
+  });
   for (const plugin of registry.list()) {
     const handler = plugin.hooks[hook];
     if (!handler) {
@@ -11194,6 +11274,7 @@ async function runTransactionOwnedPluginHook(registry, hook, context, transactio
             status: "failed",
             detail: result.summary ?? `Plugin ${plugin.name} blocked execution during ${hook}.`
           });
+          await persist(currentState);
         } else {
           currentState = recordEventFn(currentState, {
             key: hookKey,
@@ -11202,16 +11283,78 @@ async function runTransactionOwnedPluginHook(registry, hook, context, transactio
             status: "completed",
             detail: result.summary ?? `Plugin ${plugin.name} completed ${hook}.`
           });
-          if (result.effects) {
+          await persist(currentState);
+          if (result.effects && result.effects.length > 0) {
             for (const effect of result.effects) {
               const effectKey = `effect:${plugin.name}:${effect.idempotencyKey}`;
+              if (!currentState.events.some((e) => e.key === effectKey)) {
+                currentState = recordEventFn(currentState, {
+                  key: effectKey,
+                  kind: `plugin-effect-${effect.kind}`,
+                  target: effect.target,
+                  status: "planned",
+                  detail: `Plugin effect ${effect.id} planned.`
+                });
+              }
+            }
+            await persist(currentState);
+            for (const effect of result.effects) {
+              const effectKey = `effect:${plugin.name}:${effect.idempotencyKey}`;
+              const existingEvent = currentState.events.find((e) => e.key === effectKey);
+              if (existingEvent && existingEvent.status === "completed") {
+                continue;
+              }
+              const executor = plugin.executors?.[effect.kind];
+              if (!executor) {
+                throw new Error(`No executor registered for effect kind "${effect.kind}" in plugin "${plugin.name}".`);
+              }
+              if (executor.detect) {
+                try {
+                  const detected = await executor.detect(effect, context);
+                  if (detected) {
+                    currentState = recordEventFn(currentState, {
+                      key: effectKey,
+                      kind: `plugin-effect-${effect.kind}`,
+                      target: effect.target,
+                      status: "completed",
+                      detail: `Plugin effect ${effect.id} detected as already completed.`
+                    });
+                    await persist(currentState);
+                    continue;
+                  }
+                } catch (err) {
+                }
+              }
               currentState = recordEventFn(currentState, {
                 key: effectKey,
                 kind: `plugin-effect-${effect.kind}`,
                 target: effect.target,
-                status: "completed",
-                detail: `Plugin effect ${effect.id} executed by ${plugin.name}.`
+                status: "started",
+                detail: `Plugin effect ${effect.id} execution started.`
               });
+              await persist(currentState);
+              try {
+                await executor.execute(effect, context);
+                currentState = recordEventFn(currentState, {
+                  key: effectKey,
+                  kind: `plugin-effect-${effect.kind}`,
+                  target: effect.target,
+                  status: "completed",
+                  detail: `Plugin effect ${effect.id} completed.`
+                });
+                await persist(currentState);
+              } catch (err) {
+                const message = err instanceof Error ? err.message : String(err);
+                currentState = recordEventFn(currentState, {
+                  key: effectKey,
+                  kind: `plugin-effect-${effect.kind}`,
+                  target: effect.target,
+                  status: "failed",
+                  detail: message
+                });
+                await persist(currentState);
+                throw err;
+              }
             }
           }
         }
@@ -11228,6 +11371,7 @@ async function runTransactionOwnedPluginHook(registry, hook, context, transactio
           status: "failed",
           detail: error instanceof Error ? error.message : String(error)
         });
+        await persist(currentState);
       }
       throw error;
     }
@@ -11270,7 +11414,7 @@ function buildReleasePlan(input2) {
   const channel = stableRequested ? "stable" : config.release.prerelease ?? labelPrerelease ?? "stable";
   const version = hasRelease ? stableRequested ? promotion ? promoteVersion(input2.currentVersion) : bumpVersion(input2.currentVersion, bump) : bumpVersion(input2.currentVersion, bump, config.release.prerelease ?? labelPrerelease) : input2.currentVersion;
   const readiness = evaluateReadiness(config.readiness, releaseChanges, input2.readinessContext);
-  const registry = createPluginRegistryFromConfig(config);
+  const registry = input2.registry ?? createPluginRegistryFromConfigSync(config);
   const pluginContext = {
     sourceCommit: "HEAD",
     version,
@@ -11357,14 +11501,14 @@ function normalize2(path) {
 }
 function outputPath(packageItem, relativePath, mode) {
   const clean = normalize2(relativePath);
-  return mode === "independent" && packageItem.directory ? import_node_path2.posix.join(packageItem.directory, clean) : clean;
+  return mode === "independent" && packageItem.directory ? import_node_path3.posix.join(packageItem.directory, clean) : clean;
 }
 function packageNameMatches(packageItem, scope) {
   if (!scope) {
     return false;
   }
   const cleanScope = scope.trim().toLowerCase();
-  return [packageItem.id, packageItem.name, (0, import_node_path2.basename)(packageItem.directory)].some((candidate) => candidate.toLowerCase() === cleanScope);
+  return [packageItem.id, packageItem.name, (0, import_node_path3.basename)(packageItem.directory)].some((candidate) => candidate.toLowerCase() === cleanScope);
 }
 function ownsFile(file, directory) {
   return file === directory || file.startsWith(`${directory}/`);
@@ -11414,7 +11558,8 @@ function buildPackagePlan(input2, packageItem, changes) {
     config,
     existingChangelog: input2.files[config.outputs.changelog] ?? "",
     date: input2.date,
-    readinessContext: input2.readinessContext
+    readinessContext: input2.readinessContext,
+    registry: input2.registry
   });
 }
 function dependencyReleaseTriggers(packageItem, releasedNames, config) {
@@ -11628,7 +11773,7 @@ function updateNodeLocks(files, packages, versions) {
     } catch {
       continue;
     }
-    const lockDirectory = path.includes("/") ? (0, import_node_path2.dirname)(path).replace(/\\/g, "/") : "";
+    const lockDirectory = path.includes("/") ? (0, import_node_path3.dirname)(path).replace(/\\/g, "/") : "";
     const root = packages.find((item) => item.directory === lockDirectory) ?? packages.find((item) => item.directory === "");
     if (root && versions.has(root.manifestPath)) {
       lock.version = versions.get(root.manifestPath);
@@ -11721,7 +11866,8 @@ function buildWorkspaceReleasePlan(input2) {
       config: packageConfig2,
       existingChangelog: input2.files[input2.config.outputs.changelog] ?? "",
       date: input2.date,
-      readinessContext: input2.readinessContext
+      readinessContext: input2.readinessContext,
+      registry: input2.registry
     });
     plans.push(...releaseable.map((releasePackage) => ({ package: releasePackage, plan })));
   } else {
@@ -12069,7 +12215,7 @@ function digestMap(value, field = "artifactDigests") {
 }
 function eventValue(value) {
   const object = objectValue3(value);
-  if (!object || typeof object.key !== "string" || typeof object.phase !== "string" || typeof object.kind !== "string" || typeof object.target !== "string" || object.status !== "completed" && object.status !== "failed" || typeof object.attempt !== "number" || !Number.isInteger(object.attempt) || object.attempt < 1 || typeof object.at !== "string") {
+  if (!object || typeof object.key !== "string" || typeof object.phase !== "string" || typeof object.kind !== "string" || typeof object.target !== "string" || object.status !== "planned" && object.status !== "started" && object.status !== "completed" && object.status !== "failed" || typeof object.attempt !== "number" || !Number.isInteger(object.attempt) || object.attempt < 1 || typeof object.at !== "string") {
     throw new Error("SemVerge transaction contains an invalid event.");
   }
   return {
@@ -12442,9 +12588,9 @@ function localWorkspaceFile(path, ref) {
   if (!workspace || ref !== void 0 && !/^[0-9a-f]{7,40}$/i.test(ref)) {
     return void 0;
   }
-  const absolute = (0, import_node_path3.resolve)(workspace, path);
-  const workspaceRelative = (0, import_node_path3.relative)(workspace, absolute);
-  if (workspaceRelative === ".." || workspaceRelative.startsWith(`..${import_node_path3.sep}`) || !(0, import_node_fs.existsSync)(absolute)) {
+  const absolute = (0, import_node_path4.resolve)(workspace, path);
+  const workspaceRelative = (0, import_node_path4.relative)(workspace, absolute);
+  if (workspaceRelative === ".." || workspaceRelative.startsWith(`..${import_node_path4.sep}`) || !(0, import_node_fs.existsSync)(absolute)) {
     return void 0;
   }
   try {
@@ -12458,7 +12604,7 @@ async function fileAtHead(client, path, ref) {
 }
 async function localCommitFiles(sha) {
   const workspace = process.env.GITHUB_WORKSPACE;
-  if (!workspace || !sha || !/^[0-9a-f]{7,40}$/i.test(sha) || !(0, import_node_fs.existsSync)((0, import_node_path3.join)(workspace, ".git"))) {
+  if (!workspace || !sha || !/^[0-9a-f]{7,40}$/i.test(sha) || !(0, import_node_fs.existsSync)((0, import_node_path4.join)(workspace, ".git"))) {
     return void 0;
   }
   try {
@@ -12724,7 +12870,8 @@ async function runPostReleaseVerification(client, releaseEvent, config, options 
         detail: `Post-release verification completed with status ${report.status}.`
       };
       next = next.phase === "completed" ? recordReleaseTransactionEvent(next, verification) : advanceReleaseTransaction(next, "verified", verification);
-      const pluginRegistry = createPluginRegistryFromConfig(config);
+      const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
+      const pluginRegistry = await createPluginRegistryFromConfig(config, workspace);
       const verifyRes = await runTransactionOwnedPluginHook(
         pluginRegistry,
         "verify",
@@ -12840,13 +12987,16 @@ async function prepareRelease(client, head, config, branch, defaultBranch, reque
       availableFiles.add(requiredFile);
     }
   }
+  const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
+  const registry = await createPluginRegistryFromConfig(effectiveConfig, workspace);
   const plan = buildWorkspaceReleasePlan({
     packages: discovered.packages,
     mode: discovered.mode,
     files,
     config: effectiveConfig,
     changes,
-    readinessContext: { availableLabels, availableFiles, commandResults: await runReadinessCommands(effectiveConfig) }
+    readinessContext: { availableLabels, availableFiles, commandResults: await runReadinessCommands(effectiveConfig) },
+    registry
   });
   setOutput("version", plan.version);
   setOutput("release-channel", plan.channel);
@@ -12954,9 +13104,9 @@ async function persistFinalTransactionState(client, executions, progress) {
   }
 }
 function collectFiles(target, root) {
-  const absolute = (0, import_node_path3.resolve)(root, target);
-  const relativePath = (0, import_node_path3.relative)(root, absolute);
-  if (relativePath === ".." || relativePath.startsWith(`..${import_node_path3.sep}`)) {
+  const absolute = (0, import_node_path4.resolve)(root, target);
+  const relativePath = (0, import_node_path4.relative)(root, absolute);
+  if (relativePath === ".." || relativePath.startsWith(`..${import_node_path4.sep}`)) {
     throw new Error(`Artifact path must stay inside the workspace: ${target}`);
   }
   if (!(0, import_node_fs.existsSync)(absolute)) {
@@ -12965,11 +13115,11 @@ function collectFiles(target, root) {
   if ((0, import_node_fs.statSync)(absolute).isFile()) {
     return [absolute];
   }
-  return (0, import_node_fs.readdirSync)(absolute, { withFileTypes: true }).flatMap((entry) => collectFiles((0, import_node_path3.join)(target, entry.name), root));
+  return (0, import_node_fs.readdirSync)(absolute, { withFileTypes: true }).flatMap((entry) => collectFiles((0, import_node_path4.join)(target, entry.name), root));
 }
 function artifactDigests(files, workspace) {
   return Object.fromEntries(files.map((file) => {
-    const path = (0, import_node_path3.relative)(workspace, file).split(import_node_path3.sep).join("/");
+    const path = (0, import_node_path4.relative)(workspace, file).split(import_node_path4.sep).join("/");
     const digest = (0, import_node_crypto2.createHash)("sha256").update((0, import_node_fs.readFileSync)(file)).digest("hex");
     return [path, digest];
   }));
@@ -13060,7 +13210,7 @@ async function publishRelease(client, pr, config) {
   }));
   const expectedProgress = initialReleaseProgress(version, mergeSha, publishablePackages, releaseInputs.map((item) => item.tag), artifactDigestMap, config);
   let progress = mergeReleaseProgress(releaseInputs.map((item) => item.existingProgress), expectedProgress);
-  const pluginRegistry = createPluginRegistryFromConfig(config);
+  const pluginRegistry = await createPluginRegistryFromConfig(config, workspace);
   const pluginContextInput = {
     sourceCommit: mergeSha,
     version,
@@ -13068,11 +13218,17 @@ async function publishRelease(client, pr, config) {
     changes: [],
     config
   };
-  const validateRes = await runTransactionOwnedPluginHook(pluginRegistry, "validate", pluginContextInput, progress, recordReleaseTransactionEvent);
+  const persist = async (tx) => {
+    progress = tx;
+    if (executions.length > 0) {
+      await persistReleaseProgress(client, executions, progress);
+    }
+  };
+  const validateRes = await runTransactionOwnedPluginHook(pluginRegistry, "validate", pluginContextInput, progress, recordReleaseTransactionEvent, persist);
   if (validateRes.transaction) progress = validateRes.transaction;
-  const prepareRes = await runTransactionOwnedPluginHook(pluginRegistry, "prepare", pluginContextInput, progress, recordReleaseTransactionEvent);
+  const prepareRes = await runTransactionOwnedPluginHook(pluginRegistry, "prepare", pluginContextInput, progress, recordReleaseTransactionEvent, persist);
   if (prepareRes.transaction) progress = prepareRes.transaction;
-  const buildRes = await runTransactionOwnedPluginHook(pluginRegistry, "build", pluginContextInput, progress, recordReleaseTransactionEvent);
+  const buildRes = await runTransactionOwnedPluginHook(pluginRegistry, "build", pluginContextInput, progress, recordReleaseTransactionEvent, persist);
   if (buildRes.transaction) progress = buildRes.transaction;
   const executions = [];
   for (const item of releaseInputs) {
@@ -13098,14 +13254,14 @@ async function publishRelease(client, pr, config) {
     log(`${item.existingRelease ? "Resuming" : "Prepared draft"} GitHub release for ${item.packageItem.name}: ${release.html_url}`);
   }
   await persistReleaseProgress(client, executions, progress);
-  const publishRes = await runTransactionOwnedPluginHook(pluginRegistry, "publish", pluginContextInput, progress, recordReleaseTransactionEvent);
+  const publishRes = await runTransactionOwnedPluginHook(pluginRegistry, "publish", pluginContextInput, progress, recordReleaseTransactionEvent, persist);
   if (publishRes.transaction) progress = publishRes.transaction;
   const packageIds = new Map(publishablePackages.map((packageItem, index) => [packageKey(packageItem, index), packageItem]));
   for (const [id, packageItem] of packageIds) {
     if (progress.publishedPackages.includes(id)) {
       continue;
     }
-    const packageWorkspace = packageItem.directory ? (0, import_node_path3.resolve)(workspace, packageItem.directory) : workspace;
+    const packageWorkspace = packageItem.directory ? (0, import_node_path4.resolve)(workspace, packageItem.directory) : workspace;
     const ecosystem = packageEcosystem(packageItem);
     const publisher = publishConfigForEcosystem(config, ecosystem);
     if (!publisher.enabled) {
@@ -13164,7 +13320,7 @@ async function publishRelease(client, pr, config) {
       await persistReleaseProgress(client, executions, progress);
     }
   }
-  const uploadRes = await runTransactionOwnedPluginHook(pluginRegistry, "upload", pluginContextInput, progress, recordReleaseTransactionEvent);
+  const uploadRes = await runTransactionOwnedPluginHook(pluginRegistry, "upload", pluginContextInput, progress, recordReleaseTransactionEvent, persist);
   if (uploadRes.transaction) progress = uploadRes.transaction;
   for (const execution of executions) {
     if (execution.release.draft !== true) {
@@ -13173,7 +13329,7 @@ async function publishRelease(client, pr, config) {
     const uploaded = new Set(progress.uploadedAssets[execution.tag] ?? []);
     const existingAssets = new Set((execution.release.assets ?? []).map((asset) => asset.name));
     for (const file of artifactFiles) {
-      const assetName = (0, import_node_path3.basename)(file);
+      const assetName = (0, import_node_path4.basename)(file);
       if (existingAssets.has(assetName)) {
         uploaded.add(assetName);
         progress = recordReleaseTransactionEvent(progress, { key: `asset:${execution.tag}:${assetName}`, kind: "asset-detected", target: assetName, detail: "Release already contains this asset; no duplicate upload was attempted." });
@@ -13203,7 +13359,7 @@ async function publishRelease(client, pr, config) {
   progress = advanceReleaseTransaction(progress, "published", { key: "release-published", kind: "release-published", target: version, detail: "All transactional side effects completed; GitHub release drafts are being finalized." });
   injectTestFailure("release-finalize");
   await persistReleaseProgress(client, executions, progress, true);
-  const announceRes = await runTransactionOwnedPluginHook(pluginRegistry, "announce", pluginContextInput, progress, recordReleaseTransactionEvent);
+  const announceRes = await runTransactionOwnedPluginHook(pluginRegistry, "announce", pluginContextInput, progress, recordReleaseTransactionEvent, persist);
   if (announceRes.transaction) progress = announceRes.transaction;
   if (mode === "independent") {
     const versions = publishablePackages.map((packageItem) => packageItem.version).filter((value) => parseVersion(value));

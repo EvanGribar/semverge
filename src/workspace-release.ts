@@ -38,6 +38,7 @@ export interface BuildWorkspaceReleasePlanInput {
   files: Record<string, string>;
   date?: string;
   readinessContext?: Parameters<typeof buildReleasePlan>[0]["readinessContext"];
+  registry?: import("./plugin-sdk.js").ReleasePluginRegistry;
 }
 
 type PlannedPackageRelease = Omit<PackageRelease, "explanation">;
@@ -113,7 +114,8 @@ function buildPackagePlan(input: BuildWorkspaceReleasePlanInput, packageItem: Pa
     config,
     existingChangelog: input.files[config.outputs.changelog] ?? "",
     date: input.date,
-    readinessContext: input.readinessContext
+    readinessContext: input.readinessContext,
+    registry: input.registry
   });
 }
 
@@ -435,7 +437,8 @@ export function buildWorkspaceReleasePlan(input: BuildWorkspaceReleasePlanInput)
       config: packageConfig,
       existingChangelog: input.files[input.config.outputs.changelog] ?? "",
       date: input.date,
-      readinessContext: input.readinessContext
+      readinessContext: input.readinessContext,
+      registry: input.registry
     });
     plans.push(...releaseable.map((releasePackage) => ({ package: releasePackage, plan })));
   } else {
