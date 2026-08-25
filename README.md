@@ -1,6 +1,8 @@
 # SemVerge
 
-SemVerge is release automation that understands whether a release is ready and what customers need to know.
+## Release automation for GitHub that knows when you're actually ready to ship
+
+SemVerge automates versioning, readiness checks, customer-facing release notes, and artifact publication for Node.js projects on GitHub.
 
 Its release PR is the control center for versioning, customer communication, migration requirements, and release readiness:
 
@@ -46,7 +48,9 @@ jobs:
         # - uses: EvanGribar/semverge@c0a62caddd16e581b5a1bd3577540c54e0102739
 ```
 
-On pushes to `main`, SemVerge reads conventional commits and merged pull requests, calculates the next semantic version, and maintains a release pull request. When that pull request merges, SemVerge verifies that the runner workspace is checked out at the exact merge commit, builds artifacts, records SHA-256 digests for configured assets, prepares a draft release, publishes configured npm/PyPI/crates.io packages or OCI images, uploads assets, and only then publishes the GitHub release. A durable transaction marker in the release body records explicit phases and side effects, so retries resume completed steps, including registry checks that recognize an already-published package or image tag and a digest check that rejects changed artifacts. The action's `transaction` output exposes the same state as JSON.
+On pushes to `main`, SemVerge reads conventional commits and merged pull requests, calculates the next semantic version, and maintains a release pull request. When that pull request merges, it verifies the exact merge commit, runs the configured readiness checks, builds artifacts, records digests, and publishes the release only after the transaction is complete. The action's `transaction` output exposes durable state for recovery and inspection.
+
+The clearest adoption path is **Node.js + GitHub + npm/pnpm**. Additional registries, release channels, monorepo modes, and OCI workflows are available in the configuration and adapter documentation, but the core promise stays simple: make releases safer and easier to explain.
 
 The default repository needs no configuration. SemVerge also understands product-oriented labels:
 
