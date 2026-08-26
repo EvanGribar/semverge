@@ -11262,6 +11262,9 @@ function hasUncompletedPluginEffect(state, pluginName) {
   }
   return [...incompleteKeys].some((key) => !completedKeys.has(key));
 }
+function hasCompletedTransactionEvent(state, key) {
+  return state.events.some((event) => event.key === key && event.status === "completed");
+}
 async function runTransactionOwnedPluginHook(registry, hook, context, transaction, recordEventFn, persistFn) {
   let currentState = transaction;
   const invocations = [];
@@ -11274,7 +11277,7 @@ async function runTransactionOwnedPluginHook(registry, hook, context, transactio
       continue;
     }
     const hookKey = `plugin:${plugin.name}:${hook}`;
-    if (currentState && currentState.events.some((e) => e.key === hookKey && e.status === "completed") && !hasUncompletedPluginEffect(currentState, plugin.name)) {
+    if (currentState && hasCompletedTransactionEvent(currentState, hookKey) && !hasUncompletedPluginEffect(currentState, plugin.name)) {
       invocations.push({ plugin: plugin.name, result: { summary: `Skipped ${hook} (already completed in transaction)` } });
       continue;
     }
@@ -11308,7 +11311,7 @@ async function runTransactionOwnedPluginHook(registry, hook, context, transactio
             await persist(currentState);
             for (const effect of result.effects) {
               const effectKey = `effect:${plugin.name}:${effect.idempotencyKey}`;
-              if (currentState.events.some((e) => e.key === effectKey && e.status === "completed")) {
+              if (hasCompletedTransactionEvent(currentState, effectKey)) {
                 continue;
               }
               const executor = plugin.executors?.[effect.kind];
