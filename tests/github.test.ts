@@ -134,4 +134,29 @@ describe("GitHub API pagination", () => {
     expect(requests[0]?.url.searchParams.get("check_name")).toBe("SemVerge delayed monitoring");
     expect(requests[1]?.body).toMatchObject({ name: "SemVerge delayed monitoring", head_sha: "merge-sha", status: "completed", conclusion: "neutral", external_id: "monitor-2" });
   });
+
+  it("resolves annotated tags and downloads release assets", async () => {
+    const requests: URL[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      requests.push(url);
+      if (url.pathname.endsWith("/git/ref/tags/v2.0.0")) {
+        return new Response(JSON.stringify({ ref: "refs/tags/v2.0.0", object: { sha: "tag-object", type: "tag" } }), { status: 200 });
+      }
+      if (url.pathname.endsWith("/git/tags/tag-object")) {
+        return new Response(JSON.stringify({ object: { sha: "commit-sha", type: "commit" } }), { status: 200 });
+      }
+      expect(init?.headers).toBeDefined();
+      return new Response("artifact", { status: 200 });
+    }));
+
+    const client = new GitHubClient("token", "demo/repo", "https://api.github.test");
+    await expect(client.resolveTagCommit("v2.0.0")).resolves.toBe("commit-sha");
+    await expect(client.downloadReleaseAsset({ name: "demo.tgz", browser_download_url: "https://downloads.example/demo.tgz" })).resolves.toEqual(new Uint8Array(Buffer.from("artifact")));
+    expect(requests.map((request) => request.pathname)).toEqual([
+      "/repos/demo/repo/git/ref/tags/v2.0.0",
+      "/repos/demo/repo/git/tags/tag-object",
+      "/demo.tgz"
+    ]);
+  });
 });

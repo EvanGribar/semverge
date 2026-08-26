@@ -9777,7 +9777,7 @@ function renderOciPublishCommand(command, image, version) {
   }
   return rendered;
 }
-async function ociImageVersionExists(image, version, fetcher = defaultFetcher) {
+async function ociManifestResponse(image, version, fetcher) {
   const normalizedImage = image.trim();
   const normalizedVersion = version.trim();
   if (!normalizedImage || !normalizedVersion) {
@@ -9795,6 +9795,12 @@ async function ociImageVersionExists(image, version, fetcher = defaultFetcher) {
     const token = await bearerToken(challenge, normalizedImage, normalizedVersion, fetcher);
     response = await fetcher(url, { headers: { ...baseHeaders, authorization: `Bearer ${token}` } });
   }
+  return response;
+}
+async function ociImageVersionExists(image, version, fetcher = defaultFetcher) {
+  const normalizedImage = image.trim();
+  const normalizedVersion = version.trim();
+  const response = await ociManifestResponse(normalizedImage, normalizedVersion, fetcher);
   if (response.status === 404) {
     return false;
   }
@@ -9802,6 +9808,25 @@ async function ociImageVersionExists(image, version, fetcher = defaultFetcher) {
     throw ociRegistryError(normalizedImage, normalizedVersion, `the registry returned HTTP ${response.status}`);
   }
   return true;
+}
+async function ociImageVersionDigest(image, version, fetcher = defaultFetcher) {
+  const normalizedImage = image.trim();
+  const normalizedVersion = version.trim();
+  const response = await ociManifestResponse(normalizedImage, normalizedVersion, fetcher);
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw ociRegistryError(normalizedImage, normalizedVersion, `the registry returned HTTP ${response.status}`);
+  }
+  const digest = response.headers.get("docker-content-digest")?.trim();
+  if (!digest) {
+    return null;
+  }
+  if (!/^[A-Za-z][A-Za-z0-9+._-]*:[0-9a-f]+$/i.test(digest)) {
+    throw ociRegistryError(normalizedImage, normalizedVersion, "the registry returned an invalid content digest");
+  }
+  return digest.toLowerCase();
 }
 
 // src/config.ts
@@ -10295,6 +10320,25 @@ var GitHubClient = class {
   async getRef(ref) {
     return this.request(`/git/ref/${ref}`, {}, true);
   }
+  async resolveTagCommit(tag) {
+    let ref = await this.getRef(`tags/${tag}`);
+    const visited = /* @__PURE__ */ new Set();
+    while (ref) {
+      if (ref.object.type === "commit") {
+        return ref.object.sha;
+      }
+      if (ref.object.type !== "tag" || visited.has(ref.object.sha)) {
+        return null;
+      }
+      visited.add(ref.object.sha);
+      const annotated = await this.request(`/git/tags/${encodeURIComponent(ref.object.sha)}`, {}, true);
+      if (!annotated?.object?.sha) {
+        return null;
+      }
+      ref = { ref: `refs/tags/${tag}`, object: { sha: annotated.object.sha, type: annotated.object.type ?? "commit" } };
+    }
+    return null;
+  }
   async getCommit(sha) {
     return await this.request(`/git/commits/${encodeURIComponent(sha)}`);
   }
@@ -10417,6 +10461,34 @@ var GitHubClient = class {
   }
   async getReleaseByTag(tag) {
     return this.request(`/releases/tags/${encodeURIComponent(tag)}`, {}, true);
+  }
+  async getRelease(id) {
+    return this.request(`/releases/${encodeURIComponent(String(id))}`, {}, true);
+  }
+  async downloadReleaseAsset(asset) {
+    const downloadUrl = asset.url ?? asset.browser_download_url;
+    if (!downloadUrl) {
+      return null;
+    }
+    const parsedUrl = new URL(downloadUrl);
+    const apiHost = new URL(this.apiBase).hostname;
+    const trustedHosts = /* @__PURE__ */ new Set([apiHost, apiHost.replace(/^api\./i, ""), "github.com", "www.github.com", "api.github.com"]);
+    const headers = new Headers({
+      accept: "application/octet-stream",
+      "x-github-api-version": "2022-11-28"
+    });
+    if (this.token && trustedHosts.has(parsedUrl.hostname)) {
+      headers.set("authorization", `Bearer ${this.token}`);
+    }
+    const response = await fetch(downloadUrl, { headers });
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`GitHub asset download failed (${response.status}): ${text.slice(0, 500)}`);
+    }
+    return new Uint8Array(await response.arrayBuffer());
   }
   async uploadReleaseAsset(release, filePath) {
     const { basename: basename4 } = await import("node:path");
@@ -12228,6 +12300,19 @@ function digestMap(value, field = "artifactDigests") {
   });
   return Object.fromEntries(entries);
 }
+function ociDigestMap(value) {
+  const object = objectValue3(value);
+  if (!object) {
+    throw new Error("SemVerge transaction field ociDigests must be an object.");
+  }
+  const entries = Object.entries(object).map(([image, digest]) => {
+    if (!image || typeof digest !== "string" || !/^[A-Za-z][A-Za-z0-9+._-]*:[0-9a-f]+$/i.test(digest)) {
+      throw new Error("SemVerge transaction field ociDigests must contain OCI digests.");
+    }
+    return [image, digest.toLowerCase()];
+  });
+  return Object.fromEntries(entries);
+}
 function eventValue(value) {
   const object = objectValue3(value);
   if (!object || typeof object.key !== "string" || typeof object.phase !== "string" || typeof object.kind !== "string" || typeof object.target !== "string" || object.status !== "planned" && object.status !== "started" && object.status !== "completed" && object.status !== "failed" || typeof object.attempt !== "number" || !Number.isInteger(object.attempt) || object.attempt < 1 || typeof object.at !== "string") {
@@ -12264,6 +12349,7 @@ function createReleaseTransaction(input2) {
     npmEnabled: input2.npmEnabled,
     npmProvenance: input2.npmProvenance ?? false,
     artifactDigests: digestMap(input2.artifactDigests ?? {}),
+    ociDigests: ociDigestMap(input2.ociDigests ?? {}),
     publishedPackages: input2.alreadyPublishedPackageIds ? unique(input2.alreadyPublishedPackageIds) : publishingTargets.length > 0 ? [] : unique(input2.packageIds),
     publishedOciImages: input2.alreadyPublishedOciImages ? unique(input2.alreadyPublishedOciImages) : [],
     uploadedAssets: Object.fromEntries(unique(input2.tagNames).map((tag) => [tag, []])),
@@ -12321,6 +12407,7 @@ function mergeReleaseTransactions(states, expected) {
     publishingTargets: [...expected.publishingTargets],
     ociImages: [...expected.ociImages],
     artifactDigests: { ...expected.artifactDigests },
+    ociDigests: { ...expected.ociDigests ?? {} },
     publishedPackages: [...expected.publishedPackages],
     publishedOciImages: [...expected.publishedOciImages],
     uploadedAssets: normalizeAssets(expected.uploadedAssets),
@@ -12348,6 +12435,14 @@ function mergeReleaseTransactions(states, expected) {
         throw new Error(`SemVerge found a different artifact digest for ${path}; verify the release workspace before retrying.`);
       }
       merged.artifactDigests[path] = digest;
+    }
+    for (const [image, digest] of Object.entries(state.ociDigests ?? {})) {
+      const mergedOciDigests = merged.ociDigests ?? (merged.ociDigests = {});
+      const expectedDigest = mergedOciDigests[image];
+      if (expectedDigest && expectedDigest !== digest) {
+        throw new Error(`SemVerge found a different OCI digest for ${image}; verify the release workspace before retrying.`);
+      }
+      mergedOciDigests[image] = digest;
     }
     const events = new Map(merged.events.map((event) => [`${event.key}:${event.status}:${event.attempt}`, event]));
     for (const event of state.events) {
@@ -12425,6 +12520,7 @@ function parseReleaseTransaction(value) {
     npmEnabled: record.npmEnabled,
     npmProvenance: hasNpmProvenance ? record.npmProvenance : false,
     artifactDigests: hasArtifactDigests ? digestMap(record.artifactDigests) : {},
+    ociDigests: hasOciImages && record.ociDigests !== void 0 ? ociDigestMap(record.ociDigests) : {},
     publishedPackages: stringArray(record.publishedPackages, "publishedPackages"),
     publishedOciImages: hasOciImages ? stringArray(record.publishedOciImages, "publishedOciImages") : [],
     uploadedAssets: normalizeAssets(assetMap(record.uploadedAssets)),
@@ -12516,6 +12612,7 @@ function summarizeReleaseTransaction(state) {
     publishedOciImages: `${state.publishedOciImages.length}/${state.ociImages.length}`,
     uploadedAssets,
     artifactDigests: { ...state.artifactDigests },
+    ociDigests: { ...state.ociDigests ?? {} },
     npmProvenance: state.npmProvenance,
     recordedEvents: state.events.length,
     safeNextAction,
@@ -12537,6 +12634,8 @@ function releaseTransactionSummaryMarkdown(state) {
     `- Uploaded assets recorded: **${summary.uploadedAssets}**`,
     `- Artifact SHA-256 digests recorded: **${Object.keys(summary.artifactDigests).length}**`,
     ...Object.entries(summary.artifactDigests).sort(([left], [right]) => left.localeCompare(right)).map(([path, digest]) => "- Artifact `" + path + "`: `" + digest + "`"),
+    `- OCI digests recorded: **${Object.keys(summary.ociDigests).length}**`,
+    ...Object.entries(summary.ociDigests).sort(([left], [right]) => left.localeCompare(right)).map(([image, digest]) => "- OCI image `" + image + "`: `" + digest + "`"),
     `- Recorded side effects: **${summary.recordedEvents}**`,
     ...summary.failure ? [`- Recorded failure: ${summary.failure}`] : [],
     `- Safe next action: ${summary.safeNextAction}`
@@ -13096,6 +13195,21 @@ function releaseBody(customerNotes, progress) {
 function mergeReleaseProgress(states, expected) {
   return mergeReleaseTransactions(states, expected);
 }
+async function recordOciDigest(progress, image, version, idempotency) {
+  if (idempotency !== "registry") {
+    return progress;
+  }
+  try {
+    const digest = await ociImageVersionDigest(image, version);
+    if (digest) {
+      progress.ociDigests ??= {};
+      progress.ociDigests[image] = digest;
+    }
+  } catch (error) {
+    log(`Could not record the OCI digest for ${image}:${version}; release verification will report the digest evidence as unavailable: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return progress;
+}
 async function persistReleaseProgress(client, executions, progress, finalize = false) {
   for (const execution of executions) {
     if (execution.release.draft !== true) {
@@ -13316,6 +13430,7 @@ async function publishRelease(client, pr, config) {
       if (alreadyPublished) {
         log(`Found ${image}:${ociVersion} in the OCI registry; treating publication as already complete.`);
         progress.publishedOciImages = [.../* @__PURE__ */ new Set([...progress.publishedOciImages, image])];
+        progress = await recordOciDigest(progress, image, ociVersion, ociConfig.idempotency);
         progress = recordReleaseTransactionEvent(progress, { key: `oci:${image}`, kind: "oci-image-published", target: `${image}:${ociVersion}`, detail: "The OCI registry already contains the requested image tag; no duplicate push was attempted." });
         await persistReleaseProgress(client, executions, progress);
         continue;
@@ -13331,6 +13446,7 @@ async function publishRelease(client, pr, config) {
         throw error;
       }
       progress.publishedOciImages = [.../* @__PURE__ */ new Set([...progress.publishedOciImages, image])];
+      progress = await recordOciDigest(progress, image, ociVersion, ociConfig.idempotency);
       progress = recordReleaseTransactionEvent(progress, { key: `oci:${image}`, kind: "oci-image-published", target: `${image}:${ociVersion}` });
       await persistReleaseProgress(client, executions, progress);
     }

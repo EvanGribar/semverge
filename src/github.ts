@@ -63,7 +63,15 @@ export interface GitHubRelease {
   target_commitish?: string;
   published_at?: string | null;
   created_at?: string;
-  assets?: Array<{ name: string; browser_download_url?: string }>;
+  assets?: GitHubReleaseAsset[];
+}
+
+export interface GitHubReleaseAsset {
+  id?: number;
+  name: string;
+  url?: string;
+  browser_download_url?: string;
+  size?: number;
 }
 
 export interface GitHubWorkflowRun {
@@ -125,6 +133,10 @@ interface GitTreeEntry {
   mode: "100644";
   type: "blob";
   content: string;
+}
+
+interface GitHubAnnotatedTag {
+  object?: { sha?: string; type?: string };
 }
 
 export class GitHubClient {
@@ -217,6 +229,26 @@ export class GitHubClient {
 
   async getRef(ref: string): Promise<GitHubRef | null> {
     return this.request<GitHubRef>(`/git/ref/${ref}`, {}, true);
+  }
+
+  async resolveTagCommit(tag: string): Promise<string | null> {
+    let ref = await this.getRef(`tags/${tag}`);
+    const visited = new Set<string>();
+    while (ref) {
+      if (ref.object.type === "commit") {
+        return ref.object.sha;
+      }
+      if (ref.object.type !== "tag" || visited.has(ref.object.sha)) {
+        return null;
+      }
+      visited.add(ref.object.sha);
+      const annotated = await this.request<GitHubAnnotatedTag>(`/git/tags/${encodeURIComponent(ref.object.sha)}`, {}, true);
+      if (!annotated?.object?.sha) {
+        return null;
+      }
+      ref = { ref: `refs/tags/${tag}`, object: { sha: annotated.object.sha, type: annotated.object.type ?? "commit" } };
+    }
+    return null;
   }
 
   async getCommit(sha: string): Promise<GitHubCommit> {
@@ -363,6 +395,36 @@ export class GitHubClient {
 
   async getReleaseByTag(tag: string): Promise<GitHubRelease | null> {
     return this.request<GitHubRelease>(`/releases/tags/${encodeURIComponent(tag)}`, {}, true);
+  }
+
+  async getRelease(id: string | number): Promise<GitHubRelease | null> {
+    return this.request<GitHubRelease>(`/releases/${encodeURIComponent(String(id))}`, {}, true);
+  }
+
+  async downloadReleaseAsset(asset: GitHubReleaseAsset): Promise<Uint8Array | null> {
+    const downloadUrl = asset.url ?? asset.browser_download_url;
+    if (!downloadUrl) {
+      return null;
+    }
+    const parsedUrl = new URL(downloadUrl);
+    const apiHost = new URL(this.apiBase).hostname;
+    const trustedHosts = new Set([apiHost, apiHost.replace(/^api\./i, ""), "github.com", "www.github.com", "api.github.com"]);
+    const headers = new Headers({
+      accept: "application/octet-stream",
+      "x-github-api-version": "2022-11-28"
+    });
+    if (this.token && trustedHosts.has(parsedUrl.hostname)) {
+      headers.set("authorization", `Bearer ${this.token}`);
+    }
+    const response = await fetch(downloadUrl, { headers });
+    if (response.status === 404) {
+      return null;
+    }
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`GitHub asset download failed (${response.status}): ${text.slice(0, 500)}`);
+    }
+    return new Uint8Array(await response.arrayBuffer());
   }
 
   async uploadReleaseAsset(release: GitHubRelease, filePath: string): Promise<void> {

@@ -11,6 +11,13 @@ export interface NpmCommandResult {
 
 export type NpmViewRunner = (executable: string, args: string[], options: { cwd: string }) => Promise<NpmCommandResult>;
 
+export type NpmProvenanceStatus = "verified" | "mismatch" | "unavailable";
+
+export interface NpmProvenanceCheck {
+  status: NpmProvenanceStatus;
+  detail: string;
+}
+
 const DEFAULT_NPM_PUBLISH_COMMAND = "npm publish";
 
 export function npmPublishCommand(config: NpmPublishConfig): string {
@@ -86,5 +93,49 @@ export async function npmVersionExists(name: string, version: string, cwd: strin
       return false;
     }
     throw new Error(`Could not verify ${spec} in the npm registry before publishing. Fix npm registry access and retry; SemVerge will not assume the version is absent.`);
+  }
+}
+
+function containsProvenance(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  if (record.provenance !== undefined && record.provenance !== null && record.provenance !== false) {
+    return true;
+  }
+  const attestations = record.attestations;
+  return attestations !== undefined && attestations !== null && attestations !== false;
+}
+
+export async function npmProvenanceCheck(
+  name: string,
+  version: string,
+  cwd: string,
+  runner: NpmViewRunner = defaultNpmViewRunner
+): Promise<NpmProvenanceCheck> {
+  const packageName = name.trim();
+  const packageVersion = version.trim();
+  if (!packageName || !packageVersion) {
+    return { status: "unavailable", detail: "npm provenance cannot be checked without a package name and version." };
+  }
+  const spec = `${packageName}@${packageVersion}`;
+  try {
+    const result = await runner(npmExecutable(), ["view", spec, "dist.attestations", "--json"], { cwd });
+    let value: unknown;
+    try {
+      value = JSON.parse(result.stdout.trim());
+    } catch {
+      return { status: "unavailable", detail: `npm returned invalid attestation metadata for ${spec}.` };
+    }
+    if (containsProvenance(value)) {
+      return { status: "verified", detail: `npm registry attestation evidence is present for ${spec}.` };
+    }
+    return { status: "mismatch", detail: `npm registry did not report provenance attestation evidence for ${spec}.` };
+  } catch (error) {
+    if (isRegistryNotFound(error)) {
+      return { status: "mismatch", detail: `${spec} was not found in the npm registry.` };
+    }
+    return { status: "unavailable", detail: `npm provenance could not be checked for ${spec}: ${errorOutput(error).split("\n").at(-1) ?? "registry access failed"}.` };
   }
 }

@@ -79,10 +79,12 @@ npx semverge explain "feat: add bulk export"
 npx semverge migrate changesets  # inspect an existing release tool
 npx semverge doctor     # report local setup, configuration, and hosted-release signals
 npx semverge recover release_01J... --state .semverge/release-state.json
+npx semverge verify v1.2.3       # verify a published release and its recorded evidence
+npx semverge verify v1.2.3 --json # emit a deterministic CI-friendly report
 ```
 
 `init` is safe by default and requires `--force` to replace an existing file. `plan` prints the same release-plan shape used by the action, `explain` turns that plan into a human-readable decision and recovery guide, while `doctor` reports local package-manager, workspace, tag, release-tool, registry, build, workflow-permission, and configuration signals before a hosted run. It never prints auth settings and cannot prove provider-side eligibility. See [docs/doctor.md](docs/doctor.md).
-`migrate` detects Release Please, Changesets, and semantic-release configuration and produces a conservative report; add `--write` only after reviewing it. `recover` prints the durable transaction state and safe next action. With `GITHUB_REPOSITORY` and a token it searches GitHub releases; `--state` is useful for a local exported marker or fixture. See [docs/migration.md](docs/migration.md).
+`migrate` detects Release Please, Changesets, and semantic-release configuration and produces a conservative report; add `--write` only after reviewing it. `recover` prints the durable transaction state and safe next action. `verify` is read-only: it checks the transaction, source tag, recorded artifact digests, GitHub release assets, configured package registries, npm provenance evidence, and recorded OCI digests where those providers are available. Its report distinguishes `verified`, `mismatch`, `unavailable`, and `not-applicable`; it exits `0` for a complete verification, `1` for integrity mismatches, and `2` when required provider evidence is unavailable. With `GITHUB_REPOSITORY` and a token it verifies the hosted release; `--state` is useful for a local exported marker or fixture. See [docs/verification.md](docs/verification.md) and [docs/migration.md](docs/migration.md).
 
 The optional dependency-free [project surface](website/README.md) is Vercel-compatible but not hosted or required. See [docs/vercel.md](docs/vercel.md) for the current no-deployment boundary.
 

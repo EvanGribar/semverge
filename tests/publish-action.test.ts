@@ -16,10 +16,12 @@ vi.mock("../src/npm.js", async (importOriginal) => ({
 
 const registryVersionExistsMock = vi.hoisted(() => vi.fn(async () => false));
 const ociImageVersionExistsMock = vi.hoisted(() => vi.fn(async () => false));
+const ociImageVersionDigestMock = vi.hoisted(() => vi.fn(async () => null));
 vi.mock("../src/registries.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../src/registries.js")>()),
   registryVersionExists: registryVersionExistsMock,
-  ociImageVersionExists: ociImageVersionExistsMock
+  ociImageVersionExists: ociImageVersionExistsMock,
+  ociImageVersionDigest: ociImageVersionDigestMock
 }));
 
 const retryFixtureDirectory = join(dirname(fileURLToPath(import.meta.url)), "..", "fixtures", "node-retry");
@@ -107,6 +109,8 @@ describe("merged release publication", () => {
     registryVersionExistsMock.mockResolvedValue(false);
     ociImageVersionExistsMock.mockReset();
     ociImageVersionExistsMock.mockResolvedValue(false);
+    ociImageVersionDigestMock.mockReset();
+    ociImageVersionDigestMock.mockResolvedValue(null);
   });
 
   it("builds before creating a draft and publishes only after the transaction is ready", async () => {
