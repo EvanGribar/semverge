@@ -100,6 +100,135 @@ describe("Core Release Engine Plugin Execution", () => {
     expect(retryRes.invocations[0]?.result.summary).toContain("Skipped publish");
   });
 
+  it("treats a completed effect event as terminal even when earlier attempts remain in history", async () => {
+    let hookCalls = 0;
+    let effectExecutions = 0;
+    const effectKey = "effect:historical-effect-plugin:delivery-v1.0.0";
+    const plugin: SemVergeReleasePlugin = defineReleasePlugin({
+      apiVersion: 1,
+      name: "historical-effect-plugin",
+      hooks: {
+        publish: () => {
+          hookCalls += 1;
+          return { effects: [{ id: "delivery", idempotencyKey: "delivery-v1.0.0", kind: "deliver", target: "staging" }] };
+        }
+      },
+      executors: {
+        deliver: {
+          execute: async () => {
+            effectExecutions += 1;
+          }
+        }
+      }
+    });
+    const registry = new ReleasePluginRegistry();
+    registry.register(plugin);
+
+    let transaction = createReleaseTransaction({
+      version: "1.0.0",
+      sourceCommit: "sha123",
+      packageIds: ["root"],
+      tagNames: ["v1.0.0"],
+      npmEnabled: false
+    });
+    for (const status of ["planned", "started", "completed"] as const) {
+      transaction = recordReleaseTransactionEvent(transaction, {
+        key: effectKey,
+        kind: "plugin-effect-deliver",
+        target: "staging",
+        status
+      });
+    }
+
+    const context = {
+      sourceCommit: "sha123",
+      version: "1.0.0",
+      packages: [],
+      changes: [],
+      config: {}
+    };
+    const result = await runTransactionOwnedPluginHook(registry, "publish", context, transaction, recordReleaseTransactionEvent);
+
+    expect(result.transaction).toBeDefined();
+    expect(hookCalls).toBe(1);
+    expect(effectExecutions).toBe(0);
+    expect(result.transaction!.events.filter((event) => event.key === effectKey).map((event) => event.status)).toEqual(["planned", "started", "completed"]);
+
+    const retry = await runTransactionOwnedPluginHook(registry, "publish", context, result.transaction, recordReleaseTransactionEvent);
+    expect(hookCalls).toBe(1);
+    expect(effectExecutions).toBe(0);
+    expect(retry.invocations[0]?.result.summary).toContain("Skipped publish");
+    expect(retry.transaction!.events.filter((event) => event.key === effectKey).map((event) => event.status)).toEqual(["planned", "started", "completed"]);
+  });
+
+  it("retries failed effects and skips them after a later completed attempt", async () => {
+    let hookCalls = 0;
+    let effectExecutions = 0;
+    let failExecution = true;
+    const effectKey = "effect:retry-effect-plugin:delivery-v1.0.0";
+    const plugin: SemVergeReleasePlugin = defineReleasePlugin({
+      apiVersion: 1,
+      name: "retry-effect-plugin",
+      hooks: {
+        publish: () => {
+          hookCalls += 1;
+          return { effects: [{ id: "delivery", idempotencyKey: "delivery-v1.0.0", kind: "deliver", target: "staging" }] };
+        }
+      },
+      executors: {
+        deliver: {
+          execute: async () => {
+            effectExecutions += 1;
+            if (failExecution) {
+              throw new Error("temporary delivery failure");
+            }
+          }
+        }
+      }
+    });
+    const registry = new ReleasePluginRegistry();
+    registry.register(plugin);
+
+    let transaction = createReleaseTransaction({
+      version: "1.0.0",
+      sourceCommit: "sha123",
+      packageIds: ["root"],
+      tagNames: ["v1.0.0"],
+      npmEnabled: false
+    });
+    const context = {
+      sourceCommit: "sha123",
+      version: "1.0.0",
+      packages: [],
+      changes: [],
+      config: {}
+    };
+    const persisted: Array<typeof transaction> = [];
+    const persist = async (state: typeof transaction) => {
+      persisted.push(state);
+    };
+
+    await expect(
+      runTransactionOwnedPluginHook(registry, "publish", context, transaction, recordReleaseTransactionEvent, persist)
+    ).rejects.toThrow("temporary delivery failure");
+    const failedTransaction = persisted[persisted.length - 1];
+    expect(failedTransaction).toBeDefined();
+    expect(failedTransaction!.events.filter((event) => event.key === effectKey).map((event) => event.status)).toEqual(["planned", "started", "failed"]);
+
+    failExecution = false;
+    const recovered = await runTransactionOwnedPluginHook(registry, "publish", context, failedTransaction, recordReleaseTransactionEvent);
+    expect(recovered.transaction).toBeDefined();
+    expect(hookCalls).toBe(2);
+    expect(effectExecutions).toBe(2);
+    expect(recovered.transaction!.events.filter((event) => event.key === effectKey).map((event) => event.status)).toEqual(["planned", "started", "failed", "started", "completed"]);
+
+    const retry = await runTransactionOwnedPluginHook(registry, "publish", context, recovered.transaction, recordReleaseTransactionEvent);
+    expect(hookCalls).toBe(2);
+    expect(effectExecutions).toBe(2);
+    expect(retry.invocations[0]?.result.summary).toContain("Skipped publish");
+    expect(retry.transaction!.events.filter((event) => event.key === effectKey).map((event) => event.status)).toEqual(["planned", "started", "failed", "started", "completed"]);
+  });
+
   it("completes a hook only after all effects finish and retries only incomplete effects", async () => {
     let hookCalls = 0;
     let firstEffectExecutions = 0;

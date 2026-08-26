@@ -31,6 +31,8 @@ Instead of mutating internal state, plugins return serializable **effect descrip
 
 The plugin hook is marked `completed` only after every effect it returns has been completed or detected as already complete. If an effect remains planned, started, or failed, the hook remains unfinished so a retry can reconcile the incomplete effects without replaying completed ones.
 
+The transaction event log is append-only for effect attempts. An effect is terminal for idempotency once **any** event with its idempotency key has status `completed`; earlier `planned`, `started`, or `failed` events do not make a later completion retryable.
+
 ### Effect States
 
 Every plugin effect moves durably through four transaction states:
