@@ -17,3 +17,4 @@ export * from "./types.js";
 export * from "./version-adapters.js";
 export * from "./version-files.js";
 export * from "./workspace-release.js";
+export * from "./verification.js";

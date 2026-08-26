@@ -12,9 +12,10 @@ import { inspectRepository, repositoryDoctorMarkdown } from "./doctor.js";
 import { GitHubClient } from "./github.js";
 import { inspectMigration, isMigrationTool, migrationReportMarkdown, MIGRATION_TOOLS, writeMigrationConfig } from "./migrate.js";
 import { parseVersion } from "./semver.js";
-import { parseReleaseTransaction, parseReleaseTransactionBody, recordReleaseTransactionEvent, releaseTransactionSummaryMarkdown, updateReleaseTransactionBody } from "./transaction.js";
+import { parseReleaseTransaction, parseReleaseTransactionBody, recordReleaseTransactionEvent, releaseTransactionSummaryMarkdown, updateReleaseTransactionBody, type ReleaseTransaction } from "./transaction.js";
 import { createPluginRegistryFromConfig, runTransactionOwnedPluginHook } from "./plugin-sdk.js";
 import { readPackageVersion } from "./version-files.js";
+import { verifyRelease, verificationReportJson, verificationReportMarkdown } from "./verification.js";
 
 export const DEFAULT_CONFIG_TEMPLATE = `# SemVerge configuration. Remove this file to use zero-configuration defaults.
 release:
@@ -45,10 +46,12 @@ function usage(): string {
     "  migrate <tool>       Inspect a Release Please, Changesets, or semantic-release setup",
     "  doctor               Validate repository files and SemVerge configuration",
     "  recover <release-id> Inspect durable release state and print the safe next action",
+    "  verify <release>      Verify a release transaction and its external publication evidence",
     "",
     "Options:",
     "  --config <path>      Read a different configuration file",
-    "  --state <path>       Read a local transaction state file for recover",
+    "  --state <path>       Read a local transaction state file for recover or verify",
+    "  --json               Print a deterministic machine-readable verification report",
     "  --write              Write a migration-generated .semverge.yml (migrate only)",
     "  --force              Allow init to replace an existing configuration file",
     "  --help               Show this help"
@@ -257,8 +260,53 @@ async function recover(cwd: string, id: string, statePath: string | undefined, i
   return 0;
 }
 
+function parseLocalTransaction(content: string): ReleaseTransaction {
+  let transaction: ReleaseTransaction | null = null;
+  try {
+    transaction = parseReleaseTransaction(JSON.parse(content) as unknown);
+  } catch {
+    transaction = parseReleaseTransactionBody(content);
+  }
+  if (!transaction) {
+    throw new Error("The local state does not contain a valid SemVerge release transaction marker.");
+  }
+  return transaction;
+}
+
+async function verify(cwd: string, target: string, statePath: string | undefined, configPath: string, json: boolean, io: CliIo): Promise<number> {
+  if (!target || target.startsWith("-")) {
+    io.stderr("verify requires a release version, tag, transaction id, or GitHub release URL.");
+    return 1;
+  }
+  const configContent = await readOptional(join(cwd, configPath)) ?? "";
+  const config = parseConfig(configContent, configPath);
+  const repository = process.env.GITHUB_REPOSITORY;
+  const token = process.env.GITHUB_TOKEN ?? process.env.INPUT_GITHUB_TOKEN ?? "";
+  let transaction: ReleaseTransaction | null | undefined;
+  let localOnly = Boolean(statePath);
+  const localStatePath = statePath
+    ? resolve(cwd, statePath)
+    : /^release_[A-Za-z0-9-]+$/i.test(target)
+      ? join(cwd, ".semverge", "release-state", `${target}.json`)
+      : undefined;
+  if (localStatePath) {
+    const content = await readOptional(localStatePath);
+    if (content !== undefined) {
+      transaction = parseLocalTransaction(content);
+      localOnly = true;
+    } else if (statePath) {
+      transaction = null;
+      localOnly = true;
+    }
+  }
+  const client = repository && !localOnly ? new GitHubClient(token, repository) : undefined;
+  const report = await verifyRelease({ target, cwd, config, client, transaction, localOnly });
+  io.stdout(json ? verificationReportJson(report) : verificationReportMarkdown(report));
+  return report.status === "verified" ? 0 : report.status === "mismatch" ? 1 : 2;
+}
+
 export async function runCli(argv = process.argv.slice(2), cwd = process.cwd(), io: CliIo = defaultIo): Promise<number> {
-  const commandNames = new Set(["init", "plan", "explain", "migrate", "doctor", "recover", "help"]);
+  const commandNames = new Set(["init", "plan", "explain", "migrate", "doctor", "recover", "verify", "help"]);
   const command = argv[0] && commandNames.has(argv[0]) ? argv[0] : "plan";
   const commandArgs = command === "plan" && argv[0] !== "plan" ? argv : argv.slice(1);
   if (command === "help" || command === "--help" || argv.includes("--help")) {
@@ -270,7 +318,8 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd(), 
   const stateOption = option(configOption.rest, "--state");
   const force = commandArgs.includes("--force");
   const write = commandArgs.includes("--write");
-  const remaining = stateOption.rest.filter((arg) => arg !== "--force" && arg !== "--write");
+  const json = commandArgs.includes("--json");
+  const remaining = stateOption.rest.filter((arg) => arg !== "--force" && arg !== "--write" && arg !== "--json");
 
   try {
     if (command === "init") {
@@ -281,6 +330,9 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd(), 
     }
     if (command === "recover") {
       return await recover(cwd, remaining[0] ?? "", stateOption.value, io);
+    }
+    if (command === "verify") {
+      return await verify(cwd, remaining[0] ?? "", stateOption.value, configPath, json, io);
     }
     if (command === "plan") {
       return await plan(cwd, configPath, remaining.join(" "), io);

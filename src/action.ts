@@ -12,7 +12,7 @@ import { buildWorkspaceReleasePlan, type WorkspaceReleasePlan } from "./workspac
 import { evaluatePostReleaseVerification, postReleaseVerificationMarkdown, versionFromReleaseTag, type PostReleaseVerificationObservation, type PostReleaseVerificationReport } from "./health.js";
 import { compareVersions, parseVersion } from "./semver.js";
 import { assertNpmProvenanceEnvironment, npmPublishCommand, npmVersionExists } from "./npm.js";
-import { ociImageVersionExists, parseOciImageRepository, publishConfigForEcosystem, publisherName, registryVersionExists, renderOciPublishCommand } from "./registries.js";
+import { ociImageVersionDigest, ociImageVersionExists, parseOciImageRepository, publishConfigForEcosystem, publisherName, registryVersionExists, renderOciPublishCommand } from "./registries.js";
 import { assertWorkspaceAtCommit } from "./workspace-integrity.js";
 import { advanceReleaseTransaction, createReleaseTransaction, mergeReleaseTransactions, parseReleaseTransactionBody, recordReleaseTransactionEvent, releaseTransactionBody, updateReleaseTransactionBody, type ReleaseTransaction } from "./transaction.js";
 import { createPluginRegistryFromConfig, runTransactionOwnedPluginHook, type ReleasePluginPackage } from "./plugin-sdk.js";
@@ -665,6 +665,22 @@ function mergeReleaseProgress(states: Array<ReleaseProgress | null>, expected: R
   return mergeReleaseTransactions(states, expected);
 }
 
+async function recordOciDigest(progress: ReleaseProgress, image: string, version: string, idempotency: "registry" | "declared" | undefined): Promise<ReleaseProgress> {
+  if (idempotency !== "registry") {
+    return progress;
+  }
+  try {
+    const digest = await ociImageVersionDigest(image, version);
+    if (digest) {
+      progress.ociDigests ??= {};
+      progress.ociDigests[image] = digest;
+    }
+  } catch (error) {
+    log(`Could not record the OCI digest for ${image}:${version}; release verification will report the digest evidence as unavailable: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  return progress;
+}
+
 async function persistReleaseProgress(client: GitHubClient, executions: ReleaseExecution[], progress: ReleaseProgress, finalize = false): Promise<void> {
   for (const execution of executions) {
     if (execution.release.draft !== true) {
@@ -908,6 +924,7 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
       if (alreadyPublished) {
         log(`Found ${image}:${ociVersion} in the OCI registry; treating publication as already complete.`);
         progress.publishedOciImages = [...new Set([...progress.publishedOciImages, image])];
+        progress = await recordOciDigest(progress, image, ociVersion, ociConfig.idempotency);
         progress = recordReleaseTransactionEvent(progress, { key: `oci:${image}`, kind: "oci-image-published", target: `${image}:${ociVersion}`, detail: "The OCI registry already contains the requested image tag; no duplicate push was attempted." });
         await persistReleaseProgress(client, executions, progress);
         continue;
@@ -923,6 +940,7 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
         throw error;
       }
       progress.publishedOciImages = [...new Set([...progress.publishedOciImages, image])];
+      progress = await recordOciDigest(progress, image, ociVersion, ociConfig.idempotency);
       progress = recordReleaseTransactionEvent(progress, { key: `oci:${image}`, kind: "oci-image-published", target: `${image}:${ociVersion}` });
       await persistReleaseProgress(client, executions, progress);
     }

@@ -113,4 +113,39 @@ describe("SemVerge CLI", () => {
       rmSync(directory, { recursive: true, force: true });
     }
   });
+
+  it("prints machine-readable verification statuses and uses non-zero status for incomplete evidence", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "semverge-cli-verify-"));
+    try {
+      const state = createReleaseTransaction({
+        id: "release_01JVERIFYCLI",
+        version: "2.0.0",
+        sourceCommit: "merge-sha",
+        packageIds: ["demo"],
+        tagNames: ["v2.0.0"],
+        npmEnabled: false
+      });
+      writeFileSync(join(directory, "state.json"), JSON.stringify(state));
+      const output = capture();
+
+      expect(await runCli(["verify", "2.0.0", "--state", "state.json", "--json"], directory, output.io)).toBe(1);
+      const report = JSON.parse(output.stdout[0] ?? "{}");
+      expect(report).toMatchObject({ schemaVersion: 1, tag: "v2.0.0", version: "2.0.0", status: "mismatch" });
+      expect(report.evidence).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: "Release transaction", status: "mismatch" })
+      ]));
+
+      const unavailableOutput = capture();
+      const previousRepository = process.env.GITHUB_REPOSITORY;
+      try {
+        delete process.env.GITHUB_REPOSITORY;
+        expect(await runCli(["verify", "3.0.0", "--json"], directory, unavailableOutput.io)).toBe(2);
+        expect(JSON.parse(unavailableOutput.stdout[0] ?? "{}")).toMatchObject({ status: "unavailable" });
+      } finally {
+        if (previousRepository === undefined) delete process.env.GITHUB_REPOSITORY; else process.env.GITHUB_REPOSITORY = previousRepository;
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 });

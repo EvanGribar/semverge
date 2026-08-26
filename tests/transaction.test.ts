@@ -166,6 +166,7 @@ describe("release transaction state", () => {
   });
 
   it("binds OCI image repositories and merges their durable publication progress", () => {
+    const digest = `sha256:${"a".repeat(64)}`;
     const expected = createReleaseTransaction({
       id: "release_01JOCI",
       version: "1.0.0",
@@ -173,6 +174,7 @@ describe("release transaction state", () => {
       packageIds: ["demo"],
       tagNames: ["v1.0.0"],
       ociImages: ["ghcr.io/acme/semverge"],
+      ociDigests: { "ghcr.io/acme/semverge": digest },
       alreadyPublishedPackageIds: ["demo"],
       npmEnabled: false
     });
@@ -187,6 +189,7 @@ describe("release transaction state", () => {
     expect(expected.publishingTargets).toEqual(["oci:ghcr.io/acme/semverge"]);
     expect(mergeReleaseTransactions([partial], expected).publishedOciImages).toEqual(["ghcr.io/acme/semverge"]);
     expect(parseReleaseTransactionBody(releaseTransactionMarker(partial))?.ociImages).toEqual(["ghcr.io/acme/semverge"]);
+    expect(parseReleaseTransactionBody(releaseTransactionMarker(partial))?.ociDigests).toEqual({ "ghcr.io/acme/semverge": digest });
     expect(summarizeReleaseTransaction(partial).publishedOciImages).toBe("1/1");
     expect(releaseTransactionBody("notes", partial)).toContain("OCI images published: **1/1**");
   });

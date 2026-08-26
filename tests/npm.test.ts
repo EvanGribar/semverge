@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { assertNpmProvenanceEnvironment, npmPublishCommand, npmVersionExists } from "../src/npm.js";
+import { assertNpmProvenanceEnvironment, npmProvenanceCheck, npmPublishCommand, npmVersionExists } from "../src/npm.js";
 
 const provenanceConfig = {
   enabled: true,
@@ -34,6 +34,22 @@ describe("npm publication idempotency", () => {
 });
 
 describe("npm provenance", () => {
+  it("recognizes registry attestation evidence for the exact package version", async () => {
+    const runner = vi.fn(async () => ({ stdout: JSON.stringify({ provenance: { url: "https://registry.npmjs.org/-/provenance" } }), stderr: "" }));
+
+    await expect(npmProvenanceCheck("demo", "1.2.3", "C:/workspace", runner)).resolves.toEqual({
+      status: "verified",
+      detail: "npm registry attestation evidence is present for demo@1.2.3."
+    });
+    expect(runner).toHaveBeenCalledWith(expect.stringMatching(/^npm(?:\.cmd)?$/), ["view", "demo@1.2.3", "dist.attestations", "--json"], { cwd: "C:/workspace" });
+  });
+
+  it("reports a provenance claim without registry attestation as a mismatch", async () => {
+    const runner = vi.fn(async () => ({ stdout: "{}", stderr: "" }));
+
+    await expect(npmProvenanceCheck("demo", "1.2.3", "C:/workspace", runner)).resolves.toMatchObject({ status: "mismatch" });
+  });
+
   it("adds provenance only to the built-in npm publish command", () => {
     expect(npmPublishCommand(provenanceConfig)).toBe("npm publish --provenance");
     expect(npmPublishCommand({ ...provenanceConfig, provenance: false })).toBe("npm publish");

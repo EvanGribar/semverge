@@ -47,6 +47,7 @@ export interface ReleaseTransaction {
   npmEnabled: boolean;
   npmProvenance: boolean;
   artifactDigests: Record<string, string>;
+  ociDigests?: Record<string, string>;
   publishedPackages: string[];
   publishedOciImages: string[];
   uploadedAssets: Record<string, string[]>;
@@ -69,6 +70,7 @@ export interface CreateReleaseTransactionInput {
   npmEnabled: boolean;
   npmProvenance?: boolean;
   artifactDigests?: Record<string, string>;
+  ociDigests?: Record<string, string>;
   id?: string;
   now?: string;
 }
@@ -92,6 +94,7 @@ export interface ReleaseTransactionSummary {
   publishedOciImages: string;
   uploadedAssets: number;
   artifactDigests: Record<string, string>;
+  ociDigests: Record<string, string>;
   npmProvenance: boolean;
   recordedEvents: number;
   safeNextAction: string;
@@ -154,6 +157,20 @@ function digestMap(value: unknown, field = "artifactDigests"): Record<string, st
   return Object.fromEntries(entries);
 }
 
+function ociDigestMap(value: unknown): Record<string, string> {
+  const object = objectValue(value);
+  if (!object) {
+    throw new Error("SemVerge transaction field ociDigests must be an object.");
+  }
+  const entries = Object.entries(object).map(([image, digest]) => {
+    if (!image || typeof digest !== "string" || !/^[A-Za-z][A-Za-z0-9+._-]*:[0-9a-f]+$/i.test(digest)) {
+      throw new Error("SemVerge transaction field ociDigests must contain OCI digests.");
+    }
+    return [image, digest.toLowerCase()] as const;
+  });
+  return Object.fromEntries(entries);
+}
+
 function eventValue(value: unknown): ReleaseTransactionEvent {
   const object = objectValue(value);
   if (!object || typeof object.key !== "string" || typeof object.phase !== "string" || typeof object.kind !== "string" || typeof object.target !== "string" || (object.status !== "planned" && object.status !== "started" && object.status !== "completed" && object.status !== "failed") || typeof object.attempt !== "number" || !Number.isInteger(object.attempt) || object.attempt < 1 || typeof object.at !== "string") {
@@ -192,6 +209,7 @@ export function createReleaseTransaction(input: CreateReleaseTransactionInput): 
     npmEnabled: input.npmEnabled,
     npmProvenance: input.npmProvenance ?? false,
     artifactDigests: digestMap(input.artifactDigests ?? {}),
+    ociDigests: ociDigestMap(input.ociDigests ?? {}),
     publishedPackages: input.alreadyPublishedPackageIds ? unique(input.alreadyPublishedPackageIds) : publishingTargets.length > 0 ? [] : unique(input.packageIds),
     publishedOciImages: input.alreadyPublishedOciImages ? unique(input.alreadyPublishedOciImages) : [],
     uploadedAssets: Object.fromEntries(unique(input.tagNames).map((tag) => [tag, []])),
@@ -254,6 +272,7 @@ export function mergeReleaseTransactions(states: Array<ReleaseTransaction | null
     publishingTargets: [...expected.publishingTargets],
     ociImages: [...expected.ociImages],
     artifactDigests: { ...expected.artifactDigests },
+    ociDigests: { ...(expected.ociDigests ?? {}) },
     publishedPackages: [...expected.publishedPackages],
     publishedOciImages: [...expected.publishedOciImages],
     uploadedAssets: normalizeAssets(expected.uploadedAssets),
@@ -281,6 +300,14 @@ export function mergeReleaseTransactions(states: Array<ReleaseTransaction | null
         throw new Error(`SemVerge found a different artifact digest for ${path}; verify the release workspace before retrying.`);
       }
       merged.artifactDigests[path] = digest;
+    }
+    for (const [image, digest] of Object.entries(state.ociDigests ?? {})) {
+      const mergedOciDigests = merged.ociDigests ?? (merged.ociDigests = {});
+      const expectedDigest = mergedOciDigests[image];
+      if (expectedDigest && expectedDigest !== digest) {
+        throw new Error(`SemVerge found a different OCI digest for ${image}; verify the release workspace before retrying.`);
+      }
+      mergedOciDigests[image] = digest;
     }
     const events = new Map(merged.events.map((event) => [`${event.key}:${event.status}:${event.attempt}`, event]));
     for (const event of state.events) {
@@ -360,6 +387,7 @@ export function parseReleaseTransaction(value: unknown): ReleaseTransaction {
     npmEnabled: record.npmEnabled,
     npmProvenance: hasNpmProvenance ? record.npmProvenance as boolean : false,
     artifactDigests: hasArtifactDigests ? digestMap(record.artifactDigests) : {},
+    ociDigests: hasOciImages && record.ociDigests !== undefined ? ociDigestMap(record.ociDigests) : {},
     publishedPackages: stringArray(record.publishedPackages, "publishedPackages"),
     publishedOciImages: hasOciImages ? stringArray(record.publishedOciImages, "publishedOciImages") : [],
     uploadedAssets: normalizeAssets(assetMap(record.uploadedAssets)),
@@ -450,6 +478,7 @@ export function summarizeReleaseTransaction(state: ReleaseTransaction): ReleaseT
     publishedOciImages: `${state.publishedOciImages.length}/${state.ociImages.length}`,
     uploadedAssets,
     artifactDigests: { ...state.artifactDigests },
+    ociDigests: { ...(state.ociDigests ?? {}) },
     npmProvenance: state.npmProvenance,
     recordedEvents: state.events.length,
     safeNextAction,
@@ -472,6 +501,8 @@ export function releaseTransactionSummaryMarkdown(state: ReleaseTransaction): st
     `- Uploaded assets recorded: **${summary.uploadedAssets}**`,
     `- Artifact SHA-256 digests recorded: **${Object.keys(summary.artifactDigests).length}**`,
     ...Object.entries(summary.artifactDigests).sort(([left], [right]) => left.localeCompare(right)).map(([path, digest]) => "- Artifact `" + path + "`: `" + digest + "`"),
+    `- OCI digests recorded: **${Object.keys(summary.ociDigests).length}**`,
+    ...Object.entries(summary.ociDigests).sort(([left], [right]) => left.localeCompare(right)).map(([image, digest]) => "- OCI image `" + image + "`: `" + digest + "`"),
     `- Recorded side effects: **${summary.recordedEvents}**`,
     ...(summary.failure ? [`- Recorded failure: ${summary.failure}`] : []),
     `- Safe next action: ${summary.safeNextAction}`

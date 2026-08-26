@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseConfig } from "../src/config.js";
-import { ociImageVersionExists, parseOciImageRepository, publishConfigForEcosystem, publisherName, registryVersionExists, renderOciPublishCommand } from "../src/registries.js";
+import { ociImageVersionDigest, ociImageVersionExists, parseOciImageRepository, publishConfigForEcosystem, publisherName, registryVersionExists, renderOciPublishCommand } from "../src/registries.js";
 
 describe("registry publishing adapters", () => {
   it("checks an exact Python version through the PyPI JSON API", async () => {
@@ -46,8 +46,13 @@ describe("registry publishing adapters", () => {
     await expect(ociImageVersionExists("ghcr.io/acme/demo", "1.2.3", fetcher)).resolves.toBe(true);
     expect(fetcher).toHaveBeenCalledTimes(3);
 
+    const digest = `sha256:${"a".repeat(64)}`;
+    const digestFetcher = vi.fn(async () => new Response("manifest", { status: 200, headers: { "docker-content-digest": digest } }));
+    await expect(ociImageVersionDigest("ghcr.io/acme/demo", "1.2.3", digestFetcher)).resolves.toBe(digest);
+
     const missing = vi.fn(async () => new Response("missing", { status: 404 }));
     await expect(ociImageVersionExists("ghcr.io/acme/demo", "1.2.3", missing)).resolves.toBe(false);
+    await expect(ociImageVersionDigest("ghcr.io/acme/demo", "1.2.3", missing)).resolves.toBeNull();
     const unavailable = vi.fn(async () => new Response("busy", { status: 503 }));
     await expect(ociImageVersionExists("ghcr.io/acme/demo", "1.2.3", unavailable)).rejects.toThrow("will not assume the image tag is absent");
   });

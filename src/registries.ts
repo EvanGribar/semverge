@@ -201,11 +201,11 @@ export function renderOciPublishCommand(command: string, image: string, version:
   return rendered;
 }
 
-export async function ociImageVersionExists(
+async function ociManifestResponse(
   image: string,
   version: string,
-  fetcher: RegistryVersionFetcher = defaultFetcher
-): Promise<boolean> {
+  fetcher: RegistryVersionFetcher
+): Promise<Response> {
   const normalizedImage = image.trim();
   const normalizedVersion = version.trim();
   if (!normalizedImage || !normalizedVersion) {
@@ -223,6 +223,17 @@ export async function ociImageVersionExists(
     const token = await bearerToken(challenge, normalizedImage, normalizedVersion, fetcher);
     response = await fetcher(url, { headers: { ...baseHeaders, authorization: `Bearer ${token}` } });
   }
+  return response;
+}
+
+export async function ociImageVersionExists(
+  image: string,
+  version: string,
+  fetcher: RegistryVersionFetcher = defaultFetcher
+): Promise<boolean> {
+  const normalizedImage = image.trim();
+  const normalizedVersion = version.trim();
+  const response = await ociManifestResponse(normalizedImage, normalizedVersion, fetcher);
   if (response.status === 404) {
     return false;
   }
@@ -230,4 +241,28 @@ export async function ociImageVersionExists(
     throw ociRegistryError(normalizedImage, normalizedVersion, `the registry returned HTTP ${response.status}`);
   }
   return true;
+}
+
+export async function ociImageVersionDigest(
+  image: string,
+  version: string,
+  fetcher: RegistryVersionFetcher = defaultFetcher
+): Promise<string | null> {
+  const normalizedImage = image.trim();
+  const normalizedVersion = version.trim();
+  const response = await ociManifestResponse(normalizedImage, normalizedVersion, fetcher);
+  if (response.status === 404) {
+    return null;
+  }
+  if (!response.ok) {
+    throw ociRegistryError(normalizedImage, normalizedVersion, `the registry returned HTTP ${response.status}`);
+  }
+  const digest = response.headers.get("docker-content-digest")?.trim();
+  if (!digest) {
+    return null;
+  }
+  if (!/^[A-Za-z][A-Za-z0-9+._-]*:[0-9a-f]+$/i.test(digest)) {
+    throw ociRegistryError(normalizedImage, normalizedVersion, "the registry returned an invalid content digest");
+  }
+  return digest.toLowerCase();
 }
