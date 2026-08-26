@@ -136,8 +136,14 @@ describe("SemVerge CLI", () => {
       ]));
 
       const unavailableOutput = capture();
-      expect(await runCli(["verify", "3.0.0", "--json"], directory, unavailableOutput.io)).toBe(2);
-      expect(JSON.parse(unavailableOutput.stdout[0] ?? "{}")).toMatchObject({ status: "unavailable" });
+      const previousRepository = process.env.GITHUB_REPOSITORY;
+      try {
+        delete process.env.GITHUB_REPOSITORY;
+        expect(await runCli(["verify", "3.0.0", "--json"], directory, unavailableOutput.io)).toBe(2);
+        expect(JSON.parse(unavailableOutput.stdout[0] ?? "{}")).toMatchObject({ status: "unavailable" });
+      } finally {
+        if (previousRepository === undefined) delete process.env.GITHUB_REPOSITORY; else process.env.GITHUB_REPOSITORY = previousRepository;
+      }
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
