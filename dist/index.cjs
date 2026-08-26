@@ -11246,6 +11246,22 @@ function createPluginRegistryFromConfigSync(config) {
   }
   return registry;
 }
+function hasUncompletedPluginEffect(state, pluginName) {
+  const effectPrefix = `effect:${pluginName}:`;
+  const completedKeys = /* @__PURE__ */ new Set();
+  const incompleteKeys = /* @__PURE__ */ new Set();
+  for (const event of state.events) {
+    if (!event.key.startsWith(effectPrefix)) {
+      continue;
+    }
+    if (event.status === "completed") {
+      completedKeys.add(event.key);
+    } else {
+      incompleteKeys.add(event.key);
+    }
+  }
+  return [...incompleteKeys].some((key) => !completedKeys.has(key));
+}
 async function runTransactionOwnedPluginHook(registry, hook, context, transaction, recordEventFn, persistFn) {
   let currentState = transaction;
   const invocations = [];
@@ -11258,7 +11274,7 @@ async function runTransactionOwnedPluginHook(registry, hook, context, transactio
       continue;
     }
     const hookKey = `plugin:${plugin.name}:${hook}`;
-    if (currentState && currentState.events.some((e) => e.key === hookKey && e.status === "completed")) {
+    if (currentState && currentState.events.some((e) => e.key === hookKey && e.status === "completed") && !hasUncompletedPluginEffect(currentState, plugin.name)) {
       invocations.push({ plugin: plugin.name, result: { summary: `Skipped ${hook} (already completed in transaction)` } });
       continue;
     }
@@ -11276,14 +11292,6 @@ async function runTransactionOwnedPluginHook(registry, hook, context, transactio
           });
           await persist(currentState);
         } else {
-          currentState = recordEventFn(currentState, {
-            key: hookKey,
-            kind: `plugin-hook-${hook}`,
-            target: plugin.name,
-            status: "completed",
-            detail: result.summary ?? `Plugin ${plugin.name} completed ${hook}.`
-          });
-          await persist(currentState);
           if (result.effects && result.effects.length > 0) {
             for (const effect of result.effects) {
               const effectKey = `effect:${plugin.name}:${effect.idempotencyKey}`;
@@ -11300,8 +11308,7 @@ async function runTransactionOwnedPluginHook(registry, hook, context, transactio
             await persist(currentState);
             for (const effect of result.effects) {
               const effectKey = `effect:${plugin.name}:${effect.idempotencyKey}`;
-              const existingEvent = currentState.events.find((e) => e.key === effectKey);
-              if (existingEvent && existingEvent.status === "completed") {
+              if (currentState.events.some((e) => e.key === effectKey && e.status === "completed")) {
                 continue;
               }
               const executor = plugin.executors?.[effect.kind];
@@ -11357,6 +11364,14 @@ async function runTransactionOwnedPluginHook(registry, hook, context, transactio
               }
             }
           }
+          currentState = recordEventFn(currentState, {
+            key: hookKey,
+            kind: `plugin-hook-${hook}`,
+            target: plugin.name,
+            status: "completed",
+            detail: result.summary ?? `Plugin ${plugin.name} completed ${hook}.`
+          });
+          await persist(currentState);
         }
       }
       if (result.blocked) {

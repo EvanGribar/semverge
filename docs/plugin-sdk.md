@@ -29,6 +29,8 @@ To prevent execution of untrusted code with elevated release secrets, plugins ar
 
 Instead of mutating internal state, plugins return serializable **effect descriptors**. SemVerge handles the orchestration and durable tracking of these side effects.
 
+The plugin hook is marked `completed` only after every effect it returns has been completed or detected as already complete. If an effect remains planned, started, or failed, the hook remains unfinished so a retry can reconcile the incomplete effects without replaying completed ones.
+
 ### Effect States
 
 Every plugin effect moves durably through four transaction states:
