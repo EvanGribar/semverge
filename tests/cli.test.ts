@@ -84,6 +84,18 @@ describe("SemVerge CLI", () => {
     }
   });
 
+  it("keeps AI assistance explicitly opt-in", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "semverge-cli-assist-"));
+    try {
+      const output = capture();
+      expect(await runCli(["assist", "feat: optional summary"], directory, output.io)).toBe(0);
+      expect(output.stdout.join("\n")).toContain("AI assistance is disabled");
+      expect(output.stderr).toEqual([]);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("recovers a durable transaction from a local state file", async () => {
     const directory = mkdtempSync(join(tmpdir(), "semverge-cli-recover-"));
     try {

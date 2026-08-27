@@ -9829,6 +9829,9 @@ async function ociImageVersionDigest(image, version, fetcher = defaultFetcher) {
   return digest.toLowerCase();
 }
 
+// src/types.ts
+var DEFAULT_AI_TIMEOUT_MS = 1e4;
+
 // src/config.ts
 var DEFAULT_CHANNEL_POLICIES = {
   beta: { label: "ship:beta", prerelease: "beta" },
@@ -9886,6 +9889,12 @@ var DEFAULT_CONFIG = {
       comment: true,
       checkRun: false
     }
+  },
+  ai: {
+    enabled: false,
+    provider: "openai",
+    model: "",
+    timeoutMs: DEFAULT_AI_TIMEOUT_MS
   },
   publishing: {
     npm: {
@@ -10003,6 +10012,15 @@ function healthMonitoring(value, fallback) {
     checkRun: booleanValue(object.checkRun, fallback.checkRun)
   };
 }
+function aiSettings(value, fallback) {
+  const object = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    enabled: booleanValue(object.enabled, fallback.enabled),
+    provider: object.provider === "openai" ? "openai" : fallback.provider,
+    model: typeof object.model === "string" ? object.model.trim() : fallback.model,
+    timeoutMs: typeof object.timeoutMs === "number" && Number.isInteger(object.timeoutMs) && object.timeoutMs > 0 ? object.timeoutMs : fallback.timeoutMs
+  };
+}
 function channelPolicies(value) {
   const result = Object.fromEntries(Object.entries(DEFAULT_CHANNEL_POLICIES).map(([name, policy]) => [name, { ...policy }]));
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -10046,6 +10064,7 @@ function mergeConfig(raw) {
   const dependencyPolicy = monorepo.dependencyPolicy && typeof monorepo.dependencyPolicy === "object" ? monorepo.dependencyPolicy : {};
   const health = object.health && typeof object.health === "object" ? object.health : {};
   const healthMonitoringValue = health.monitoring;
+  const ai = object.ai && typeof object.ai === "object" ? object.ai : {};
   const publishing = object.publishing && typeof object.publishing === "object" ? object.publishing : {};
   const npm = publishing.npm && typeof publishing.npm === "object" ? publishing.npm : {};
   const python = publishing.python;
@@ -10096,6 +10115,7 @@ function mergeConfig(raw) {
       requiredLinks: strings(health.requiredLinks),
       monitoring: healthMonitoring(healthMonitoringValue, DEFAULT_CONFIG.health.monitoring)
     },
+    ai: aiSettings(ai, DEFAULT_CONFIG.ai),
     publishing: {
       npm: {
         enabled: booleanValue(npm.enabled, DEFAULT_CONFIG.publishing.npm.enabled),
@@ -10144,6 +10164,7 @@ function withOverrides(config, overrides) {
     monorepo: { ...config.monorepo, packages: [...config.monorepo.packages], dependencyPolicy: { ...config.monorepo.dependencyPolicy } },
     health: { ...config.health, workflows: [...config.health.workflows], expectedArtifacts: [...config.health.expectedArtifacts], requiredLinks: [...config.health.requiredLinks], ...config.health.monitoring ? { monitoring: { ...config.health.monitoring } } : {} },
     publishing: { ...config.publishing, npm: { ...config.publishing.npm }, python: { ...config.publishing.python }, rust: { ...config.publishing.rust }, oci: { ...config.publishing.oci, images: [...config.publishing.oci.images] } },
+    ...config.ai ? { ai: { ...config.ai } } : {},
     ...config.plugins ? { plugins: [...config.plugins] } : {}
   };
   const prerelease = overrides.prerelease?.trim();
