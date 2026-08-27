@@ -828,6 +828,7 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
     changes: [],
     config
   };
+  const executions: ReleaseExecution[] = [];
   const persist = async (tx: ReleaseTransaction) => {
     progress = tx;
     if (executions.length > 0) {
@@ -841,8 +842,6 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
 
   const buildRes = await runTransactionOwnedPluginHook(pluginRegistry, "build", pluginContextInput, progress, recordReleaseTransactionEvent, persist);
   if (buildRes.transaction) progress = buildRes.transaction;
-
-  const executions: ReleaseExecution[] = [];
 
   for (const item of releaseInputs) {
     let release = item.existingRelease;
