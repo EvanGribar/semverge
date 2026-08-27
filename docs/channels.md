@@ -45,7 +45,7 @@ jobs:
         with:
           ref: nightly
           fetch-depth: 0
-      - uses: EvanGribar/semverge@main
+      - uses: EvanGribar/semverge@v0
         with:
           release-channel: nightly
 ```

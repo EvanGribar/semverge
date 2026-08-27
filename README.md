@@ -34,6 +34,7 @@ permissions:
 
 jobs:
   semverge:
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
     runs-on: ubuntu-latest
     steps:
       # Required when artifacts.command, artifacts.paths, or npm publishing is enabled.
@@ -45,10 +46,12 @@ jobs:
       # Install the dependencies your build or publish command needs here.
       - uses: EvanGribar/semverge@v0
         # For a security-conscious pin, use a full commit SHA such as:
-        # - uses: EvanGribar/semverge@c0a62caddd16e581b5a1bd3577540c54e0102739
+        # - uses: EvanGribar/semverge@c95260d02a27d3555b727388b58415f533386895
 ```
 
 On pushes to `main`, SemVerge reads conventional commits and merged pull requests, calculates the next semantic version, and maintains a release pull request. When that pull request merges, it verifies the exact merge commit, runs the configured readiness checks, builds artifacts, records digests, and publishes the release only after the transaction is complete. The action's `transaction` output exposes durable state for recovery and inspection.
+
+For a read-only external plan, use `contents: read`, `pull-requests: read`, and `dry-run: true`. For release preparation and publication, use the write permissions shown above. See [docs/public-consumer.md](docs/public-consumer.md) for the complete permission matrix, fork behavior, stable-ref policy, and external-consumer fixture.
 
 The clearest adoption path is **Node.js + GitHub + npm/pnpm**. Additional registries, release channels, monorepo modes, and OCI workflows are available in the configuration and adapter documentation, but the core promise stays simple: make releases safer and easier to explain.
 

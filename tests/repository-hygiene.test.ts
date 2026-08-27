@@ -16,7 +16,7 @@ function yamlFile(path: string): Record<string, unknown> {
 
 describe("repository trust surfaces", () => {
   it("keeps required policy and issue files present", () => {
-    for (const path of ["LICENSE", "SECURITY.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "docs/vercel.md", "website/index.html", "website/styles.css", "website/vercel.json", ".github/dependabot.yml", ".github/ISSUE_TEMPLATE/bug_report.yml", ".github/ISSUE_TEMPLATE/feature_request.yml"]) {
+    for (const path of ["LICENSE", "SECURITY.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "docs/public-consumer.md", "docs/vercel.md", "website/index.html", "website/styles.css", "website/vercel.json", ".github/dependabot.yml", ".github/ISSUE_TEMPLATE/config.yml", ".github/ISSUE_TEMPLATE/bug_report.yml", ".github/ISSUE_TEMPLATE/feature_request.yml", ".github/pull_request_template.md", "fixtures/external-consumer/.github/workflows/semverge.yml"]) {
       expect(existsSync(join(root, path)), path).toBe(true);
     }
   });
@@ -40,5 +40,27 @@ describe("repository trust surfaces", () => {
     expect((security.permissions as Record<string, unknown>).contents).toBe("read");
     expect((security.jobs as Record<string, unknown>).codeql).toBeTruthy();
     expect((security.jobs as Record<string, unknown>)["dependency-review"]).toBeTruthy();
+  });
+
+  it("keeps release execution out of unmerged pull-request workflows", () => {
+    const release = yamlFile(".github/workflows/release.yml");
+    const job = (release.jobs as Record<string, unknown>).semverge as Record<string, unknown>;
+    expect(job.if).toBe("github.event_name != 'pull_request' || github.event.pull_request.merged == true");
+  });
+
+  it("keeps the external-consumer proof pinned and read-only", () => {
+    const path = "fixtures/external-consumer/.github/workflows/semverge.yml";
+    const content = readFileSync(join(root, path), "utf8");
+    const workflow = yamlFile(path);
+    const permissions = workflow.permissions as Record<string, unknown>;
+    const job = (workflow.jobs as Record<string, unknown>).plan as Record<string, unknown>;
+    const steps = job.steps as Array<Record<string, unknown>>;
+    const actionStep = steps.find((step) => step.uses === "EvanGribar/semverge@v0");
+
+    expect(permissions).toEqual({ contents: "read", "pull-requests": "read" });
+    expect(actionStep).toBeTruthy();
+    expect((actionStep?.with as Record<string, unknown>)?.["dry-run"]).toBe("true");
+    expect(content).toContain("github.token");
+    expect(content).not.toContain("secrets.");
   });
 });

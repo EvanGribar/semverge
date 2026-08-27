@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a question in Discussions
+    url: https://github.com/EvanGribar/semverge/discussions
+    about: Use Discussions for setup help, usage questions, and release-tool design conversations.
+  - name: Report a security vulnerability privately
+    url: https://github.com/EvanGribar/semverge/security/advisories/new
+    about: Do not include vulnerability details in a public issue or pull request.
