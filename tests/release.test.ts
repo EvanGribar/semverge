@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseChange } from "../src/changes.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
-import { renderCustomerNotes } from "../src/notes.js";
+import { buildAnnouncementView, renderAnnouncement, renderCustomerNotes } from "../src/notes.js";
 import { buildReleasePlan } from "../src/release.js";
 
 describe("release planning", () => {
@@ -98,6 +98,62 @@ outcome: Teams can download multiple projects in one step.
 
     expect(notes).toBe("# What's new in 1.0.0\n\nNo customer-facing updates are included in this release.\n");
     expect(notes).not.toContain("refresh tooling");
+  });
+
+  it("renders announcements as a separate external-facing view", () => {
+    const changes = [
+      parseChange({
+        title: "feat: add bulk export",
+        source: "pull_request",
+        body: "<!-- semverge\nheadline: Bulk project exports\noutcome: Teams can export multiple projects in one step.\n-->"
+      }),
+      parseChange({ title: "fix: handle empty exports", source: "pull_request" })
+    ];
+
+    const view = buildAnnouncementView("1.4.0", changes);
+    const announcement = renderAnnouncement("1.4.0", changes);
+    expect(view).toMatchObject({
+      headline: "Bulk project exports",
+      summary: "Teams can export multiple projects in one step.",
+      actionRequired: [],
+      callToAction: "SemVerge 1.4.0 is available now."
+    });
+    expect(view.highlights).toHaveLength(2);
+    expect(announcement).toContain("# Bulk project exports");
+    expect(announcement).toContain("## Highlights");
+    expect(announcement).toContain("SemVerge 1.4.0 is available now.");
+    expect(announcement).not.toContain("SemVerge 1.4.0 includes:");
+    expect(announcement).not.toContain("feat:");
+  });
+
+  it("preserves required action in breaking announcements", () => {
+    const announcement = renderAnnouncement("2.0.0", [parseChange({
+      title: "feat!: normalize export responses",
+      source: "pull_request",
+      body: "<!-- semverge\noutcome: API responses now use the normalized shape.\naction: Update clients to read data.items.\n-->"
+    })]);
+
+    expect(announcement).toContain("Existing behavior changes");
+    expect(announcement).toContain("## Action required");
+    expect(announcement).toContain("Update clients to read data.items.");
+  });
+
+  it("gives explicit announcement metadata deterministic precedence", () => {
+    const announcement = renderAnnouncement("1.2.0", [parseChange({
+      title: "feat: add exports",
+      source: "pull_request",
+      body: "<!-- semverge\nannouncement: Try the new export workflow.\n-->"
+    })]);
+
+    expect(announcement).toBe("# SemVerge release announcement: 1.2.0\n\nTry the new export workflow.\n");
+    expect(announcement).not.toContain("## Highlights");
+  });
+
+  it("avoids promotional copy for internal-only releases", () => {
+    const announcement = renderAnnouncement("1.0.0", [parseChange({ title: "chore: refresh tooling", source: "commit" })]);
+
+    expect(announcement).toBe("# SemVerge 1.0.0\n\nNo customer-facing update is announced for this release.\n");
+    expect(announcement).not.toContain("available now");
   });
 
   it("keeps a docs-only change out of the release path", () => {
