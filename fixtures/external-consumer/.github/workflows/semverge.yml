@@ -1,0 +1,21 @@
+name: SemVerge external consumer
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run a read-only SemVerge plan
+        uses: EvanGribar/semverge@v0
+        with:
+          github-token: ${{ github.token }}
+          dry-run: 'true'
