@@ -1,7 +1,12 @@
-import type { ReleaseKind, SemVergeMetadata } from "./types.js";
+import type { CustomerImpact, ReleaseKind, SemVergeMetadata } from "./types.js";
 
 const METADATA_BLOCK = /<!--\s*semverge(?:\s+release)?\s*([\s\S]*?)-->/i;
 const ALLOWED_TYPES = new Set<ReleaseKind>(["feature", "fix", "breaking", "docs", "internal", "other"]);
+const ALLOWED_IMPACTS = new Set<CustomerImpact>(["new", "improved", "fixed", "changed"]);
+
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
 
 function parseBoolean(value: string): boolean | undefined {
   const normalized = value.trim().toLowerCase();
@@ -41,10 +46,19 @@ function parseJsonMetadata(value: string): SemVergeMetadata | null {
     if (typeof object.type === "string" && ALLOWED_TYPES.has(object.type as ReleaseKind)) {
       result.type = object.type as ReleaseKind;
     }
-    for (const key of ["customer", "migration", "internal", "announcement"] as const) {
-      if (typeof object[key] === "string" && object[key].trim()) {
+    for (const key of ["customer", "headline", "outcome", "detail", "migration", "internal", "announcement"] as const) {
+      if (nonEmptyString(object[key])) {
         result[key] = object[key].trim();
       }
+    }
+    if (typeof object.impact === "string" && ALLOWED_IMPACTS.has(object.impact as CustomerImpact)) {
+      result.impact = object.impact as CustomerImpact;
+    }
+    if (nonEmptyString(object.action)) {
+      result.action = object.action.trim();
+    }
+    if (Array.isArray(object.audience)) {
+      result.audience = object.audience.filter(nonEmptyString).map((item) => item.trim());
     }
     if (typeof object.breaking === "boolean") {
       result.breaking = object.breaking;
@@ -90,12 +104,16 @@ export function parseSemVergeMetadata(body = ""): SemVergeMetadata {
     }
     if (key === "type" && typeof parsed === "string" && ALLOWED_TYPES.has(parsed as ReleaseKind)) {
       result.type = parsed as ReleaseKind;
-    } else if (["customer", "migration", "internal", "announcement"].includes(key) && typeof parsed === "string") {
-      result[key as "customer" | "migration" | "internal" | "announcement"] = parsed;
+    } else if (["customer", "headline", "outcome", "detail", "migration", "internal", "announcement", "action"].includes(key) && typeof parsed === "string") {
+      result[key as "customer" | "headline" | "outcome" | "detail" | "migration" | "internal" | "announcement" | "action"] = parsed;
+    } else if (key === "impact" && typeof parsed === "string" && ALLOWED_IMPACTS.has(parsed as CustomerImpact)) {
+      result.impact = parsed as CustomerImpact;
     } else if ((key === "breaking" || key === "skip") && typeof parsed === "boolean") {
       result[key] = parsed;
     } else if (key === "readiness") {
       result.readiness = Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean) : typeof parsed === "string" ? parsed.split(",").map((item) => item.trim()).filter(Boolean) : [];
+    } else if (key === "audience") {
+      result.audience = Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean) : typeof parsed === "string" ? parsed.split(",").map((item) => item.trim()).filter(Boolean) : [];
     }
   }
   return result;

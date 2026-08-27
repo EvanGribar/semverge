@@ -1,5 +1,5 @@
 import { parseSemVergeMetadata } from "./metadata.js";
-import type { BumpLevel, ChangeInput, ReleaseChannelPolicy, ReleaseChange, ReleaseKind } from "./types.js";
+import type { BumpLevel, ChangeInput, CustomerCommunication, CustomerImpact, ReleaseChannelPolicy, ReleaseChange, ReleaseKind } from "./types.js";
 
 const HEADER_PATTERN = /^(?<type>[a-z]+)(?:\((?<scope>[^)]+)\))?(?<breaking>!)?:\s*(?<description>.+)$/i;
 const LABEL_KIND: Record<string, ReleaseKind> = {
@@ -71,6 +71,19 @@ function hasBreakingFooter(body: string): boolean {
   return /(?:^|\n)BREAKING(?:-|\s)CHANGE\s*:/im.test(body);
 }
 
+function customerImpact(kind: ReleaseKind, breaking: boolean): CustomerImpact {
+  if (breaking || kind === "breaking") {
+    return "changed";
+  }
+  if (kind === "feature") {
+    return "new";
+  }
+  if (kind === "fix") {
+    return "fixed";
+  }
+  return "improved";
+}
+
 function parseTitle(title: string): { kind: ReleaseKind; scope?: string; description: string; breaking: boolean } {
   const match = HEADER_PATTERN.exec(title.trim());
   if (!match?.groups) {
@@ -124,7 +137,15 @@ export function parseChange(input: ChangeInput): ReleaseChange {
   const breaking = metadata.breaking ?? (labels.includes("ship:breaking") || parsed.breaking || hasBreakingFooter(body) || kind === "breaking");
   const skipped = metadata.skip === true || labels.includes("ship:skip");
   const description = parsed.description || input.title.trim();
-  const customerSummary = metadata.customer ?? description;
+  const customerCommunication: CustomerCommunication = {
+    ...(metadata.headline ? { headline: metadata.headline } : {}),
+    outcome: metadata.outcome ?? metadata.customer ?? description,
+    ...(metadata.detail ? { detail: metadata.detail } : {}),
+    impact: metadata.impact ?? customerImpact(kind, breaking),
+    ...(metadata.action ? { actionRequired: metadata.action } : {}),
+    ...(metadata.audience && metadata.audience.length > 0 ? { audience: [...metadata.audience] } : {})
+  };
+  const customerSummary = customerCommunication.outcome;
 
   const change: ReleaseChange = {
     title: input.title.trim(),
@@ -135,6 +156,7 @@ export function parseChange(input: ChangeInput): ReleaseChange {
     breaking,
     skipped,
     customerSummary,
+    customerCommunication,
     readiness: metadata.readiness ?? []
   };
   for (const [key, value] of Object.entries({
@@ -157,11 +179,12 @@ export function parseChange(input: ChangeInput): ReleaseChange {
 }
 
 export function formatChangeReference(change: ReleaseChange): string {
+  const customerText = change.customerCommunication?.headline ?? change.customerCommunication?.outcome ?? change.customerSummary;
   if (change.number !== undefined && change.url) {
-    return `[${change.customerSummary}](${change.url}) (#${change.number})`;
+    return `[${customerText}](${change.url}) (#${change.number})`;
   }
   if (change.number !== undefined) {
-    return `${change.customerSummary} (#${change.number})`;
+    return `${customerText} (#${change.number})`;
   }
-  return change.customerSummary;
+  return customerText;
 }

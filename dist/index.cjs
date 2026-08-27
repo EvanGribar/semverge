@@ -9372,6 +9372,10 @@ var import_node_path4 = require("node:path");
 // src/metadata.ts
 var METADATA_BLOCK = /<!--\s*semverge(?:\s+release)?\s*([\s\S]*?)-->/i;
 var ALLOWED_TYPES = /* @__PURE__ */ new Set(["feature", "fix", "breaking", "docs", "internal", "other"]);
+var ALLOWED_IMPACTS = /* @__PURE__ */ new Set(["new", "improved", "fixed", "changed"]);
+function nonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
 function parseBoolean(value) {
   const normalized = value.trim().toLowerCase();
   if (["true", "yes", "1"].includes(normalized)) {
@@ -9404,10 +9408,19 @@ function parseJsonMetadata(value) {
     if (typeof object.type === "string" && ALLOWED_TYPES.has(object.type)) {
       result.type = object.type;
     }
-    for (const key of ["customer", "migration", "internal", "announcement"]) {
-      if (typeof object[key] === "string" && object[key].trim()) {
+    for (const key of ["customer", "headline", "outcome", "detail", "migration", "internal", "announcement"]) {
+      if (nonEmptyString(object[key])) {
         result[key] = object[key].trim();
       }
+    }
+    if (typeof object.impact === "string" && ALLOWED_IMPACTS.has(object.impact)) {
+      result.impact = object.impact;
+    }
+    if (nonEmptyString(object.action)) {
+      result.action = object.action.trim();
+    }
+    if (Array.isArray(object.audience)) {
+      result.audience = object.audience.filter(nonEmptyString).map((item) => item.trim());
     }
     if (typeof object.breaking === "boolean") {
       result.breaking = object.breaking;
@@ -9450,12 +9463,16 @@ function parseSemVergeMetadata(body = "") {
     }
     if (key === "type" && typeof parsed === "string" && ALLOWED_TYPES.has(parsed)) {
       result.type = parsed;
-    } else if (["customer", "migration", "internal", "announcement"].includes(key) && typeof parsed === "string") {
+    } else if (["customer", "headline", "outcome", "detail", "migration", "internal", "announcement", "action"].includes(key) && typeof parsed === "string") {
       result[key] = parsed;
+    } else if (key === "impact" && typeof parsed === "string" && ALLOWED_IMPACTS.has(parsed)) {
+      result.impact = parsed;
     } else if ((key === "breaking" || key === "skip") && typeof parsed === "boolean") {
       result[key] = parsed;
     } else if (key === "readiness") {
       result.readiness = Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string").map((item) => item.trim()).filter(Boolean) : typeof parsed === "string" ? parsed.split(",").map((item) => item.trim()).filter(Boolean) : [];
+    } else if (key === "audience") {
+      result.audience = Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string").map((item) => item.trim()).filter(Boolean) : typeof parsed === "string" ? parsed.split(",").map((item) => item.trim()).filter(Boolean) : [];
     }
   }
   return result;
@@ -9513,6 +9530,18 @@ function kindFromConventionalType(type) {
 function hasBreakingFooter(body) {
   return /(?:^|\n)BREAKING(?:-|\s)CHANGE\s*:/im.test(body);
 }
+function customerImpact(kind, breaking) {
+  if (breaking || kind === "breaking") {
+    return "changed";
+  }
+  if (kind === "feature") {
+    return "new";
+  }
+  if (kind === "fix") {
+    return "fixed";
+  }
+  return "improved";
+}
 function parseTitle(title) {
   const match = HEADER_PATTERN.exec(title.trim());
   if (!match?.groups) {
@@ -9562,7 +9591,15 @@ function parseChange(input2) {
   const breaking = metadata.breaking ?? (labels.includes("ship:breaking") || parsed.breaking || hasBreakingFooter(body) || kind === "breaking");
   const skipped = metadata.skip === true || labels.includes("ship:skip");
   const description = parsed.description || input2.title.trim();
-  const customerSummary = metadata.customer ?? description;
+  const customerCommunication = {
+    ...metadata.headline ? { headline: metadata.headline } : {},
+    outcome: metadata.outcome ?? metadata.customer ?? description,
+    ...metadata.detail ? { detail: metadata.detail } : {},
+    impact: metadata.impact ?? customerImpact(kind, breaking),
+    ...metadata.action ? { actionRequired: metadata.action } : {},
+    ...metadata.audience && metadata.audience.length > 0 ? { audience: [...metadata.audience] } : {}
+  };
+  const customerSummary = customerCommunication.outcome;
   const change = {
     title: input2.title.trim(),
     description,
@@ -9572,6 +9609,7 @@ function parseChange(input2) {
     breaking,
     skipped,
     customerSummary,
+    customerCommunication,
     readiness: metadata.readiness ?? []
   };
   for (const [key, value] of Object.entries({
@@ -9593,13 +9631,14 @@ function parseChange(input2) {
   return change;
 }
 function formatChangeReference(change) {
+  const customerText = change.customerCommunication?.headline ?? change.customerCommunication?.outcome ?? change.customerSummary;
   if (change.number !== void 0 && change.url) {
-    return `[${change.customerSummary}](${change.url}) (#${change.number})`;
+    return `[${customerText}](${change.url}) (#${change.number})`;
   }
   if (change.number !== void 0) {
-    return `${change.customerSummary} (#${change.number})`;
+    return `${customerText} (#${change.number})`;
   }
-  return change.customerSummary;
+  return customerText;
 }
 
 // src/config.ts

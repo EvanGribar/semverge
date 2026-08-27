@@ -16,7 +16,7 @@ function yamlFile(path: string): Record<string, unknown> {
 
 describe("repository trust surfaces", () => {
   it("keeps required policy and issue files present", () => {
-    for (const path of ["LICENSE", "SECURITY.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "docs/ai.md", "docs/public-consumer.md", "docs/vercel.md", "website/index.html", "website/styles.css", "website/vercel.json", ".github/dependabot.yml", ".github/ISSUE_TEMPLATE/config.yml", ".github/ISSUE_TEMPLATE/bug_report.yml", ".github/ISSUE_TEMPLATE/feature_request.yml", ".github/pull_request_template.md", "fixtures/external-consumer/.github/workflows/semverge.yml"]) {
+    for (const path of ["LICENSE", "SECURITY.md", "CONTRIBUTING.md", "CODE_OF_CONDUCT.md", "docs/ai.md", "docs/customer-communication.md", "docs/public-consumer.md", "docs/vercel.md", "website/index.html", "website/styles.css", "website/vercel.json", ".github/dependabot.yml", ".github/ISSUE_TEMPLATE/config.yml", ".github/ISSUE_TEMPLATE/bug_report.yml", ".github/ISSUE_TEMPLATE/feature_request.yml", ".github/pull_request_template.md", "fixtures/external-consumer/.github/workflows/semverge.yml"]) {
       expect(existsSync(join(root, path)), path).toBe(true);
     }
   });

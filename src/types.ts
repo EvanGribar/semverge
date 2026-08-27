@@ -14,6 +14,17 @@ export type DependencyReleasePolicy = BumpLevel;
 
 export type ReleasePromotion = "stable";
 
+export type CustomerImpact = "new" | "improved" | "fixed" | "changed";
+
+export interface CustomerCommunication {
+  headline?: string;
+  outcome: string;
+  detail?: string;
+  impact: CustomerImpact;
+  actionRequired?: string;
+  audience?: string[];
+}
+
 export type AiProviderName = "openai";
 
 export const DEFAULT_AI_TIMEOUT_MS = 10_000;
@@ -37,6 +48,12 @@ export interface PackageReleaseExplanation {
 export interface SemVergeMetadata {
   type?: ReleaseKind;
   customer?: string;
+  headline?: string;
+  outcome?: string;
+  detail?: string;
+  impact?: CustomerImpact;
+  action?: string;
+  audience?: string[];
   migration?: string;
   internal?: string;
   announcement?: string;
@@ -76,6 +93,7 @@ export interface ReleaseChange {
   forcedBump?: BumpLevel;
   dependencyUpdate?: boolean;
   customerSummary: string;
+  customerCommunication?: CustomerCommunication;
   internalSummary?: string;
   migration?: string;
   announcement?: string;

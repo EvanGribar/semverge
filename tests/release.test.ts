@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseChange } from "../src/changes.js";
 import { DEFAULT_CONFIG } from "../src/config.js";
+import { renderCustomerNotes } from "../src/notes.js";
 import { buildReleasePlan } from "../src/release.js";
 
 describe("release planning", () => {
@@ -57,6 +58,22 @@ describe("release planning", () => {
     expect(plan.customerNotes).toContain("Migration guidance is included with this release.");
     expect(plan.migrationGuide).toContain("Update clients to read data.items.");
     expect(plan.announcement).toContain("Export responses now use the normalized shape.");
+  });
+
+  it("renders authored customer communication instead of raw commit descriptions", () => {
+    const change = parseChange({
+      title: "feat: internal-export-implementation-name",
+      source: "pull_request",
+      body: `<!-- semverge
+headline: Bulk project exports
+outcome: Teams can download multiple projects in one step.
+-->`
+    });
+
+    const notes = renderCustomerNotes("1.1.0", [change]);
+    expect(notes).toContain("Bulk project exports");
+    expect(notes).toContain("Teams can download multiple projects in one step.");
+    expect(notes).not.toContain("internal-export-implementation-name");
   });
 
   it("keeps a docs-only change out of the release path", () => {
