@@ -186,6 +186,62 @@ describe("merged release publication", () => {
     expect(output).toContain("https://github.com/demo/repo/releases/tag/nightly-v0.2.0");
   });
 
+  it("allows pre-draft plugin hooks to persist transaction state", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "semverge-pre-draft-plugin-"));
+    const eventPath = publishEvent(directory);
+    writeFileSync(join(directory, "pre-draft-plugin.mjs"), `
+export default {
+  apiVersion: 1,
+  name: "pre-draft-persist-plugin",
+  hooks: {
+    validate: () => ({ summary: "validated before draft release" })
+  }
+};
+`);
+    const outputPath = join(directory, "outputs.txt");
+    const config = "release:\n  branch: release/bot\nhealth:\n  enabled: false\nplugins:\n  - module: ./pre-draft-plugin.mjs\n";
+    const requests: Array<{ method: string; path: string; body?: Record<string, unknown> }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = new URL(String(input));
+      const body = init?.body && typeof init.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : undefined;
+      requests.push({ method: init?.method ?? "GET", path: url.pathname, body });
+      if (url.pathname.endsWith("/contents/.semverge.yml")) {
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded(config) }), { status: 200 });
+      }
+      if (url.pathname.endsWith("/contents/release-manifest.json")) {
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded(manifest()) }), { status: 200 });
+      }
+      if (url.pathname.endsWith("/contents/RELEASE_NOTES.md")) {
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded("# What's new\n") }), { status: 200 });
+      }
+      if (url.pathname.endsWith("/git/ref/tags/v0.2.0")) {
+        return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
+      }
+      if (url.pathname.endsWith("/releases/tags/v0.2.0")) {
+        return new Response(JSON.stringify({ message: "Not Found" }), { status: 404 });
+      }
+      if (url.pathname.endsWith("/releases") && init?.method === "POST") {
+        return new Response(JSON.stringify({ id: 3, tag_name: "v0.2.0", html_url: "https://github.com/demo/repo/releases/tag/v0.2.0", upload_url: "https://uploads.github.com/repos/demo/repo/releases/3/assets{?name,label}", body: body?.body, draft: true, assets: [] }), { status: 201 });
+      }
+      if (url.pathname.endsWith("/releases/3") && init?.method === "PATCH") {
+        return new Response(JSON.stringify({ id: 3, tag_name: "v0.2.0", html_url: "https://github.com/demo/repo/releases/tag/v0.2.0", upload_url: "https://uploads.github.com/repos/demo/repo/releases/3/assets{?name,label}", body: body?.body, draft: body?.draft ?? true, assets: [] }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ message: `Unhandled ${init?.method ?? "GET"} ${url.pathname}` }), { status: 500 });
+    }));
+
+    const previous = setPublishEnvironment(directory, eventPath, outputPath);
+    try {
+      await run();
+    } finally {
+      restoreEnvironment(previous);
+      rmSync(directory, { recursive: true, force: true });
+    }
+
+    const createRequest = requests.find((request) => request.method === "POST" && request.path.endsWith("/releases"));
+    const state = parseReleaseTransactionBody(typeof createRequest?.body?.body === "string" ? createRequest.body.body : null);
+    expect(state?.events.some((event) => event.key === "plugin:pre-draft-persist-plugin:validate" && event.status === "completed")).toBe(true);
+  });
+
   it("publishes a Python package through its configured registry adapter", async () => {
     const directory = mkdtempSync(join(tmpdir(), "semverge-python-publish-"));
     const workspace = prepareGitWorkspace(retryFixtureDirectory);

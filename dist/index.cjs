@@ -13350,6 +13350,7 @@ async function publishRelease(client, pr, config) {
     changes: [],
     config
   };
+  const executions = [];
   const persist = async (tx) => {
     progress = tx;
     if (executions.length > 0) {
@@ -13362,7 +13363,6 @@ async function publishRelease(client, pr, config) {
   if (prepareRes.transaction) progress = prepareRes.transaction;
   const buildRes = await runTransactionOwnedPluginHook(pluginRegistry, "build", pluginContextInput, progress, recordReleaseTransactionEvent, persist);
   if (buildRes.transaction) progress = buildRes.transaction;
-  const executions = [];
   for (const item of releaseInputs) {
     let release = item.existingRelease;
     if (!release) {
