@@ -33,13 +33,15 @@ The plugin hook is marked `completed` only after every effect it returns has bee
 
 The transaction event log is append-only for effect attempts. An effect is terminal for idempotency once **any** event with its idempotency key has status `completed`; earlier `planned`, `started`, or `failed` events do not make a later completion retryable.
 
+An effect with `externallyDetectable: true` must have an executor with a `detect()` method. A detector error is ambiguous: SemVerge records the error as a failed effect and blocks execution so a provider outage cannot turn into a duplicate side effect. Effects whose `execute()` operation is intrinsically safe to repeat may opt into the fail-open path with `reexecutionSafe: true`; the detector is still attempted first.
+
 ### Effect States
 
 Every plugin effect moves durably through four transaction states:
 1. `planned`: Evaluated by the plugin hook and recorded in the transaction log.
 2. `started`: Transitioned immediately before starting execution.
 3. `completed`: Recorded upon successful execution or detection.
-4. `failed`: Recorded if execution throws an error.
+4. `failed`: Recorded if execution or external detection throws an error. Detection failures block execution unless the effect explicitly declares `reexecutionSafe: true`.
 
 ### Implementing Executors
 
@@ -59,7 +61,8 @@ export default defineReleasePlugin({
           id: "write-temp-file",
           idempotencyKey: "unique-file-key-v1.0.0",
           kind: "append-line",
-          target: "out.txt"
+          target: "out.txt",
+          externallyDetectable: true
         }
       ]
     }),
@@ -70,7 +73,8 @@ export default defineReleasePlugin({
           id: "write-temp-file",
           idempotencyKey: "unique-file-key-v1.0.0",
           kind: "append-line",
-          target: "out.txt"
+          target: "out.txt",
+          externallyDetectable: true
         }
       ]
     })
@@ -101,4 +105,5 @@ When `recover` (via CLI or GitHub Actions) is run to resume a failed release, Se
 1. Executes the `recover` plugin hook.
 2. Collects returned effect descriptors.
 3. Invokes the `detect` method of each effect's executor. If detected as already complete, the effect is skipped and marked `completed`.
-4. If not detected, the effect executor executes it, advancing the state machine to ensure clean, duplicate-free reconciliation.
+4. If detection throws, records a diagnostic `failed` event and stops before `execute()` unless the effect has `reexecutionSafe: true`.
+5. If not detected, the effect executor executes it, advancing the state machine to ensure clean, duplicate-free reconciliation.

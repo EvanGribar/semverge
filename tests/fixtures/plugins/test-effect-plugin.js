@@ -11,7 +11,8 @@ export default {
             id: "write-temp-file",
             idempotencyKey: "temp-file-key",
             kind: "append-file",
-            target: "tests/scratch/effect-out.txt"
+            target: "tests/scratch/effect-out.txt",
+            externallyDetectable: true
           }
         ]
       };
@@ -23,7 +24,8 @@ export default {
             id: "write-temp-file",
             idempotencyKey: "temp-file-key",
             kind: "append-file",
-            target: "tests/scratch/effect-out.txt"
+            target: "tests/scratch/effect-out.txt",
+            externallyDetectable: true
           }
         ]
       };
