@@ -32,9 +32,11 @@ describe("release planning", () => {
     ]);
     expect(plan.outputs[0]?.content).toContain("## [2.5.0] - 2026-08-04");
     expect(plan.customerNotes).toContain("add bulk export");
-    expect(plan.customerNotes).toContain("This release includes 1 feature and 1 fix.");
-    expect(plan.customerNotes).toContain("Highest-impact change: add bulk export.");
-    expect(plan.customerNotes).not.toContain("A clear summary of the changes included in this release.");
+    expect(plan.customerNotes).toContain("## New");
+    expect(plan.customerNotes).toContain("## Fixed");
+    expect(plan.customerNotes).not.toContain("This release includes 1 feature and 1 fix.");
+    expect(plan.customerNotes).not.toContain("Highest-impact change");
+    expect(plan.customerNotes).not.toContain("## Breaking Changes");
     expect(plan.internalSummary).toContain("update tooling");
   });
 
@@ -52,10 +54,13 @@ describe("release planning", () => {
       ]
     });
 
-    expect(plan.customerNotes).toContain("This release includes 1 feature, 1 fix, and 1 breaking change.");
-    expect(plan.customerNotes).toContain("Highest-impact change: normalize export responses.");
-    expect(plan.customerNotes).toContain("Breaking changes require review before upgrading.");
-    expect(plan.customerNotes).toContain("Migration guidance is included with this release.");
+    expect(plan.customerNotes).toContain("normalize export responses.");
+    expect(plan.customerNotes).toContain("Existing behavior changes in this release; review the required action before upgrading.");
+    expect(plan.customerNotes).toContain("## Changed");
+    expect(plan.customerNotes).toContain("## Action required");
+    expect(plan.customerNotes).not.toContain("This release includes 1 feature, 1 fix, and 1 breaking change.");
+    expect(plan.customerNotes).not.toContain("Highest-impact change");
+    expect(plan.customerNotes).not.toContain("Migration guidance is included with this release.");
     expect(plan.migrationGuide).toContain("Update clients to read data.items.");
     expect(plan.announcement).toContain("Export responses now use the normalized shape.");
   });
@@ -74,6 +79,25 @@ outcome: Teams can download multiple projects in one step.
     expect(notes).toContain("Bulk project exports");
     expect(notes).toContain("Teams can download multiple projects in one step.");
     expect(notes).not.toContain("internal-export-implementation-name");
+  });
+
+  it("omits migration boilerplate for an explicit no-action release", () => {
+    const change = parseChange({
+      title: "fix: improve export retries",
+      source: "pull_request",
+      body: "<!-- semverge\naction: No action is required.\n-->"
+    });
+
+    const notes = renderCustomerNotes("1.0.1", [change]);
+    expect(notes).not.toContain("## Action required");
+    expect(notes).not.toContain("Migration");
+  });
+
+  it("renders internal-only releases as a sensible no-update result", () => {
+    const notes = renderCustomerNotes("1.0.0", [parseChange({ title: "chore: refresh tooling", source: "commit" })]);
+
+    expect(notes).toBe("# What's new in 1.0.0\n\nNo customer-facing updates are included in this release.\n");
+    expect(notes).not.toContain("refresh tooling");
   });
 
   it("keeps a docs-only change out of the release path", () => {

@@ -154,7 +154,7 @@ describe("package discovery and workspace releases", () => {
     expect(one?.explanation).toEqual({ reasons: ["direct-change"], directChanges: ["fix: repair shared export"], dependencies: [], dependencyTypes: {} });
     expect(two?.explanation).toEqual({ reasons: ["dependency-update"], directChanges: [], dependencies: ["@demo/one"], dependencyTypes: { "@demo/one": ["dependencies"] } });
     expect(two?.plan.releaseChanges.some((change) => change.dependencyUpdate)).toBe(true);
-    expect(two?.plan.customerNotes).toContain("No customer-facing changes");
+    expect(two?.plan.customerNotes).toContain("No customer-facing updates are included");
     expect(plan.manifest).toContain('"dependencyUpdate": true');
     expect(JSON.parse(plan.manifest).packages[1]).toMatchObject({ reasons: ["dependency-update"], dependencies: ["@demo/one"] });
     expect(plan.unchangedPackages.map((packageItem) => packageItem.name)).toEqual(["demo"]);
