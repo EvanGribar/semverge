@@ -11223,7 +11223,7 @@ function normalizePluginResult(plugin, hook, value) {
   }
   if (result.effects !== void 0 && (!Array.isArray(result.effects) || result.effects.some((effect) => {
     const value2 = objectValue(effect);
-    return !value2 || typeof value2.id !== "string" || !value2.id || typeof value2.idempotencyKey !== "string" || !value2.idempotencyKey || typeof value2.kind !== "string" || !value2.kind || typeof value2.target !== "string" || !value2.target || value2.reversible !== void 0 && typeof value2.reversible !== "boolean" || value2.externallyDetectable !== void 0 && typeof value2.externallyDetectable !== "boolean";
+    return !value2 || typeof value2.id !== "string" || !value2.id || typeof value2.idempotencyKey !== "string" || !value2.idempotencyKey || typeof value2.kind !== "string" || !value2.kind || typeof value2.target !== "string" || !value2.target || value2.reversible !== void 0 && typeof value2.reversible !== "boolean" || value2.externallyDetectable !== void 0 && typeof value2.externallyDetectable !== "boolean" || value2.reexecutionSafe !== void 0 && typeof value2.reexecutionSafe !== "boolean";
   }))) {
     throw new Error(`SemVerge plugin ${plugin} returned invalid effects from ${hook}.`);
   }
@@ -11337,6 +11337,9 @@ function hasUncompletedPluginEffect(state, pluginName) {
 function hasCompletedTransactionEvent(state, key) {
   return state.events.some((event) => event.key === key && event.status === "completed");
 }
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
+}
 async function runTransactionOwnedPluginHook(registry, hook, context, transaction, recordEventFn, persistFn) {
   let currentState = transaction;
   const invocations = [];
@@ -11390,6 +11393,18 @@ async function runTransactionOwnedPluginHook(registry, hook, context, transactio
               if (!executor) {
                 throw new Error(`No executor registered for effect kind "${effect.kind}" in plugin "${plugin.name}".`);
               }
+              if (effect.externallyDetectable && !executor.detect) {
+                const message = `Plugin effect ${effect.id} declares externallyDetectable but executor "${effect.kind}" does not provide detect(); execution is blocked to avoid duplicate side effects.`;
+                currentState = recordEventFn(currentState, {
+                  key: effectKey,
+                  kind: `plugin-effect-${effect.kind}`,
+                  target: effect.target,
+                  status: "failed",
+                  detail: message
+                });
+                await persist(currentState);
+                throw new Error(message);
+              }
               if (executor.detect) {
                 try {
                   const detected = await executor.detect(effect, context);
@@ -11405,6 +11420,19 @@ async function runTransactionOwnedPluginHook(registry, hook, context, transactio
                     continue;
                   }
                 } catch (err) {
+                  const detectionMessage = `Plugin effect ${effect.id} detection failed: ${errorMessage(err)}`;
+                  const detail = effect.reexecutionSafe ? `${detectionMessage}; continuing because the effect declares reexecutionSafe.` : `${detectionMessage}; execution is blocked to avoid duplicate side effects.`;
+                  currentState = recordEventFn(currentState, {
+                    key: effectKey,
+                    kind: `plugin-effect-${effect.kind}`,
+                    target: effect.target,
+                    status: "failed",
+                    detail
+                  });
+                  await persist(currentState);
+                  if (!effect.reexecutionSafe) {
+                    throw new Error(`${detectionMessage}; execution is blocked to avoid duplicate side effects.`, { cause: err });
+                  }
                 }
               }
               currentState = recordEventFn(currentState, {

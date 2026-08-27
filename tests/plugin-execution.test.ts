@@ -100,6 +100,187 @@ describe("Core Release Engine Plugin Execution", () => {
     expect(retryRes.invocations[0]?.result.summary).toContain("Skipped publish");
   });
 
+  it("fails closed when external detection is unavailable and recovers without duplicating execution", async () => {
+    let effectExecutions = 0;
+    let detectionAvailable: "not-complete" | "unavailable" | "complete" = "not-complete";
+    const effectKey = "effect:ambiguous-effect-plugin:announce-v1.0.0";
+    const plugin: SemVergeReleasePlugin = defineReleasePlugin({
+      apiVersion: 1,
+      name: "ambiguous-effect-plugin",
+      hooks: {
+        publish: () => ({
+          effects: [{ id: "announce", idempotencyKey: "announce-v1.0.0", kind: "announce", target: "release-channel", externallyDetectable: true }]
+        })
+      },
+      executors: {
+        announce: {
+          execute: async () => {
+            effectExecutions += 1;
+          },
+          detect: async () => {
+            if (detectionAvailable === "unavailable") {
+              throw new Error("provider unavailable");
+            }
+            return detectionAvailable === "complete";
+          }
+        }
+      }
+    });
+    const registry = new ReleasePluginRegistry();
+    registry.register(plugin);
+
+    let transaction = createReleaseTransaction({
+      version: "1.0.0",
+      sourceCommit: "sha123",
+      packageIds: ["root"],
+      tagNames: ["v1.0.0"],
+      npmEnabled: false
+    });
+    const context = {
+      sourceCommit: "sha123",
+      version: "1.0.0",
+      packages: [],
+      changes: [],
+      config: {}
+    };
+
+    // The external effect succeeds, but the completion write is lost. The durable
+    // state that survives the restart is the started event, so the retry is ambiguous.
+    let durableTransaction = transaction;
+    let loseCompletionWrite = true;
+    const persistBeforeRestart = async (state: typeof transaction) => {
+      if (state.events.some((event) => event.key === effectKey && event.status === "completed")) {
+        if (loseCompletionWrite) {
+          loseCompletionWrite = false;
+          detectionAvailable = "unavailable";
+          throw new Error("simulated lost completion persistence");
+        }
+        return;
+      }
+      durableTransaction = state;
+    };
+
+    await expect(
+      runTransactionOwnedPluginHook(registry, "publish", context, transaction, recordReleaseTransactionEvent, persistBeforeRestart)
+    ).rejects.toThrow("simulated lost completion persistence");
+    expect(effectExecutions).toBe(1);
+    expect(durableTransaction.events.filter((event) => event.key === effectKey).map((event) => event.status)).toEqual(["planned", "started"]);
+
+    const retrySnapshots: Array<typeof transaction> = [];
+    await expect(
+      runTransactionOwnedPluginHook(registry, "publish", context, durableTransaction, recordReleaseTransactionEvent, async (state) => {
+        retrySnapshots.push(state);
+      })
+    ).rejects.toThrow("provider unavailable");
+    expect(effectExecutions).toBe(1);
+    const blockedRetry = retrySnapshots.at(-1);
+    expect(blockedRetry).toBeDefined();
+    expect(blockedRetry!.events.filter((event) => event.key === effectKey).map((event) => event.status)).toEqual(["planned", "started", "failed"]);
+    expect(blockedRetry!.events.find((event) => event.key === effectKey && event.status === "failed")?.detail).toContain("provider unavailable");
+    expect(blockedRetry!.events.find((event) => event.key === effectKey && event.status === "failed")?.detail).toContain("blocked");
+
+    detectionAvailable = "complete";
+    const recovered = await runTransactionOwnedPluginHook(registry, "publish", context, blockedRetry, recordReleaseTransactionEvent);
+
+    expect(recovered.transaction).toBeDefined();
+    expect(effectExecutions).toBe(1);
+    expect(recovered.transaction!.events.filter((event) => event.key === effectKey).map((event) => event.status)).toEqual(["planned", "started", "failed", "completed"]);
+    expect(recovered.transaction!.events.find((event) => event.key === effectKey && event.status === "completed")?.detail).toContain("detected as already completed");
+  });
+
+  it("records detection failures but allows explicitly reexecution-safe effects to continue", async () => {
+    let effectExecutions = 0;
+    const effectKey = "effect:reexecution-safe-plugin:notify-v1.0.0";
+    const plugin: SemVergeReleasePlugin = defineReleasePlugin({
+      apiVersion: 1,
+      name: "reexecution-safe-plugin",
+      hooks: {
+        publish: () => ({
+          effects: [{ id: "notify", idempotencyKey: "notify-v1.0.0", kind: "notify", target: "release-channel", externallyDetectable: true, reexecutionSafe: true }]
+        })
+      },
+      executors: {
+        notify: {
+          execute: async () => {
+            effectExecutions += 1;
+          },
+          detect: async () => {
+            throw new Error("provider unavailable");
+          }
+        }
+      }
+    });
+    const registry = new ReleasePluginRegistry();
+    registry.register(plugin);
+    const transaction = createReleaseTransaction({
+      version: "1.0.0",
+      sourceCommit: "sha123",
+      packageIds: ["root"],
+      tagNames: ["v1.0.0"],
+      npmEnabled: false
+    });
+
+    const result = await runTransactionOwnedPluginHook(registry, "publish", {
+      sourceCommit: "sha123",
+      version: "1.0.0",
+      packages: [],
+      changes: [],
+      config: {}
+    }, transaction, recordReleaseTransactionEvent);
+
+    expect(effectExecutions).toBe(1);
+    expect(result.transaction!.events.filter((event) => event.key === effectKey).map((event) => event.status)).toEqual(["planned", "failed", "started", "completed"]);
+    expect(result.transaction!.events.find((event) => event.key === effectKey && event.status === "failed")?.detail).toContain("reexecutionSafe");
+  });
+
+  it("blocks effects declared externally detectable when their executor cannot detect them", async () => {
+    let effectExecutions = 0;
+    const effectKey = "effect:missing-detector-plugin:deploy-v1.0.0";
+    const plugin: SemVergeReleasePlugin = defineReleasePlugin({
+      apiVersion: 1,
+      name: "missing-detector-plugin",
+      hooks: {
+        publish: () => ({
+          effects: [{ id: "deploy", idempotencyKey: "deploy-v1.0.0", kind: "deploy", target: "production", externallyDetectable: true }]
+        })
+      },
+      executors: {
+        deploy: {
+          execute: async () => {
+            effectExecutions += 1;
+          }
+        }
+      }
+    });
+    const registry = new ReleasePluginRegistry();
+    registry.register(plugin);
+    const transaction = createReleaseTransaction({
+      version: "1.0.0",
+      sourceCommit: "sha123",
+      packageIds: ["root"],
+      tagNames: ["v1.0.0"],
+      npmEnabled: false
+    });
+    const snapshots: Array<typeof transaction> = [];
+
+    await expect(
+      runTransactionOwnedPluginHook(registry, "publish", {
+        sourceCommit: "sha123",
+        version: "1.0.0",
+        packages: [],
+        changes: [],
+        config: {}
+      }, transaction, recordReleaseTransactionEvent, async (state) => {
+        snapshots.push(state);
+      })
+    ).rejects.toThrow("does not provide detect");
+
+    expect(effectExecutions).toBe(0);
+    const failed = snapshots.at(-1);
+    expect(failed).toBeDefined();
+    expect(failed!.events.find((event) => event.key === effectKey && event.status === "failed")?.detail).toContain("externallyDetectable");
+  });
+
   it("treats a completed effect event as terminal even when earlier attempts remain in history", async () => {
     let hookCalls = 0;
     let effectExecutions = 0;

@@ -71,6 +71,11 @@ export interface ReleasePluginEffect {
   target: string;
   reversible?: boolean;
   externallyDetectable?: boolean;
+  /**
+   * Allows execute to run when detect fails because the executor guarantees
+   * that repeating the effect is safe.
+   */
+  reexecutionSafe?: boolean;
 }
 
 export interface ReleasePluginResult {
@@ -215,7 +220,7 @@ function normalizePluginResult(plugin: string, hook: ReleasePluginHookName, valu
   }
   if (result.effects !== undefined && (!Array.isArray(result.effects) || result.effects.some((effect) => {
     const value = objectValue(effect);
-    return !value || typeof value.id !== "string" || !value.id || typeof value.idempotencyKey !== "string" || !value.idempotencyKey || typeof value.kind !== "string" || !value.kind || typeof value.target !== "string" || !value.target || (value.reversible !== undefined && typeof value.reversible !== "boolean") || (value.externallyDetectable !== undefined && typeof value.externallyDetectable !== "boolean");
+    return !value || typeof value.id !== "string" || !value.id || typeof value.idempotencyKey !== "string" || !value.idempotencyKey || typeof value.kind !== "string" || !value.kind || typeof value.target !== "string" || !value.target || (value.reversible !== undefined && typeof value.reversible !== "boolean") || (value.externallyDetectable !== undefined && typeof value.externallyDetectable !== "boolean") || (value.reexecutionSafe !== undefined && typeof value.reexecutionSafe !== "boolean");
   }))) {
     throw new Error(`SemVerge plugin ${plugin} returned invalid effects from ${hook}.`);
   }
@@ -365,6 +370,10 @@ function hasCompletedTransactionEvent(state: import("./transaction.js").ReleaseT
   return state.events.some((event) => event.key === key && event.status === "completed");
 }
 
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 export async function runTransactionOwnedPluginHook(
   registry: ReleasePluginRegistry,
   hook: ReleasePluginHookName,
@@ -431,6 +440,19 @@ export async function runTransactionOwnedPluginHook(
                 throw new Error(`No executor registered for effect kind "${effect.kind}" in plugin "${plugin.name}".`);
               }
 
+              if (effect.externallyDetectable && !executor.detect) {
+                const message = `Plugin effect ${effect.id} declares externallyDetectable but executor "${effect.kind}" does not provide detect(); execution is blocked to avoid duplicate side effects.`;
+                currentState = recordEventFn(currentState, {
+                  key: effectKey,
+                  kind: `plugin-effect-${effect.kind}`,
+                  target: effect.target,
+                  status: "failed",
+                  detail: message
+                });
+                await persist(currentState);
+                throw new Error(message);
+              }
+
               // Try external detection
               if (executor.detect) {
                 try {
@@ -447,7 +469,21 @@ export async function runTransactionOwnedPluginHook(
                     continue;
                   }
                 } catch (err) {
-                  // If detection fails, proceed to execute
+                  const detectionMessage = `Plugin effect ${effect.id} detection failed: ${errorMessage(err)}`;
+                  const detail = effect.reexecutionSafe
+                    ? `${detectionMessage}; continuing because the effect declares reexecutionSafe.`
+                    : `${detectionMessage}; execution is blocked to avoid duplicate side effects.`;
+                  currentState = recordEventFn(currentState, {
+                    key: effectKey,
+                    kind: `plugin-effect-${effect.kind}`,
+                    target: effect.target,
+                    status: "failed",
+                    detail
+                  });
+                  await persist(currentState);
+                  if (!effect.reexecutionSafe) {
+                    throw new Error(`${detectionMessage}; execution is blocked to avoid duplicate side effects.`, { cause: err });
+                  }
                 }
               }
 
