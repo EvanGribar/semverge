@@ -5,6 +5,7 @@ import { promisify } from "node:util";
 import { resolve, relative, join, basename, sep } from "node:path";
 import { formatChangeReference, parseChange, releaseChannelFromLabels } from "./changes.js";
 import { channelBaseBranch, channelPolicy, parseConfig, withChannelPolicy, withOverrides } from "./config.js";
+import { communicationQualityMarkdown } from "./communication-quality.js";
 import { readinessMarkdown } from "./readiness.js";
 import { releaseTagName, GitHubClient, type GitHubCommitSummary, type GitHubPullRequest, type GitHubRelease } from "./github.js";
 import { discoverPackages } from "./packages.js";
@@ -258,6 +259,8 @@ function releasePrBody(plan: WorkspaceReleasePlan, config: SemVergeConfig): stri
     ...packageLines,
     "",
     readinessMarkdown(plan.readiness).trim(),
+    "",
+    ...communicationQualityMarkdown(plan.communicationQuality ?? []),
     "",
     ...releaseGraphMarkdown(plan),
     "",

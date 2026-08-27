@@ -5,7 +5,7 @@ import { buildReleasePlan } from "./release.js";
 import { type PackageDescriptor } from "./packages.js";
 import { highestBump } from "./semver.js";
 import { targetFromDescriptor, updateTargetVersion } from "./version-adapters.js";
-import type { BumpLevel, PackageReleaseExplanation, PackageReleaseReason, ReadinessReport, ReleaseChange, ReleaseOutput, SemVergeConfig, WorkspaceDependencyField } from "./types.js";
+import type { BumpLevel, CommunicationQualityReport, PackageReleaseExplanation, PackageReleaseReason, ReadinessReport, ReleaseChange, ReleaseOutput, SemVergeConfig, WorkspaceDependencyField } from "./types.js";
 import type { VersionFileChange } from "./version-files.js";
 
 export interface PackageRelease {
@@ -29,6 +29,7 @@ export interface WorkspaceReleasePlan {
   versionChanges: VersionFileChange[];
   unchangedPackages: PackageDescriptor[];
   manifest: string;
+  communicationQuality?: CommunicationQualityReport[];
 }
 
 export interface BuildWorkspaceReleasePlanInput {
@@ -425,7 +426,8 @@ function manifestContent(plan: WorkspaceReleasePlan): string {
       private: packageItem.private,
       releaseable: packageItem.releaseable
     })),
-    readiness: plan.readiness
+    readiness: plan.readiness,
+    communicationQuality: plan.communicationQuality ?? []
   }, null, 2)}\n`;
 }
 
@@ -503,6 +505,7 @@ export function buildWorkspaceReleasePlan(input: BuildWorkspaceReleasePlanInput)
   const hasRelease = releasedPlans.length > 0;
   const releaseChanges = input.mode === "independent" ? [...new Map(packageReleases.flatMap((item) => item.plan.releaseChanges.map((change) => [change.title, change] as const))).values()] : input.changes.filter((change) => !change.skipped);
   const readiness = mergeReadiness(packageReleases.length > 0 ? packageReleases.map((item) => item.plan.readiness) : [input.readinessContext ? { passed: true, missingLabels: [], missingFiles: [], failedCommands: [], missingTasks: [], requestedTasks: [] } : { passed: true, missingLabels: [], missingFiles: [], failedCommands: [], missingTasks: [], requestedTasks: [] }]);
+  const communicationQuality = [...new Map(packageReleases.flatMap(({ plan }) => plan.communicationQuality ?? []).map((report) => [`${report.artifact}:${report.mode}:${JSON.stringify(report.findings)}`, report] as const)).values()];
   const version = input.mode === "independent" ? releasedPlans.map((item) => `${item.package.name}@${item.plan.version}`).join(", ") : plans[0]?.plan.version ?? input.packages[0]?.version ?? "0.0.0";
   const channel = input.mode === "independent"
     ? [...new Set(packageReleases.map((item) => item.plan.channel))].join(", ") || "stable"
@@ -569,7 +572,8 @@ export function buildWorkspaceReleasePlan(input: BuildWorkspaceReleasePlanInput)
     outputs: [...outputMap].map(([path, content]) => ({ path, content })),
     versionChanges,
     unchangedPackages,
-    manifest: ""
+    manifest: "",
+    communicationQuality
   };
   const manifest = manifestContent(provisional);
   provisional.manifest = manifest;

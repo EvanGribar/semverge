@@ -8657,8 +8657,8 @@ var require_range = __commonJS({
             continue;
           }
           if (set[i].semver.prerelease.length > 0) {
-            const allowed = set[i].semver;
-            if (allowed.major === version.major && allowed.minor === version.minor && allowed.patch === version.patch) {
+            const allowed2 = set[i].semver;
+            if (allowed2.major === version.major && allowed2.minor === version.minor && allowed2.patch === version.patch) {
               return true;
             }
           }
@@ -9902,6 +9902,12 @@ var DEFAULT_CONFIG = {
     manifest: "release-manifest.json",
     announcement: "RELEASE_ANNOUNCEMENT.md"
   },
+  communication: {
+    customerQuality: {
+      mode: "warn",
+      allowTerms: []
+    }
+  },
   artifacts: {
     paths: []
   },
@@ -10060,6 +10066,19 @@ function aiSettings(value, fallback) {
     timeoutMs: typeof object.timeoutMs === "number" && Number.isInteger(object.timeoutMs) && object.timeoutMs > 0 ? object.timeoutMs : fallback.timeoutMs
   };
 }
+function customerQualitySettings(value, fallback) {
+  const object = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    mode: object.mode === "off" || object.mode === "warn" || object.mode === "error" ? object.mode : fallback.mode,
+    allowTerms: strings(object.allowTerms)
+  };
+}
+function communicationSettings(value, fallback) {
+  const object = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    customerQuality: customerQualitySettings(object.customerQuality, fallback.customerQuality)
+  };
+}
 function channelPolicies(value) {
   const result = Object.fromEntries(Object.entries(DEFAULT_CHANNEL_POLICIES).map(([name, policy]) => [name, { ...policy }]));
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -10103,6 +10122,7 @@ function mergeConfig(raw) {
   const dependencyPolicy = monorepo.dependencyPolicy && typeof monorepo.dependencyPolicy === "object" ? monorepo.dependencyPolicy : {};
   const health = object.health && typeof object.health === "object" ? object.health : {};
   const healthMonitoringValue = health.monitoring;
+  const communication = object.communication && typeof object.communication === "object" ? object.communication : {};
   const ai = object.ai && typeof object.ai === "object" ? object.ai : {};
   const publishing = object.publishing && typeof object.publishing === "object" ? object.publishing : {};
   const npm = publishing.npm && typeof publishing.npm === "object" ? publishing.npm : {};
@@ -10154,6 +10174,7 @@ function mergeConfig(raw) {
       requiredLinks: strings(health.requiredLinks),
       monitoring: healthMonitoring(healthMonitoringValue, DEFAULT_CONFIG.health.monitoring)
     },
+    communication: communicationSettings(communication, DEFAULT_CONFIG.communication),
     ai: aiSettings(ai, DEFAULT_CONFIG.ai),
     publishing: {
       npm: {
@@ -10203,6 +10224,7 @@ function withOverrides(config, overrides) {
     monorepo: { ...config.monorepo, packages: [...config.monorepo.packages], dependencyPolicy: { ...config.monorepo.dependencyPolicy } },
     health: { ...config.health, workflows: [...config.health.workflows], expectedArtifacts: [...config.health.expectedArtifacts], requiredLinks: [...config.health.requiredLinks], ...config.health.monitoring ? { monitoring: { ...config.health.monitoring } } : {} },
     publishing: { ...config.publishing, npm: { ...config.publishing.npm }, python: { ...config.publishing.python }, rust: { ...config.publishing.rust }, oci: { ...config.publishing.oci, images: [...config.publishing.oci.images] } },
+    ...config.communication ? { communication: { ...config.communication, customerQuality: { ...config.communication.customerQuality, allowTerms: [...config.communication.customerQuality.allowTerms] } } } : {},
     ...config.ai ? { ai: { ...config.ai } } : {},
     ...config.plugins ? { plugins: [...config.plugins] } : {}
   };
@@ -10246,6 +10268,111 @@ function withChannelPolicy(config, channel) {
 function channelBaseBranch(config, channel, defaultBranch) {
   const policy = channel ? channelPolicy(config, channel)?.policy : void 0;
   return (policy?.baseBranch ?? policy?.branch ?? defaultBranch).replace(/^refs\/heads\//, "");
+}
+
+// src/communication-quality.ts
+var QUALITY_RULES = [
+  {
+    id: "conventional-commit-prefix",
+    message: "raw conventional-commit syntax is implementation-facing",
+    pattern: /(?:^|[\s([>*-])(?:feat|fix|chore|ci|build|refactor|revert|style|test|docs|perf)(?:\([^)]*\))?!?:\s+\S/gi
+  },
+  {
+    id: "pull-request-reference",
+    message: "pull-request references belong in technical traceability, not customer copy",
+    pattern: /\b(?:pull request|pr\s*#\d+)\b|github\.com\/[^\s)]+\/pull\/\d+|\(#\d+\)/gi
+  },
+  {
+    id: "commit-reference",
+    message: "commit identifiers expose implementation traceability",
+    pattern: /\b[0-9a-f]{7,40}\b/gi
+  },
+  {
+    id: "versioning-language",
+    message: "versioning mechanics are release-engine language",
+    pattern: /\b(?:semver|semantic version(?:ing)?|version bump|(?:major|minor|patch)\s+(?:version|bump))\b/gi
+  },
+  {
+    id: "release-engine-language",
+    message: "release-engine or registry implementation terminology leaked into audience copy",
+    pattern: /\b(?:idempotenc\w*|transaction(?:al)?|artifact digest|registry(?: publication)?|release planner|publication target)\b/gi
+  },
+  {
+    id: "source-reference",
+    message: "source or package paths are implementation detail",
+    pattern: /\b(?:src|lib|dist|build|packages?|apps?|crates?)\/[A-Za-z0-9._/-]+/gi
+  },
+  {
+    id: "implementation-identifier",
+    message: "technical identifiers should be explained in user terms",
+    pattern: /\b[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)+\b/g
+  },
+  {
+    id: "internal-framing",
+    message: "release-engine framing is not customer-facing language",
+    pattern: /\bHighest-impact change\b|\bThis release includes \d+ (?:feature|fix|breaking)/gi
+  },
+  {
+    id: "technical-only-line",
+    message: "the section contains only a technical identifier and no customer-readable outcome",
+    pattern: /^\s*(?:[-*]\s*)?(?:[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z_$][A-Za-z0-9_$]*)+|[A-Za-z0-9._/-]+\.(?:ts|tsx|js|jsx|py|rs|json|lock))\s*$/gi
+  }
+];
+var DEFAULT_CUSTOMER_QUALITY = { mode: "warn", allowTerms: [] };
+function excerpt(value) {
+  const normalized = value.trim().replace(/\s+/g, " ");
+  return normalized.length > 160 ? `${normalized.slice(0, 157)}...` : normalized;
+}
+function allowed(line, allowTerms) {
+  const normalized = line.toLowerCase();
+  return allowTerms.some((term) => term.trim() && normalized.includes(term.trim().toLowerCase()));
+}
+function findingsFor(content, allowTerms) {
+  const findings = [];
+  for (const [index, line] of content.split(/\r?\n/).entries()) {
+    if (allowed(line, allowTerms)) {
+      continue;
+    }
+    for (const rule of QUALITY_RULES) {
+      const match = [...line.matchAll(new RegExp(rule.pattern.source, rule.pattern.flags))][0];
+      if (match?.[0]) {
+        findings.push({ rule: rule.id, message: rule.message, excerpt: excerpt(match[0]), line: index + 1 });
+      }
+    }
+  }
+  return findings;
+}
+function lintCommunicationArtifact(content, artifact, config = DEFAULT_CUSTOMER_QUALITY) {
+  if (config.mode === "off") {
+    return { artifact, mode: "off", passed: true, findings: [] };
+  }
+  const findings = findingsFor(content, config.allowTerms);
+  return { artifact, mode: config.mode, passed: config.mode === "warn" || findings.length === 0, findings };
+}
+function lintCommunicationArtifacts(artifacts, config = DEFAULT_CUSTOMER_QUALITY) {
+  return artifacts.map(({ artifact, content }) => lintCommunicationArtifact(content, artifact, config));
+}
+function communicationQualityBlocks(reports) {
+  return reports.some((report) => !report.passed);
+}
+function artifactLabel(artifact) {
+  return artifact === "customer-notes" ? "Customer notes" : "Announcement";
+}
+function communicationQualityMarkdown(reports) {
+  const lines = ["## Communication quality", ""];
+  if (reports.length === 0 || reports.every((report) => report.mode === "off")) {
+    lines.push("Quality checks are disabled.", "");
+    return lines;
+  }
+  for (const report of reports) {
+    const status = report.findings.length === 0 ? "passed" : report.mode === "error" ? "blocking findings" : "warnings";
+    lines.push(`- ${artifactLabel(report.artifact)}: ${status}`);
+    for (const finding of report.findings) {
+      lines.push(`  - ${finding.rule} on line ${finding.line}: ${finding.message} \u2014 "${finding.excerpt}"`);
+    }
+  }
+  lines.push("");
+  return lines;
 }
 
 // src/readiness.ts
@@ -11657,7 +11784,8 @@ function buildReleasePlan(input2) {
       migrationGuide: "",
       announcement: "",
       manifest: "",
-      pluginInvocations
+      pluginInvocations,
+      communicationQuality: []
     };
   }
   const date = input2.date ?? (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
@@ -11666,6 +11794,14 @@ function buildReleasePlan(input2) {
   const internalSummary = renderInternalSummary(version, releaseChanges);
   const migrationGuide = renderMigrationGuide(version, releaseChanges);
   const announcement = renderAnnouncement(version, releaseChanges);
+  const communicationQuality = lintCommunicationArtifacts([
+    { artifact: "customer-notes", content: customerNotes },
+    { artifact: "announcement", content: announcement }
+  ], config.communication?.customerQuality);
+  if (communicationQualityBlocks(communicationQuality)) {
+    readiness.passed = false;
+    readiness.missingTasks.push("Customer communication quality checks found blocking issues; review the communication quality report.");
+  }
   const basePlan = {
     hasRelease,
     previousVersion: input2.currentVersion,
@@ -11680,7 +11816,8 @@ function buildReleasePlan(input2) {
     customerNotes,
     internalSummary,
     migrationGuide,
-    announcement
+    announcement,
+    communicationQuality
   };
   const manifest = manifestFor(basePlan);
   const outputs = [
@@ -12052,7 +12189,8 @@ function manifestContent(plan) {
       private: packageItem.private,
       releaseable: packageItem.releaseable
     })),
-    readiness: plan.readiness
+    readiness: plan.readiness,
+    communicationQuality: plan.communicationQuality ?? []
   }, null, 2)}
 `;
 }
@@ -12127,6 +12265,7 @@ function buildWorkspaceReleasePlan(input2) {
   const hasRelease = releasedPlans.length > 0;
   const releaseChanges = input2.mode === "independent" ? [...new Map(packageReleases.flatMap((item) => item.plan.releaseChanges.map((change) => [change.title, change]))).values()] : input2.changes.filter((change) => !change.skipped);
   const readiness = mergeReadiness(packageReleases.length > 0 ? packageReleases.map((item) => item.plan.readiness) : [input2.readinessContext ? { passed: true, missingLabels: [], missingFiles: [], failedCommands: [], missingTasks: [], requestedTasks: [] } : { passed: true, missingLabels: [], missingFiles: [], failedCommands: [], missingTasks: [], requestedTasks: [] }]);
+  const communicationQuality = [...new Map(packageReleases.flatMap(({ plan }) => plan.communicationQuality ?? []).map((report) => [`${report.artifact}:${report.mode}:${JSON.stringify(report.findings)}`, report])).values()];
   const version = input2.mode === "independent" ? releasedPlans.map((item) => `${item.package.name}@${item.plan.version}`).join(", ") : plans[0]?.plan.version ?? input2.packages[0]?.version ?? "0.0.0";
   const channel = input2.mode === "independent" ? [...new Set(packageReleases.map((item) => item.plan.channel))].join(", ") || "stable" : plans[0]?.plan.channel ?? "stable";
   const promotion = packageReleases.some((item) => item.plan.promotion);
@@ -12190,7 +12329,8 @@ function buildWorkspaceReleasePlan(input2) {
     outputs: [...outputMap].map(([path, content]) => ({ path, content })),
     versionChanges,
     unchangedPackages,
-    manifest: ""
+    manifest: "",
+    communicationQuality
   };
   const manifest = manifestContent(provisional);
   provisional.manifest = manifest;
@@ -12966,6 +13106,8 @@ ${packagePlan.customerNotes.trim()}`).join("\n\n");
     ...packageLines,
     "",
     readinessMarkdown(plan.readiness).trim(),
+    "",
+    ...communicationQualityMarkdown(plan.communicationQuality ?? []),
     "",
     ...releaseGraphMarkdown(plan),
     "",

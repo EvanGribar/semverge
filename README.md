@@ -163,6 +163,11 @@ outputs:
   internalSummary: .semverge/internal-release.md
   manifest: release-manifest.json
 
+communication:
+  customerQuality:
+    mode: warn # off, warn, or error
+    allowTerms: [API, registry]
+
 artifacts:
   command: npm run build
   paths: [dist, build.zip]
