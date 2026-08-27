@@ -98,10 +98,17 @@ Structured pull-request metadata is optional. Add this hidden block to a pull-re
 ```md
 <!-- semverge
 type: feature
+headline: Bulk project exports
 customer: Add bulk export for projects.
+outcome: Teams can download multiple projects in one step.
+detail: Existing export formats remain unchanged.
+impact: new
+action: No action is required.
 migration: Existing exports continue to work without changes.
 -->
 ```
+
+The legacy `customer` field remains supported; use `outcome`, `detail`, `impact`, `action`, and `audience` when a change needs richer customer communication. See [docs/customer-communication.md](docs/customer-communication.md) for the structured model and deterministic precedence rules.
 
 ## Optional configuration
 
