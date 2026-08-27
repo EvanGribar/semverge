@@ -145,6 +145,33 @@ export interface OutputConfig {
   announcement: string;
 }
 
+export type CommunicationArtifact = "customer-notes" | "announcement";
+
+export type CustomerQualityMode = "off" | "warn" | "error";
+
+export interface CustomerQualityConfig {
+  mode: CustomerQualityMode;
+  allowTerms: string[];
+}
+
+export interface CommunicationConfig {
+  customerQuality: CustomerQualityConfig;
+}
+
+export interface CommunicationQualityFinding {
+  rule: string;
+  message: string;
+  excerpt: string;
+  line: number;
+}
+
+export interface CommunicationQualityReport {
+  artifact: CommunicationArtifact;
+  mode: CustomerQualityMode;
+  passed: boolean;
+  findings: CommunicationQualityFinding[];
+}
+
 export interface ArtifactConfig {
   command?: string;
   paths: string[];
@@ -223,6 +250,7 @@ export interface SemVergeConfig {
   monorepo: MonorepoConfig;
   health: HealthConfig;
   publishing: PublishingConfig;
+  communication?: CommunicationConfig;
   ai?: AiConfig;
   plugins?: Array<unknown>;
 }
@@ -265,5 +293,6 @@ export interface ReleasePlan {
   announcement: string;
   manifest: string;
   pluginInvocations?: ReleasePluginInvocation[];
+  communicationQuality?: CommunicationQualityReport[];
 }
 

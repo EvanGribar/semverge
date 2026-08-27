@@ -1,4 +1,5 @@
 export * from "./changes.js";
+export * from "./communication-quality.js";
 export * from "./ai.js";
 export * from "./config.js";
 export * from "./explain.js";

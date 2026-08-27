@@ -1,7 +1,7 @@
 import { parse as parseYaml } from "yaml";
 import { parseOciImageRepository } from "./registries.js";
 import { DEFAULT_AI_TIMEOUT_MS } from "./types.js";
-import type { AiConfig, ArtifactConfig, BumpLevel, HealthMonitoringConfig, HealthWorkflow, NpmPublishConfig, OciPublishConfig, OutputConfig, ReadinessCommand, ReadinessTask, RegistryPublishConfig, ReleaseChannelPolicy, ReleasePromotion, SemVergeConfig } from "./types.js";
+import type { AiConfig, ArtifactConfig, BumpLevel, CommunicationConfig, CustomerQualityConfig, HealthMonitoringConfig, HealthWorkflow, NpmPublishConfig, OciPublishConfig, OutputConfig, ReadinessCommand, ReadinessTask, RegistryPublishConfig, ReleaseChannelPolicy, ReleasePromotion, SemVergeConfig } from "./types.js";
 
 export type ConfigValidationSeverity = "error" | "warning";
 
@@ -42,6 +42,12 @@ export const DEFAULT_CONFIG: SemVergeConfig = {
     internalSummary: ".semverge/internal-release.md",
     manifest: "release-manifest.json",
     announcement: "RELEASE_ANNOUNCEMENT.md"
+  },
+  communication: {
+    customerQuality: {
+      mode: "warn",
+      allowTerms: []
+    }
   },
   artifacts: {
     paths: []
@@ -275,6 +281,14 @@ export function validateConfigContent(content: string, fileName = ".semverge.yml
       stringField(outputs, key, "outputs", issues);
     }
   }
+  const communication = section(raw, "communication", issues);
+  if (communication) {
+    const customerQuality = section(communication, "customerQuality", issues);
+    if (customerQuality) {
+      enumField(customerQuality, "mode", "communication.customerQuality", ["off", "warn", "error"], issues);
+      stringArrayField(customerQuality, "allowTerms", "communication.customerQuality", issues);
+    }
+  }
   const artifacts = section(raw, "artifacts", issues);
   if (artifacts) {
     stringField(artifacts, "command", "artifacts", issues);
@@ -389,6 +403,14 @@ export function validateConfig(config: SemVergeConfig): ConfigValidationIssue[] 
     }
     if (!Number.isInteger(config.ai.timeoutMs) || config.ai.timeoutMs <= 0) {
       issues.push({ path: "ai.timeoutMs", severity: "error", message: "must be a positive integer" });
+    }
+  }
+  if (config.communication) {
+    if (!(["off", "warn", "error"] as const).includes(config.communication.customerQuality.mode)) {
+      issues.push({ path: "communication.customerQuality.mode", severity: "error", message: "must be one of: off, warn, error" });
+    }
+    if (config.communication.customerQuality.allowTerms.some((term) => !term.trim())) {
+      issues.push({ path: "communication.customerQuality.allowTerms", severity: "error", message: "must contain only non-empty strings" });
     }
   }
   for (const [name, policy] of Object.entries(config.release.channels)) {
@@ -563,6 +585,21 @@ function aiSettings(value: unknown, fallback: AiConfig): AiConfig {
   };
 }
 
+function customerQualitySettings(value: unknown, fallback: CustomerQualityConfig): CustomerQualityConfig {
+  const object = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  return {
+    mode: object.mode === "off" || object.mode === "warn" || object.mode === "error" ? object.mode : fallback.mode,
+    allowTerms: strings(object.allowTerms)
+  };
+}
+
+function communicationSettings(value: unknown, fallback: CommunicationConfig): CommunicationConfig {
+  const object = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  return {
+    customerQuality: customerQualitySettings(object.customerQuality, fallback.customerQuality)
+  };
+}
+
 function channelPolicies(value: unknown): Record<string, ReleaseChannelPolicy> {
   const result: Record<string, ReleaseChannelPolicy> = Object.fromEntries(Object.entries(DEFAULT_CHANNEL_POLICIES).map(([name, policy]) => [name, { ...policy }]));
   if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -607,6 +644,7 @@ function mergeConfig(raw: unknown): SemVergeConfig {
   const dependencyPolicy = monorepo.dependencyPolicy && typeof monorepo.dependencyPolicy === "object" ? monorepo.dependencyPolicy as Record<string, unknown> : {};
   const health = object.health && typeof object.health === "object" ? object.health as Record<string, unknown> : {};
   const healthMonitoringValue = health.monitoring;
+  const communication = object.communication && typeof object.communication === "object" ? object.communication as Record<string, unknown> : {};
   const ai = object.ai && typeof object.ai === "object" ? object.ai as Record<string, unknown> : {};
   const publishing = object.publishing && typeof object.publishing === "object" ? object.publishing as Record<string, unknown> : {};
   const npm = publishing.npm && typeof publishing.npm === "object" ? publishing.npm as Record<string, unknown> : {};
@@ -661,6 +699,7 @@ function mergeConfig(raw: unknown): SemVergeConfig {
       requiredLinks: strings(health.requiredLinks),
       monitoring: healthMonitoring(healthMonitoringValue, DEFAULT_CONFIG.health.monitoring as HealthMonitoringConfig)
     },
+    communication: communicationSettings(communication, DEFAULT_CONFIG.communication as CommunicationConfig),
     ai: aiSettings(ai, DEFAULT_CONFIG.ai as AiConfig),
     publishing: {
       npm: {
@@ -713,6 +752,7 @@ export function withOverrides(config: SemVergeConfig, overrides: { prerelease?: 
     monorepo: { ...config.monorepo, packages: [...config.monorepo.packages], dependencyPolicy: { ...config.monorepo.dependencyPolicy } },
     health: { ...config.health, workflows: [...config.health.workflows], expectedArtifacts: [...config.health.expectedArtifacts], requiredLinks: [...config.health.requiredLinks], ...(config.health.monitoring ? { monitoring: { ...config.health.monitoring } } : {}) },
     publishing: { ...config.publishing, npm: { ...config.publishing.npm }, python: { ...config.publishing.python }, rust: { ...config.publishing.rust }, oci: { ...config.publishing.oci, images: [...config.publishing.oci.images] } },
+    ...(config.communication ? { communication: { ...config.communication, customerQuality: { ...config.communication.customerQuality, allowTerms: [...config.communication.customerQuality.allowTerms] } } } : {}),
     ...(config.ai ? { ai: { ...config.ai } } : {}),
     ...(config.plugins ? { plugins: [...config.plugins] } : {})
   };

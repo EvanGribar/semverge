@@ -29,6 +29,21 @@ describe("configuration and version files", () => {
     ]));
   });
 
+  it("defaults customer quality to warnings and parses scoped allow terms", () => {
+    expect(parseConfig("").communication).toEqual({ customerQuality: { mode: "warn", allowTerms: [] } });
+    const content = `communication:
+  customerQuality:
+    mode: error
+    allowTerms: [API, registry]
+`;
+    expect(parseConfig(content).communication).toEqual({ customerQuality: { mode: "error", allowTerms: ["API", "registry"] } });
+    expect(validateConfigContent(content)).toEqual([]);
+    expect(validateConfigContent("communication:\n  customerQuality:\n    mode: block\n    allowTerms: not-an-array\n")).toEqual(expect.arrayContaining([
+      { path: "communication.customerQuality.mode", severity: "error", message: "must be one of: off, warn, error" },
+      { path: "communication.customerQuality.allowTerms", severity: "error", message: "must be an array of strings" }
+    ]));
+  });
+
   it("parses configurable channel labels and branch scoping", () => {
     const content = `release:\n  channels:\n    preview:\n      label: ship:preview\n      prerelease: preview\n    nightly:\n      label: ship:nightly\n      prerelease: nightly\n      branch: nightly\n`;
     const config = parseConfig(content);

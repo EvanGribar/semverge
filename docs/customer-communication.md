@@ -59,3 +59,16 @@ Missing richer fields do not require AI and do not block a release. Renderers sh
 ## Customer notes
 
 The deterministic customer-note renderer presents outcomes in audience language: `New`, `Improved`, `Fixed`, and `Changed`. It does not lead with release counts, semver bump terminology, commit subjects, or pull-request numbers. A changed/breaking outcome includes an explicit upgrade warning and an `Action required` section sourced from authored action or migration metadata; if no action was supplied, it asks the reader to review the changed behavior. Action sections are omitted for ordinary no-action releases. The technical changelog keeps its separate category and traceability format.
+
+## Quality gates
+
+Customer notes and announcements can be linted independently with a focused technical-language check:
+
+```yaml
+communication:
+  customerQuality:
+    mode: warn # off | warn | error
+    allowTerms: [API, registry]
+```
+
+`warn` (the default) reports findings in the release PR without blocking publication. `error` makes a finding fail readiness and prevents the publication transaction from proceeding; `off` skips the checks. Findings identify the rule, line, and matching excerpt. `allowTerms` suppresses only findings on lines containing the configured product-specific term, so other rules remain active. The check is not applied to the developer changelog or internal summary.

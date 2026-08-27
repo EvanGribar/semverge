@@ -3,6 +3,7 @@ import { DEFAULT_CONFIG } from "./config.js";
 import { evaluateReadiness } from "./readiness.js";
 import { bumpVersion, highestBump, parseVersion, promoteVersion } from "./semver.js";
 import { renderAnnouncement, renderChangelogSection, renderCustomerNotes, renderInternalSummary, renderMigrationGuide, prependChangelog } from "./notes.js";
+import { communicationQualityBlocks, lintCommunicationArtifacts } from "./communication-quality.js";
 import type { ReadinessContext, ReleaseChange, ReleasePlan, SemVergeConfig } from "./types.js";
 
 export interface BuildReleasePlanInput {
@@ -101,7 +102,8 @@ export function buildReleasePlan(input: BuildReleasePlanInput): ReleasePlan {
       migrationGuide: "",
       announcement: "",
       manifest: "",
-      pluginInvocations
+      pluginInvocations,
+      communicationQuality: []
     };
   }
 
@@ -111,6 +113,14 @@ export function buildReleasePlan(input: BuildReleasePlanInput): ReleasePlan {
   const internalSummary = renderInternalSummary(version, releaseChanges);
   const migrationGuide = renderMigrationGuide(version, releaseChanges);
   const announcement = renderAnnouncement(version, releaseChanges);
+  const communicationQuality = lintCommunicationArtifacts([
+    { artifact: "customer-notes", content: customerNotes },
+    { artifact: "announcement", content: announcement }
+  ], config.communication?.customerQuality);
+  if (communicationQualityBlocks(communicationQuality)) {
+    readiness.passed = false;
+    readiness.missingTasks.push("Customer communication quality checks found blocking issues; review the communication quality report.");
+  }
   const basePlan = {
     hasRelease,
     previousVersion: input.currentVersion,
@@ -125,7 +135,8 @@ export function buildReleasePlan(input: BuildReleasePlanInput): ReleasePlan {
     customerNotes,
     internalSummary,
     migrationGuide,
-    announcement
+    announcement,
+    communicationQuality
   } satisfies Omit<ReleasePlan, "manifest" | "outputs">;
   const manifest = manifestFor(basePlan);
   const outputs = [
