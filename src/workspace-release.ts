@@ -1,4 +1,5 @@
 import { basename, dirname, posix } from "node:path";
+import { valid as validSemVer } from "semver";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { buildReleasePlan } from "./release.js";
 import { type PackageDescriptor } from "./packages.js";
@@ -188,14 +189,26 @@ function objectValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
-function updateDependencyRange(range: string, version: string): string {
-  const protocol = range.startsWith("workspace:") ? "workspace:" : "";
-  const value = protocol ? range.slice(protocol.length) : range;
-  if (value === "*" || value === "^" || value === "~") {
+function dependencyRangeError(range: string, version: string, context?: string): Error {
+  const location = context ? ` for ${context}` : "";
+  return new Error(`Cannot safely update internal dependency range "${range}"${location} to ${version}; only exact, ^, ~, workspace:^, workspace:~, and wildcard workspace ranges are supported. Update the range manually or use a supported form.`);
+}
+
+function updateDependencyRange(range: string, version: string, context?: string): string {
+  const leadingWhitespace = range.match(/^\s*/)?.[0] ?? "";
+  const trailingWhitespace = range.match(/\s*$/)?.[0] ?? "";
+  const trimmedRange = range.slice(leadingWhitespace.length, range.length - trailingWhitespace.length);
+  const protocol = trimmedRange.startsWith("workspace:") ? "workspace:" : "";
+  const value = protocol ? trimmedRange.slice(protocol.length) : trimmedRange;
+  if (value === "*" || value === "^" || value === "~" || value.startsWith("link:") || value.startsWith("file:")) {
     return range;
   }
-  const updated = value.replace(/\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?/, version);
-  return protocol ? `${protocol}${updated}` : updated;
+  const match = /^(\^|~)?([^\s]+)$/.exec(value);
+  const currentVersion = match?.[2];
+  if (!match || !currentVersion || !validSemVer(currentVersion) || !validSemVer(version)) {
+    throw dependencyRangeError(range, version, context);
+  }
+  return `${leadingWhitespace}${protocol}${match[1] ?? ""}${version}${trailingWhitespace}`;
 }
 
 function updateInternalDependencyRanges(files: Record<string, string>, packages: PackageDescriptor[], versions: Map<string, string>): VersionFileChange[] {
@@ -229,7 +242,7 @@ function updateInternalDependencyRanges(files: Record<string, string>, packages:
         if (!version || typeof range !== "string") {
           continue;
         }
-        const updated = updateDependencyRange(range, version);
+        const updated = updateDependencyRange(range, version, `${name} in ${packageItem.manifestPath}`);
         if (updated !== range) {
           dependencies[name] = updated;
           changed = true;
@@ -267,7 +280,7 @@ function updatePnpmLock(content: string, packages: PackageDescriptor[], versions
     if (packageItem) {
       const version = versions.get(packageItem.manifestPath);
       if (version && typeof importer.version === "string") {
-        const updated = updateDependencyRange(importer.version, version);
+        const updated = updateDependencyRange(importer.version, version, `${directory} importer version in pnpm-lock.yaml`);
         if (updated !== importer.version) {
           importer.version = updated;
           changed = true;
@@ -286,7 +299,7 @@ function updatePnpmLock(content: string, packages: PackageDescriptor[], versions
           continue;
         }
         if (typeof value === "string") {
-          const updated = updateDependencyRange(value, version);
+          const updated = updateDependencyRange(value, version, `${name} in pnpm-lock.yaml`);
           if (updated !== value) {
             dependencies[name] = updated;
             changed = true;
@@ -302,7 +315,7 @@ function updatePnpmLock(content: string, packages: PackageDescriptor[], versions
           if (typeof current !== "string") {
             continue;
           }
-          const updated = updateDependencyRange(current, version);
+          const updated = updateDependencyRange(current, version, `${name} in pnpm-lock.yaml`);
           if (updated !== current) {
             dependencyRecord[key] = updated;
             changed = true;

@@ -10968,6 +10968,7 @@ function discoverPackages(files, allPaths, config) {
 
 // src/workspace-release.ts
 var import_node_path3 = require("node:path");
+var import_semver4 = __toESM(require_semver2(), 1);
 var import_yaml3 = __toESM(require_dist(), 1);
 
 // src/notes.ts
@@ -11738,14 +11739,25 @@ function mergeReadiness(reports) {
 function objectValue2(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
-function updateDependencyRange(range, version) {
-  const protocol = range.startsWith("workspace:") ? "workspace:" : "";
-  const value = protocol ? range.slice(protocol.length) : range;
-  if (value === "*" || value === "^" || value === "~") {
+function dependencyRangeError(range, version, context) {
+  const location = context ? ` for ${context}` : "";
+  return new Error(`Cannot safely update internal dependency range "${range}"${location} to ${version}; only exact, ^, ~, workspace:^, workspace:~, and wildcard workspace ranges are supported. Update the range manually or use a supported form.`);
+}
+function updateDependencyRange(range, version, context) {
+  const leadingWhitespace = range.match(/^\s*/)?.[0] ?? "";
+  const trailingWhitespace = range.match(/\s*$/)?.[0] ?? "";
+  const trimmedRange = range.slice(leadingWhitespace.length, range.length - trailingWhitespace.length);
+  const protocol = trimmedRange.startsWith("workspace:") ? "workspace:" : "";
+  const value = protocol ? trimmedRange.slice(protocol.length) : trimmedRange;
+  if (value === "*" || value === "^" || value === "~" || value.startsWith("link:") || value.startsWith("file:")) {
     return range;
   }
-  const updated = value.replace(/\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?/, version);
-  return protocol ? `${protocol}${updated}` : updated;
+  const match = /^(\^|~)?([^\s]+)$/.exec(value);
+  const currentVersion = match?.[2];
+  if (!match || !currentVersion || !(0, import_semver4.valid)(currentVersion) || !(0, import_semver4.valid)(version)) {
+    throw dependencyRangeError(range, version, context);
+  }
+  return `${leadingWhitespace}${protocol}${match[1] ?? ""}${version}${trailingWhitespace}`;
 }
 function updateInternalDependencyRanges(files, packages, versions) {
   const byName = new Map(packages.filter((item) => item.ecosystem === "node").map((item) => [item.name, item]));
@@ -11778,7 +11790,7 @@ function updateInternalDependencyRanges(files, packages, versions) {
         if (!version || typeof range !== "string") {
           continue;
         }
-        const updated = updateDependencyRange(range, version);
+        const updated = updateDependencyRange(range, version, `${name} in ${packageItem.manifestPath}`);
         if (updated !== range) {
           dependencies[name] = updated;
           changed = true;
@@ -11816,7 +11828,7 @@ function updatePnpmLock(content, packages, versions) {
     if (packageItem) {
       const version = versions.get(packageItem.manifestPath);
       if (version && typeof importer.version === "string") {
-        const updated = updateDependencyRange(importer.version, version);
+        const updated = updateDependencyRange(importer.version, version, `${directory} importer version in pnpm-lock.yaml`);
         if (updated !== importer.version) {
           importer.version = updated;
           changed = true;
@@ -11835,7 +11847,7 @@ function updatePnpmLock(content, packages, versions) {
           continue;
         }
         if (typeof value === "string") {
-          const updated = updateDependencyRange(value, version);
+          const updated = updateDependencyRange(value, version, `${name} in pnpm-lock.yaml`);
           if (updated !== value) {
             dependencies[name] = updated;
             changed = true;
@@ -11851,7 +11863,7 @@ function updatePnpmLock(content, packages, versions) {
           if (typeof current !== "string") {
             continue;
           }
-          const updated = updateDependencyRange(current, version);
+          const updated = updateDependencyRange(current, version, `${name} in pnpm-lock.yaml`);
           if (updated !== current) {
             dependencyRecord[key] = updated;
             changed = true;
