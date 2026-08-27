@@ -1,4 +1,5 @@
 export * from "./changes.js";
+export * from "./ai.js";
 export * from "./config.js";
 export * from "./explain.js";
 export * from "./doctor.js";
@@ -11,6 +12,7 @@ export * from "./packages.js";
 export * from "./plugin-sdk.js";
 export * from "./readiness.js";
 export * from "./release.js";
+export * from "./release-assistance.js";
 export * from "./semver.js";
 export * from "./transaction.js";
 export * from "./types.js";

@@ -5,6 +5,7 @@ import { constants } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 import { buildReleasePlan } from "./release.js";
+import { suggestReleaseCommunication } from "./release-assistance.js";
 import { parseChange } from "./changes.js";
 import { parseConfig, validateConfig, validateConfigContent, type ConfigValidationIssue } from "./config.js";
 import { explainReleasePlan } from "./explain.js";
@@ -23,6 +24,12 @@ release:
   tagPrefix: v
   independentTagPrefix: pkg-
   # promotion: stable  # explicitly promote the current prerelease to stable
+# Optional advisory AI assistance. It is only used by an explicit semverge assist command.
+# ai:
+#   enabled: true
+#   provider: openai
+#   model: your-provider-supported-model
+#   timeoutMs: 10000
 `;
 
 export interface CliIo {
@@ -43,6 +50,7 @@ function usage(): string {
     "  init                 Create a starter .semverge.yml without overwriting it",
     "  plan [title]         Print a deterministic local release plan",
     "  explain [title]      Explain the version decision, blockers, merge path, and recovery",
+    "  assist [title]       Request optional advisory release communication",
     "  migrate <tool>       Inspect a Release Please, Changesets, or semantic-release setup",
     "  doctor               Validate repository files and SemVerge configuration",
     "  recover <release-id> Inspect durable release state and print the safe next action",
@@ -120,6 +128,32 @@ async function localPlan(cwd: string, configPath: string, title: string) {
 
 async function plan(cwd: string, configPath: string, title: string, io: CliIo): Promise<number> {
   io.stdout(JSON.stringify(await localPlan(cwd, configPath, title), null, 2));
+  return 0;
+}
+
+async function assist(cwd: string, configPath: string, title: string, io: CliIo): Promise<number> {
+  const configContent = await readOptional(join(cwd, configPath)) ?? "";
+  const config = parseConfig(configContent, configPath);
+  if (!config.ai?.enabled) {
+    io.stdout("AI assistance is disabled; no provider request was made.");
+    return 0;
+  }
+  const plan = await localPlan(cwd, configPath, title);
+  const suggestion = await suggestReleaseCommunication(plan, config.ai, {
+    fallback: (error) => {
+      io.stderr(`AI assistance unavailable: ${error.message}`);
+      return null;
+    }
+  });
+  if (!suggestion) {
+    io.stdout("No AI advisory was produced; the deterministic release plan is unchanged.");
+    return 0;
+  }
+  io.stdout(JSON.stringify({
+    feature: "release-communication",
+    version: plan.version,
+    advisory: suggestion
+  }, null, 2));
   return 0;
 }
 
@@ -306,7 +340,7 @@ async function verify(cwd: string, target: string, statePath: string | undefined
 }
 
 export async function runCli(argv = process.argv.slice(2), cwd = process.cwd(), io: CliIo = defaultIo): Promise<number> {
-  const commandNames = new Set(["init", "plan", "explain", "migrate", "doctor", "recover", "verify", "help"]);
+  const commandNames = new Set(["init", "plan", "explain", "assist", "migrate", "doctor", "recover", "verify", "help"]);
   const command = argv[0] && commandNames.has(argv[0]) ? argv[0] : "plan";
   const commandArgs = command === "plan" && argv[0] !== "plan" ? argv : argv.slice(1);
   if (command === "help" || command === "--help" || argv.includes("--help")) {
@@ -339,6 +373,9 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd(), 
     }
     if (command === "explain") {
       return await explain(cwd, configPath, remaining.join(" "), io);
+    }
+    if (command === "assist") {
+      return await assist(cwd, configPath, remaining.join(" "), io);
     }
     if (command === "migrate") {
       return await migrate(cwd, remaining[0] ?? "", write, force, io);

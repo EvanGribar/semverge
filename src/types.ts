@@ -14,6 +14,17 @@ export type DependencyReleasePolicy = BumpLevel;
 
 export type ReleasePromotion = "stable";
 
+export type AiProviderName = "openai";
+
+export const DEFAULT_AI_TIMEOUT_MS = 10_000;
+
+export interface AiConfig {
+  enabled: boolean;
+  provider: AiProviderName;
+  model: string;
+  timeoutMs: number;
+}
+
 export type PackageReleaseReason = "direct-change" | "dependency-update" | "fixed-workspace";
 
 export interface PackageReleaseExplanation {
@@ -194,6 +205,7 @@ export interface SemVergeConfig {
   monorepo: MonorepoConfig;
   health: HealthConfig;
   publishing: PublishingConfig;
+  ai?: AiConfig;
   plugins?: Array<unknown>;
 }
 

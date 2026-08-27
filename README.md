@@ -191,6 +191,8 @@ health:
       purpose: deployment
 ```
 
+AI assistance is disabled by default. The explicit `assist` command can request advisory release communication through the BYOK provider layer without changing the deterministic release plan. See [docs/ai.md](docs/ai.md) for the data envelope, environment credential, timeout, and fallback contract.
+
 Readiness checks are reported in the release PR. A missing required label or file blocks publication but does not hide the proposed version or generated communication.
 
 Stable promotion is explicit. Add `ship:stable` to a release-bearing change, or set `release.promotion: stable`, to turn a current version such as `1.4.0-beta.2` into `1.4.0`. The release PR, JSON manifest, local plan, explanation, and `release-channel`/`release-promotion` action outputs record the decision. Without that opt-in, configured prerelease channels continue to create the next prerelease version. When no `release.prerelease` is configured, `ship:beta`, `ship:rc`, `ship:nightly`, and `ship:canary` select their named channels; use one channel label per release.
@@ -228,7 +230,7 @@ pnpm verify
 
 The action bundle in `dist/` is generated with `pnpm bundle` and is committed because GitHub executes JavaScript actions from the repository contents.
 
-SemVerge does not use AI to create release communication. It uses explicit PR metadata, labels, and conventional commits with deterministic templates.
+SemVerge's release engine uses explicit PR metadata, labels, and conventional commits with deterministic templates. Optional AI assistance is isolated behind the explicit `assist` feature and can only suggest human-facing communication; it cannot change release decisions.
 
 ## Agent Quickstart
 

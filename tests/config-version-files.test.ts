@@ -13,6 +13,22 @@ describe("configuration and version files", () => {
     expect(config.publishing.npm.idempotency).toBe("registry");
   });
 
+  it("keeps optional AI configuration disabled by default and validates enabled settings", () => {
+    expect(parseConfig("").ai).toEqual({ enabled: false, provider: "openai", model: "", timeoutMs: 10_000 });
+    const content = `ai:
+  enabled: true
+  provider: openai
+  model: test-model
+  timeoutMs: 2500
+`;
+    expect(parseConfig(content).ai).toEqual({ enabled: true, provider: "openai", model: "test-model", timeoutMs: 2500 });
+    expect(validateConfigContent(content)).toEqual([]);
+    expect(validateConfigContent("ai:\n  enabled: true\n  timeoutMs: 0\n")).toEqual(expect.arrayContaining([
+      { path: "ai.model", severity: "error", message: "must be a non-empty string when AI is enabled" },
+      { path: "ai.timeoutMs", severity: "error", message: "must be a positive integer" }
+    ]));
+  });
+
   it("parses configurable channel labels and branch scoping", () => {
     const content = `release:\n  channels:\n    preview:\n      label: ship:preview\n      prerelease: preview\n    nightly:\n      label: ship:nightly\n      prerelease: nightly\n      branch: nightly\n`;
     const config = parseConfig(content);
