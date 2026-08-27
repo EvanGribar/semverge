@@ -154,16 +154,103 @@ export function renderInternalSummary(version: string, changes: ReleaseChange[])
   return lines.join("\n");
 }
 
-export function renderAnnouncement(version: string, changes: ReleaseChange[]): string {
+export interface AnnouncementView {
+  headline: string;
+  summary: string;
+  highlights: string[];
+  actionRequired: string[];
+  callToAction?: string;
+  authoredCopy?: string[];
+}
+
+function announcementActions(changes: ReleaseChange[]): string[] {
+  const actions = uniqueLines(changes.flatMap((change) => {
+    const communication = customerCommunication(change);
+    return [communication.actionRequired, change.migration].filter((value): value is string => Boolean(value?.trim()));
+  }).filter((value) => !isNoAction(value)));
+  if (actions.length > 0) {
+    return actions;
+  }
+  return changes
+    .filter((change) => change.breaking || change.kind === "breaking")
+    .map((change) => `Review the changed behavior before upgrading: ${customerCommunication(change).outcome}`);
+}
+
+function announcementHeadline(change: ReleaseChange): string {
+  const value = customerCommunication(change).headline ?? customerCommunication(change).outcome;
+  return value.trim().replace(/^[a-z]/, (character) => character.toUpperCase());
+}
+
+function announcementHighlights(changes: ReleaseChange[]): string[] {
+  return changes.map((change) => {
+    const communication = customerCommunication(change);
+    const outcome = sentence(communication.outcome);
+    return communication.headline ? `${communication.headline}: ${outcome}` : outcome;
+  });
+}
+
+export function buildAnnouncementView(version: string, changes: ReleaseChange[]): AnnouncementView {
   const announcements = uniqueLines(changes.flatMap((change) => change.announcement ? [change.announcement] : []));
   const customerChanges = changes.filter((change) => change.kind === "feature" || change.kind === "fix" || change.kind === "breaking" || change.breaking);
-  const lines = [`# SemVerge release announcement: ${version}`, ""];
   if (announcements.length > 0) {
-    lines.push(...announcements, "");
-  } else if (customerChanges.length > 0) {
-    lines.push(`SemVerge ${version} includes:`, "", ...customerChanges.map((change) => `- ${change.customerSummary}`), "");
-  } else {
-    lines.push(`SemVerge ${version} is now available.`, "");
+    return {
+      headline: `SemVerge release announcement: ${version}`,
+      summary: "",
+      highlights: [],
+      actionRequired: [],
+      authoredCopy: announcements
+    };
+  }
+  if (customerChanges.length === 0) {
+    return {
+      headline: `SemVerge ${version}`,
+      summary: "No customer-facing update is announced for this release.",
+      highlights: [],
+      actionRequired: []
+    };
+  }
+  const lead = highestImpactChange(customerChanges);
+  if (!lead) {
+    return {
+      headline: `SemVerge ${version}`,
+      summary: "No customer-facing update is announced for this release.",
+      highlights: [],
+      actionRequired: []
+    };
+  }
+  const actionRequired = announcementActions(customerChanges);
+  const summaryLines = [sentence(customerCommunication(lead).outcome)];
+  if (customerChanges.some((change) => change.breaking || change.kind === "breaking")) {
+    summaryLines.push("Existing behavior changes in this release; review the required action before upgrading.");
+  }
+  return {
+    headline: announcementHeadline(lead),
+    summary: summaryLines.join(" "),
+    highlights: announcementHighlights(customerChanges),
+    actionRequired,
+    callToAction: `SemVerge ${version} is available now.`
+  };
+}
+
+export function renderAnnouncementView(view: AnnouncementView): string {
+  const lines = [`# ${view.headline}`, ""];
+  if (view.authoredCopy) {
+    lines.push(...view.authoredCopy, "");
+    return lines.join("\n");
+  }
+  lines.push(view.summary, "");
+  if (view.highlights.length > 0) {
+    lines.push("## Highlights", "", ...view.highlights.map((highlight) => `- ${highlight}`), "");
+  }
+  if (view.actionRequired.length > 0) {
+    lines.push("## Action required", "", ...view.actionRequired.map((action) => `- ${sentence(action)}`), "");
+  }
+  if (view.callToAction) {
+    lines.push(view.callToAction, "");
   }
   return lines.join("\n");
+}
+
+export function renderAnnouncement(version: string, changes: ReleaseChange[]): string {
+  return renderAnnouncementView(buildAnnouncementView(version, changes));
 }

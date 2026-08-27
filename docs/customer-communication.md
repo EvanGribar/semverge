@@ -72,3 +72,7 @@ communication:
 ```
 
 `warn` (the default) reports findings in the release PR without blocking publication. `error` makes a finding fail readiness and prevents the publication transaction from proceeding; `off` skips the checks. Findings identify the rule, line, and matching excerpt. `allowTerms` suppresses only findings on lines containing the configured product-specific term, so other rules remain active. The check is not applied to the developer changelog or internal summary.
+
+## External announcements
+
+Announcements use a separate `AnnouncementView` rather than copying the changelog or customer-note sections. The deterministic fallback contains a headline, one outcome-focused summary, a short `Highlights` list, an `Action required` section when the release needs intervention, and an availability statement. Explicit `announcement:` metadata remains authoritative and is rendered verbatim after the stable SemVerge announcement heading. Internal-only releases receive a neutral no-update message instead of promotional copy.
