@@ -1,0 +1,12 @@
+{
+  "version": "2.0.0",
+  "date": "2026-08-29",
+  "changes": [
+    {
+      "title": "feat!: normalize export responses",
+      "source": "pull_request",
+      "number": 201,
+      "body": "<!-- semverge\nheadline: A consistent export response\noutcome: Export responses now use the normalized data shape.\ndetail: The new shape is consistent across export types.\nimpact: changed\naction: Update clients to read data.items.\nmigration: Update clients to read data.items.\n-->"
+    }
+  ]
+}

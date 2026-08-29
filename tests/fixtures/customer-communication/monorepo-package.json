@@ -1,0 +1,17 @@
+{
+  "version": "1.9.0",
+  "date": "2026-08-29",
+  "changes": [
+    {
+      "title": "feat(core): add bulk export",
+      "source": "pull_request",
+      "files": ["packages/core/src/export.ts"],
+      "body": "<!-- semverge\nheadline: Bulk project exports\noutcome: Teams can export multiple projects in one step.\ndetail: Existing export formats remain unchanged.\n-->"
+    },
+    {
+      "title": "chore(core): rename export adapter internals",
+      "source": "pull_request",
+      "files": ["packages/core/src/internal/export-adapter.ts"]
+    }
+  ]
+}

@@ -29,6 +29,33 @@ describe("configuration and version files", () => {
     ]));
   });
 
+  it("parses opt-in AI feature gates and bounded communication controls", () => {
+    const content = `ai:
+  enabled: true
+  provider: openai
+  model: test-model
+  releaseNotes: true
+  infer: true
+  tone: friendly
+  verbosity: concise
+`;
+    expect(parseConfig(content).ai).toEqual({
+      enabled: true,
+      provider: "openai",
+      model: "test-model",
+      timeoutMs: 10_000,
+      releaseNotes: true,
+      infer: true,
+      tone: "friendly",
+      verbosity: "concise"
+    });
+    expect(validateConfigContent(content)).toEqual([]);
+    expect(validateConfigContent("ai:\n  tone: salesy\n  verbosity: exhaustive\n")).toEqual(expect.arrayContaining([
+      { path: "ai.tone", severity: "error", message: "must be one of: neutral, friendly, professional" },
+      { path: "ai.verbosity", severity: "error", message: "must be one of: concise, standard, detailed" }
+    ]));
+  });
+
   it("defaults customer quality to warnings and parses scoped allow terms", () => {
     expect(parseConfig("").communication).toEqual({ customerQuality: { mode: "warn", allowTerms: [] } });
     const content = `communication:

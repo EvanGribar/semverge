@@ -6,6 +6,7 @@ export * from "./explain.js";
 export * from "./doctor.js";
 export * from "./health.js";
 export * from "./metadata.js";
+export * from "./metadata-inference.js";
 export * from "./migrate.js";
 export * from "./npm.js";
 export * from "./notes.js";

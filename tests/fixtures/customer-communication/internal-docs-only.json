@@ -1,0 +1,14 @@
+{
+  "version": "1.4.0",
+  "date": "2026-08-29",
+  "changes": [
+    {
+      "title": "docs: clarify local setup",
+      "source": "commit"
+    },
+    {
+      "title": "chore: refresh build tooling",
+      "source": "commit"
+    }
+  ]
+}

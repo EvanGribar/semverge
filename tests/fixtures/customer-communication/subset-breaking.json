@@ -1,0 +1,16 @@
+{
+  "version": "4.0.0",
+  "date": "2026-08-29",
+  "changes": [
+    {
+      "title": "feat!: require scoped export permissions",
+      "source": "pull_request",
+      "body": "<!-- semverge\noutcome: Export access is now limited to authorized project members.\naction: Grant the export permission to service accounts that run exports.\n-->"
+    },
+    {
+      "title": "feat: add export history",
+      "source": "pull_request",
+      "body": "<!-- semverge\noutcome: Teams can review completed exports from the new history view.\nimpact: new\n-->"
+    }
+  ]
+}

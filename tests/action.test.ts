@@ -38,8 +38,26 @@ describe("GitHub Action orchestration", () => {
       const url = new URL(String(input));
       const body = init?.body && typeof init.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : undefined;
       requests.push({ method: init?.method ?? "GET", path: `${url.pathname}${url.search}`, body });
+      if (url.hostname === "api.openai.com") {
+        return new Response(JSON.stringify({
+          choices: [{ message: { content: JSON.stringify({
+            version: "0.2.0",
+            bump: "minor",
+            channel: "stable",
+            promotion: false,
+            summary: "Bulk exports are now available for projects.",
+            highlights: [{ changeId: "commit:change-sha", impact: "new", text: "Add bulk project exports." }],
+            migrationRequired: false,
+            migrationNotes: [],
+            breakingChangeIds: []
+          }) } }]
+        }), { status: 200 });
+      }
       if (url.pathname.endsWith("/repos/demo/repo")) {
         return new Response(JSON.stringify({ full_name: "demo/repo", name: "repo", owner: { login: "demo" }, default_branch: "main", html_url: "https://github.com/demo/repo" }), { status: 200 });
+      }
+      if (url.pathname.endsWith("/contents/.semverge.yml")) {
+        return new Response(JSON.stringify({ type: "file", path: ".semverge.yml", sha: "config-sha", encoding: "base64", content: encoded("ai:\n  enabled: true\n  provider: openai\n  model: gpt-test\n  releaseNotes: true\n") }), { status: 200 });
       }
       if (url.pathname.endsWith("/contents/package.json")) {
         return new Response(JSON.stringify({ type: "file", path: "package.json", sha: "package-sha", encoding: "base64", content: encoded(JSON.stringify({ name: "demo", version: "0.1.0" })) }), { status: 200 });
@@ -87,7 +105,7 @@ describe("GitHub Action orchestration", () => {
     }));
 
     const previous = new Map<string, string | undefined>();
-    for (const [key, value] of Object.entries({ GITHUB_API_URL: "https://api.github.test", GITHUB_REPOSITORY: "demo/repo", GITHUB_EVENT_NAME: "push", GITHUB_SHA: "head-sha", GITHUB_EVENT_PATH: eventPath, GITHUB_OUTPUT: outputPath, "INPUT_GITHUB-TOKEN": "test-token", INPUT_CONFIG: ".semverge.yml" })) {
+    for (const [key, value] of Object.entries({ GITHUB_API_URL: "https://api.github.test", GITHUB_REPOSITORY: "demo/repo", GITHUB_EVENT_NAME: "push", GITHUB_SHA: "head-sha", GITHUB_EVENT_PATH: eventPath, GITHUB_OUTPUT: outputPath, "INPUT_GITHUB-TOKEN": "test-token", INPUT_CONFIG: ".semverge.yml", OPENAI_API_KEY: "test-openai-key" })) {
       previous.set(key, process.env[key]);
       process.env[key] = value;
     }
@@ -119,6 +137,12 @@ describe("GitHub Action orchestration", () => {
     expect(String(releasePullRequest?.body?.body)).toContain("## Release graph");
     expect(String(releasePullRequest?.body?.body)).toContain("Channel: **stable**");
     expect(String(releasePullRequest?.body?.body)).toContain("direct change: add exports");
+    expect(String(releasePullRequest?.body?.body)).toContain("## AI-enhanced customer notes (review draft)");
+    expect(String(releasePullRequest?.body?.body)).toContain("Status: **generated**");
+    expect(String(releasePullRequest?.body?.body)).toContain("## Deterministic baseline");
+    const aiRequest = requests.find((request) => request.path.split("?")[0] === "/v1/chat/completions");
+    expect(aiRequest?.body?.model).toBe("gpt-test");
+    expect(JSON.stringify(aiRequest?.body)).not.toContain("test-openai-key");
   });
 
   it("prepares an explicitly selected scheduled channel against its configured branches", async () => {

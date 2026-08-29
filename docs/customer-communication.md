@@ -76,3 +76,9 @@ communication:
 ## External announcements
 
 Announcements use a separate `AnnouncementView` rather than copying the changelog or customer-note sections. The deterministic fallback contains a headline, one outcome-focused summary, a short `Highlights` list, an `Action required` section when the release needs intervention, and an availability statement. Explicit `announcement:` metadata remains authoritative and is rendered verbatim after the stable SemVerge announcement heading. Internal-only releases receive a neutral no-update message instead of promotional copy.
+
+## Golden fixtures and AI drafts
+
+The audience boundary is protected by checked-in golden fixtures under `tests/fixtures/customer-communication/`. They cover capability releases, improvements, bug fixes, breaking migrations, partial breaking releases, technical API language, internal/documentation-only changes, prereleases, monorepo package details, and sparse conventional commits. The fixture test compares customer notes, external announcements, and the technical changelog independently so a useful technical term can remain in technical output without leaking internal implementation detail into customer output.
+
+AI-enhanced customer notes are a separate review draft in the release PR. They use the same customer-facing change IDs and deterministic migration facts, while `RELEASE_NOTES.md` and the announcement artifact remain deterministic. A rejected or unavailable draft must leave the deterministic artifact unchanged.

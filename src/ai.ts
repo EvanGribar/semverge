@@ -4,9 +4,13 @@ import { DEFAULT_AI_TIMEOUT_MS } from "./types.js";
 export const OPENAI_API_KEY_ENV = "OPENAI_API_KEY" as const;
 export const OPENAI_CHAT_COMPLETIONS_ENDPOINT = "https://api.openai.com/v1/chat/completions" as const;
 
-const MAX_FEATURE_LENGTH = 80;
-const MAX_TEXT_LENGTH = 4_000;
-const MAX_CHANGE_COUNT = 100;
+export const MAX_AI_FEATURE_LENGTH = 80;
+export const MAX_AI_TEXT_LENGTH = 4_000;
+export const MAX_AI_CHANGE_COUNT = 100;
+export const MAX_AI_CONTEXT_LABEL_COUNT = 50;
+export const MAX_AI_CONTEXT_FILE_COUNT = 100;
+export const MAX_AI_REQUEST_BYTES = 64_000;
+const SAFE_CONTEXT_FILE_PATH = /^(?![A-Za-z]:)(?![\\/])(?!.*(?:^|[\\/])\.\.(?:[\\/]|$))(?!.*(?:^|[\\/])(?:\.env(?:\.[^\\/]*)?|credentials?(?:\.[^\\/]*)?|secrets?(?:\.[^\\/]*)?|id_rsa(?:\.[^\\/]*)?)(?:[\\/]|$))(?!.*(?:^|[\\/])(?:node_modules|dist|build|coverage|generated|vendor)(?:[\\/]|$))[A-Za-z0-9._/@+\\-]+$/i;
 
 export type AiProviderErrorKind = "configuration" | "cancelled" | "timeout" | "transport" | "provider" | "malformed-output";
 
@@ -18,10 +22,16 @@ export class AiProviderError extends Error {
 }
 
 export interface AiChangeFact {
+  /** Stable source identifier used to reconcile model output with release facts. */
+  id?: string;
   kind: ReleaseKind;
   title: string;
   summary: string;
   breaking: boolean;
+  customerFacing?: boolean;
+  impact?: "new" | "improved" | "fixed" | "changed";
+  migrationRequired?: boolean;
+  migration?: string;
 }
 
 export interface AiReleaseFacts {
@@ -30,6 +40,23 @@ export interface AiReleaseFacts {
   bump: BumpLevel;
   channel: string;
   changes: readonly AiChangeFact[];
+  promotion?: boolean;
+  migrationRequired?: boolean;
+}
+
+export interface AiRequestContext {
+  categories: string[];
+  title?: string;
+  body?: string;
+  labels?: string[];
+  files?: string[];
+  conventional?: {
+    kind: ReleaseKind;
+    scope?: string;
+    description: string;
+    breaking: boolean;
+  };
+  explicitMetadata?: Record<string, unknown>;
 }
 
 export interface AiInputEnvelope {
@@ -41,7 +68,10 @@ export interface AiInputEnvelope {
     bump: BumpLevel;
     channel: string;
     changes: AiChangeFact[];
+    promotion?: boolean;
+    migrationRequired?: boolean;
   };
+  context?: AiRequestContext;
 }
 
 export interface AiJsonSchema {
@@ -97,9 +127,10 @@ function requiredText(value: unknown, field: string, maxLength: number): string 
   return result;
 }
 
-function exactKeys(value: Record<string, unknown>, expected: string[]): boolean {
+function exactKeys(value: Record<string, unknown>, expected: string[], optional: string[] = []): boolean {
   const keys = Object.keys(value);
-  return keys.length === expected.length && expected.every((key) => keys.includes(key));
+  const allowed = new Set([...expected, ...optional]);
+  return expected.every((key) => keys.includes(key)) && keys.every((key) => allowed.has(key));
 }
 
 function releaseKind(value: unknown): value is ReleaseKind {
@@ -110,55 +141,171 @@ function bumpLevel(value: unknown): value is BumpLevel {
   return value === "none" || value === "patch" || value === "minor" || value === "major";
 }
 
+function customerImpact(value: unknown): value is "new" | "improved" | "fixed" | "changed" {
+  return value === "new" || value === "improved" || value === "fixed" || value === "changed";
+}
+
+function boundedText(value: unknown, field: string, maxLength = MAX_AI_TEXT_LENGTH): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw configurationError(`AI ${field} must be a non-empty string.`);
+  }
+  const result = redactAiText(value, maxLength);
+  if (!result) {
+    throw configurationError(`AI ${field} must be a non-empty string.`);
+  }
+  return result;
+}
+
+/**
+ * Remove common credential-shaped values before any user-controlled text is
+ * placed in a provider request. This deliberately redacts by key and token
+ * shape rather than attempting to identify every possible secret format.
+ */
+export function redactAiText(value: string, maxLength = MAX_AI_TEXT_LENGTH): string {
+  const redacted = value
+    .replace(/-----BEGIN(?: [^-]+)? PRIVATE KEY-----[\s\S]*?-----END(?: [^-]+)? PRIVATE KEY-----/gi, "[REDACTED PRIVATE KEY]")
+    .replace(/\b(?:bearer\s+)[A-Za-z0-9._~+/=-]{8,}/gi, "Bearer [REDACTED]")
+    .replace(/\b(?:sk|ghp|gho|ghu|ghs|github_pat|xoxb|xoxp)-[A-Za-z0-9_-]{8,}\b/gi, "[REDACTED TOKEN]")
+    .replace(/\bAKIA[0-9A-Z]{12,}\b/g, "[REDACTED ACCESS KEY]")
+    .replace(/(["']?\b(?:authorization|password|passwd|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret|npm[_-]?token|pypi[_-]?token|github[_-]?token|openai[_-]?api[_-]?key)\b["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\r\n,;}\]]+))/gi, (match) => `${match.slice(0, match.search(/[:=]/))}: [REDACTED]`)
+    .replace(/\b(?:OPENAI_API_KEY|GITHUB_TOKEN|NPM_TOKEN|PYPI_TOKEN)\b/gi, "[REDACTED ENVIRONMENT SECRET]");
+  return redacted.trim().slice(0, maxLength);
+}
+
+function assertContext(context: unknown): asserts context is AiRequestContext {
+  if (!isRecord(context) || !exactKeys(context, ["categories"], ["title", "body", "labels", "files", "conventional", "explicitMetadata"])) {
+    throw configurationError("AI request context contains unsupported fields.");
+  }
+  if (!Array.isArray(context.categories) || context.categories.length === 0 || context.categories.length > 12 || context.categories.some((item) => typeof item !== "string" || !item.trim() || item.length > MAX_AI_FEATURE_LENGTH)) {
+    throw configurationError("AI request context categories must be a bounded list of non-empty strings.");
+  }
+  if (context.title !== undefined) boundedText(context.title, "context.title");
+  if (context.body !== undefined) boundedText(context.body, "context.body");
+  if (context.labels !== undefined && (!Array.isArray(context.labels) || context.labels.length > MAX_AI_CONTEXT_LABEL_COUNT || context.labels.some((item) => typeof item !== "string" || !item.trim() || item.length > MAX_AI_FEATURE_LENGTH))) {
+    throw configurationError("AI request context labels must be a bounded list of non-empty strings.");
+  }
+  if (context.files !== undefined && (!Array.isArray(context.files) || context.files.length > MAX_AI_CONTEXT_FILE_COUNT || context.files.some((item) => typeof item !== "string" || !item.trim() || item.length > MAX_AI_TEXT_LENGTH || /[\r\n\0]/.test(item) || !SAFE_CONTEXT_FILE_PATH.test(item)))) {
+    throw configurationError("AI request context files must be a bounded list of safe paths.");
+  }
+  if (context.conventional !== undefined) {
+    if (!isRecord(context.conventional) || !exactKeys(context.conventional, ["kind", "description", "breaking"], ["scope"]) || !releaseKind(context.conventional.kind) || typeof context.conventional.breaking !== "boolean") {
+      throw configurationError("AI request context conventional metadata is invalid.");
+    }
+    boundedText(context.conventional.description, "context.conventional.description");
+    if (context.conventional.scope !== undefined) boundedText(context.conventional.scope, "context.conventional.scope", MAX_AI_FEATURE_LENGTH);
+  }
+  if (context.explicitMetadata !== undefined) {
+    if (!isRecord(context.explicitMetadata) || Object.keys(context.explicitMetadata).some((key) => !["type", "customer", "headline", "outcome", "detail", "impact", "action", "audience", "migration", "internal", "announcement", "breaking", "skip", "readiness"].includes(key))) {
+      throw configurationError("AI request context explicit metadata contains unsupported fields.");
+    }
+    for (const [key, value] of Object.entries(context.explicitMetadata)) {
+      if (typeof value === "string") {
+        boundedText(value, `context.explicitMetadata.${key}`);
+      } else if (typeof value === "boolean") {
+        continue;
+      } else if (Array.isArray(value) && value.every((item) => typeof item === "string" && item.length <= MAX_AI_TEXT_LENGTH)) {
+        continue;
+      } else {
+        throw configurationError(`AI request context explicit metadata field ${key} is invalid.`);
+      }
+    }
+  }
+}
+
 /**
  * Validate the intentionally narrow envelope sent to an AI provider.
  * Callers cannot accidentally pass source files, configuration, or credentials
  * through this layer without changing this contract first.
  */
 export function assertAiInputEnvelope(value: unknown): asserts value is AiInputEnvelope {
-  if (!isRecord(value) || !exactKeys(value, ["schemaVersion", "feature", "release"]) || value.schemaVersion !== 1) {
+  if (!isRecord(value) || !exactKeys(value, ["schemaVersion", "feature", "release"], ["context"]) || value.schemaVersion !== 1) {
     throw configurationError("AI input must be a schemaVersion 1 release-facts envelope.");
   }
-  requiredText(value.feature, "feature", MAX_FEATURE_LENGTH);
+  requiredText(value.feature, "feature", MAX_AI_FEATURE_LENGTH);
 
-  if (!isRecord(value.release) || !exactKeys(value.release, ["version", "previousVersion", "bump", "channel", "changes"])) {
+  if (!isRecord(value.release) || !exactKeys(value.release, ["version", "previousVersion", "bump", "channel", "changes"], ["promotion", "migrationRequired"])) {
     throw configurationError("AI input release facts contain unsupported fields.");
   }
-  requiredText(value.release.version, "release.version", MAX_TEXT_LENGTH);
-  requiredText(value.release.previousVersion, "release.previousVersion", MAX_TEXT_LENGTH);
+  requiredText(value.release.version, "release.version", MAX_AI_TEXT_LENGTH);
+  requiredText(value.release.previousVersion, "release.previousVersion", MAX_AI_TEXT_LENGTH);
   if (!bumpLevel(value.release.bump)) {
     throw configurationError("AI input release.bump must be none, patch, minor, or major.");
   }
-  requiredText(value.release.channel, "release.channel", MAX_TEXT_LENGTH);
-  if (!Array.isArray(value.release.changes) || value.release.changes.length > MAX_CHANGE_COUNT) {
-    throw configurationError(`AI input release.changes must contain at most ${MAX_CHANGE_COUNT} items.`);
+  requiredText(value.release.channel, "release.channel", MAX_AI_TEXT_LENGTH);
+  if (value.release.promotion !== undefined && typeof value.release.promotion !== "boolean") {
+    throw configurationError("AI input release.promotion must be a boolean when provided.");
+  }
+  if (value.release.migrationRequired !== undefined && typeof value.release.migrationRequired !== "boolean") {
+    throw configurationError("AI input release.migrationRequired must be a boolean when provided.");
+  }
+  if (!Array.isArray(value.release.changes) || value.release.changes.length > MAX_AI_CHANGE_COUNT) {
+    throw configurationError(`AI input release.changes must contain at most ${MAX_AI_CHANGE_COUNT} items.`);
   }
   for (const [index, change] of value.release.changes.entries()) {
-    if (!isRecord(change) || !exactKeys(change, ["kind", "title", "summary", "breaking"]) || !releaseKind(change.kind) || typeof change.breaking !== "boolean") {
+    if (!isRecord(change) || !exactKeys(change, ["kind", "title", "summary", "breaking"], ["id", "customerFacing", "impact", "migrationRequired", "migration"]) || !releaseKind(change.kind) || typeof change.breaking !== "boolean") {
       throw configurationError(`AI input release.changes[${index}] is not a supported release fact.`);
     }
-    requiredText(change.title, `release.changes[${index}].title`, MAX_TEXT_LENGTH);
-    requiredText(change.summary, `release.changes[${index}].summary`, MAX_TEXT_LENGTH);
+    if (change.id !== undefined) requiredText(change.id, `release.changes[${index}].id`, MAX_AI_TEXT_LENGTH);
+    requiredText(change.title, `release.changes[${index}].title`, MAX_AI_TEXT_LENGTH);
+    requiredText(change.summary, `release.changes[${index}].summary`, MAX_AI_TEXT_LENGTH);
+    if (change.customerFacing !== undefined && typeof change.customerFacing !== "boolean") {
+      throw configurationError(`AI input release.changes[${index}].customerFacing must be a boolean when provided.`);
+    }
+    if (change.impact !== undefined && !customerImpact(change.impact)) {
+      throw configurationError(`AI input release.changes[${index}].impact is invalid.`);
+    }
+    if (change.migrationRequired !== undefined && typeof change.migrationRequired !== "boolean") {
+      throw configurationError(`AI input release.changes[${index}].migrationRequired must be a boolean when provided.`);
+    }
+    if (change.migration !== undefined) requiredText(change.migration, `release.changes[${index}].migration`, MAX_AI_TEXT_LENGTH);
+  }
+  if (value.context !== undefined) {
+    assertContext(value.context);
   }
 }
 
-export function createAiInputEnvelope(feature: string, facts: AiReleaseFacts): AiInputEnvelope {
+export function createAiInputEnvelope(feature: string, facts: AiReleaseFacts, context?: AiRequestContext): AiInputEnvelope {
   const envelope: AiInputEnvelope = {
     schemaVersion: 1,
-    feature: requiredText(feature, "feature", MAX_FEATURE_LENGTH),
+    feature: boundedText(feature, "feature", MAX_AI_FEATURE_LENGTH),
     release: {
-      version: requiredText(facts.version, "release.version", MAX_TEXT_LENGTH),
-      previousVersion: requiredText(facts.previousVersion, "release.previousVersion", MAX_TEXT_LENGTH),
+      version: boundedText(facts.version, "release.version"),
+      previousVersion: boundedText(facts.previousVersion, "release.previousVersion"),
       bump: facts.bump,
-      channel: requiredText(facts.channel, "release.channel", MAX_TEXT_LENGTH),
+      channel: boundedText(facts.channel, "release.channel"),
       changes: facts.changes.map((change) => ({
+        ...(change.id !== undefined ? { id: boundedText(change.id, "release.change.id") } : {}),
         kind: change.kind,
-        title: requiredText(change.title, "release.change.title", MAX_TEXT_LENGTH),
-        summary: requiredText(change.summary, "release.change.summary", MAX_TEXT_LENGTH),
-        breaking: change.breaking
+        title: boundedText(change.title, "release.change.title"),
+        summary: boundedText(change.summary, "release.change.summary"),
+        breaking: change.breaking,
+        ...(change.customerFacing !== undefined ? { customerFacing: change.customerFacing } : {}),
+        ...(change.impact !== undefined ? { impact: change.impact } : {}),
+        ...(change.migrationRequired !== undefined ? { migrationRequired: change.migrationRequired } : {}),
+        ...(change.migration !== undefined ? { migration: boundedText(change.migration, "release.change.migration") } : {})
       }))
     }
   };
+  if (facts.promotion !== undefined) envelope.release.promotion = facts.promotion;
+  if (facts.migrationRequired !== undefined) envelope.release.migrationRequired = facts.migrationRequired;
+  if (context !== undefined) {
+    envelope.context = {
+      categories: context.categories.map((category) => boundedText(category, "context.category", MAX_AI_FEATURE_LENGTH)),
+      ...(context.title !== undefined ? { title: boundedText(context.title, "context.title") } : {}),
+      ...(context.body !== undefined ? { body: boundedText(context.body, "context.body") } : {}),
+      ...(context.labels !== undefined ? { labels: context.labels.map((label) => boundedText(label, "context.label", MAX_AI_FEATURE_LENGTH)) } : {}),
+      ...(context.files !== undefined ? { files: context.files.map((file) => boundedText(file, "context.file")) } : {}),
+      ...(context.conventional !== undefined ? {
+        conventional: {
+          kind: context.conventional.kind,
+          ...(context.conventional.scope !== undefined ? { scope: boundedText(context.conventional.scope, "context.conventional.scope", MAX_AI_FEATURE_LENGTH) } : {}),
+          description: boundedText(context.conventional.description, "context.conventional.description"),
+          breaking: context.conventional.breaking
+        }
+      } : {}),
+      ...(context.explicitMetadata !== undefined ? { explicitMetadata: context.explicitMetadata } : {})
+    };
+  }
   assertAiInputEnvelope(envelope);
   return envelope;
 }
@@ -167,14 +314,20 @@ function validateJsonRequest(request: AiJsonRequest): void {
   if (!isRecord(request)) {
     throw configurationError("AI request must be an object.");
   }
-  const feature = requiredText(request.feature, "feature", MAX_FEATURE_LENGTH);
+  const feature = requiredText(request.feature, "feature", MAX_AI_FEATURE_LENGTH);
   assertAiInputEnvelope(request.input);
   if (request.input.feature !== feature) {
     throw configurationError("AI request feature must match the input envelope feature.");
   }
-  requiredText(request.instructions, "instructions", MAX_TEXT_LENGTH);
+  requiredText(request.instructions, "instructions", MAX_AI_TEXT_LENGTH);
   if (!isRecord(request.schema) || !/^[A-Za-z0-9_-]{1,64}$/.test(request.schema.name) || !isRecord(request.schema.schema)) {
     throw configurationError("AI request schema must have a safe name and an object schema.");
+  }
+}
+
+function assertRequestSize(body: string): void {
+  if (Buffer.byteLength(body, "utf8") > MAX_AI_REQUEST_BYTES) {
+    throw configurationError(`AI request exceeds the ${MAX_AI_REQUEST_BYTES}-byte safety limit.`);
   }
 }
 
@@ -182,7 +335,7 @@ function providerErrorDetail(value: unknown): string {
   if (!isRecord(value) || !isRecord(value.error) || typeof value.error.message !== "string") {
     return "The provider returned an error.";
   }
-  return value.error.message.replace(/\s+/g, " ").trim().slice(0, 240) || "The provider returned an error.";
+  return redactAiText(value.error.message.replace(/\s+/g, " "), 240) || "The provider returned an error.";
 }
 
 function parsePayload(text: string): unknown {
@@ -386,6 +539,7 @@ export class OpenAiProvider implements AiProvider {
         }
       }
     });
+    assertRequestSize(body);
     const { response, text } = await runWithTimeout(async (signal) => {
       const response = await this.fetchImpl(this.endpoint, {
         method: "POST",
