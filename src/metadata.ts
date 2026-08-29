@@ -1,8 +1,50 @@
 import type { CustomerImpact, ReleaseKind, SemVergeMetadata } from "./types.js";
 
-const METADATA_BLOCK = /<!--\s*semverge(?:\s+release)?\s*([\s\S]*?)-->/i;
 const ALLOWED_TYPES = new Set<ReleaseKind>(["feature", "fix", "breaking", "docs", "internal", "other"]);
 const ALLOWED_IMPACTS = new Set<CustomerImpact>(["new", "improved", "fixed", "changed"]);
+const METADATA_OPEN_MARKER = "<!--";
+const METADATA_NAME = "semverge";
+const METADATA_CLOSE_MARKER = "-->";
+
+function isWhitespaceCharacter(value: string): boolean {
+  return value !== "" && value.trim() === "";
+}
+
+function metadataPayload(body: string): string | undefined {
+  let searchFrom = 0;
+
+  while (searchFrom < body.length) {
+    const start = body.indexOf(METADATA_OPEN_MARKER, searchFrom);
+    if (start < 0) return undefined;
+
+    let cursor = start + METADATA_OPEN_MARKER.length;
+    while (cursor < body.length && isWhitespaceCharacter(body[cursor] ?? "")) {
+      cursor += 1;
+    }
+    if (body.slice(cursor, cursor + METADATA_NAME.length).toLowerCase() !== METADATA_NAME) {
+      searchFrom = start + METADATA_OPEN_MARKER.length;
+      continue;
+    }
+
+    cursor += METADATA_NAME.length;
+    const releaseWhitespaceStart = cursor;
+    while (cursor < body.length && isWhitespaceCharacter(body[cursor] ?? "")) {
+      cursor += 1;
+    }
+    if (cursor > releaseWhitespaceStart && body.slice(cursor, cursor + "release".length).toLowerCase() === "release") {
+      cursor += "release".length;
+    }
+    while (cursor < body.length && isWhitespaceCharacter(body[cursor] ?? "")) {
+      cursor += 1;
+    }
+
+    const close = body.indexOf(METADATA_CLOSE_MARKER, cursor);
+    if (close < 0) return undefined;
+    return body.slice(cursor, close);
+  }
+
+  return undefined;
+}
 
 function nonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
@@ -76,12 +118,7 @@ function parseJsonMetadata(value: string): SemVergeMetadata | null {
 }
 
 export function parseSemVergeMetadata(body = ""): SemVergeMetadata {
-  const match = METADATA_BLOCK.exec(body);
-  if (!match) {
-    return {};
-  }
-
-  const payload = match[1]?.trim() ?? "";
+  const payload = metadataPayload(body)?.trim() ?? "";
   if (!payload) {
     return {};
   }
