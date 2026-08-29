@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.14.0] - 2026-08-29
+
+### Features
+
+- [add release verification workflow](https://github.com/EvanGribar/semverge/pull/101) (#101)
+- [add optional BYOK AI provider layer](https://github.com/EvanGribar/semverge/pull/116) (#116)
+- [add structured customer communication model](https://github.com/EvanGribar/semverge/pull/117) (#117)
+- [redesign customer release notes](https://github.com/EvanGribar/semverge/pull/118) (#118)
+- [add customer communication quality gates](https://github.com/EvanGribar/semverge/pull/119) (#119)
+- [separate external announcement copy](https://github.com/EvanGribar/semverge/pull/120) (#120)
+- [complete AI release communication workflows](https://github.com/EvanGribar/semverge/pull/121) (#121)
+
+### Bug Fixes
+
+- [do not mark plugin hooks complete before effects finish](https://github.com/EvanGribar/semverge/pull/91) (#91)
+- [treat completed plugin effects as terminal across retries](https://github.com/EvanGribar/semverge/pull/100) (#100)
+- [initialize release executions before plugin hooks](https://github.com/EvanGribar/semverge/pull/102) (#102)
+- [fail closed on plugin effect detection errors](https://github.com/EvanGribar/semverge/pull/107) (#107)
+- [validate workspace dependency range rewrites](https://github.com/EvanGribar/semverge/pull/108) (#108)
+- [remove CodeQL backtracking scans](https://github.com/EvanGribar/semverge/pull/122) (#122)
+- [remove remaining CodeQL regex scans](https://github.com/EvanGribar/semverge/pull/123) (#123)
+
+### Internal Changes
+
+- add workspace agent rules and skills for release development
+- add agent quickstart prompt to README
+- noop
+- remove accidental noop file
+- x
+- remove accidental temporary file
+- [focus SemVerge adoption story](https://github.com/EvanGribar/semverge/pull/87) (#87)
+- [bump esbuild from 0.28.1 to 0.28.2](https://github.com/EvanGribar/semverge/pull/89) (#89)
+- [bump pnpm/action-setup from 5 to 6](https://github.com/EvanGribar/semverge/pull/88) (#88)
+- [bump @types/node from 26.1.2 to 26.2.0](https://github.com/EvanGribar/semverge/pull/90) (#90)
+- [bump vitest from 4.1.10 to 4.1.11](https://github.com/EvanGribar/semverge/pull/97) (#97)
+- [finish public consumer readiness](https://github.com/EvanGribar/semverge/pull/109) (#109)
+
 ## [0.13.0] - 2026-08-06
 
 ### Features

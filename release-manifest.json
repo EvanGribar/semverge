@@ -1,18 +1,18 @@
 {
   "schemaVersion": 2,
   "mode": "single",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "channel": "stable",
   "promotion": false,
-  "generatedAt": "2026-08-06T02:03:40.554Z",
+  "generatedAt": "2026-08-29T23:55:48.220Z",
   "packages": [
     {
       "id": "semverge",
       "name": "semverge",
       "directory": "",
       "ecosystem": "node",
-      "previousVersion": "0.12.0",
-      "version": "0.13.0",
+      "previousVersion": "0.13.0",
+      "version": "0.14.0",
       "bump": "minor",
       "channel": "stable",
       "promotion": false,
@@ -25,12 +25,32 @@
         "direct-change"
       ],
       "directChanges": [
-        "feat: complete core release engine with transaction-owned plugin execution",
-        "fix(ci): update pnpm-lock.yaml for pnpm 10 compatibility and rebuild bundle",
-        "fix: allow failure injection to trigger in live runs",
-        "docs: document live provider publication and recovery proof for GHCR",
-        "feat: complete core release engine with transaction-owned plugin execution and load support",
-        "test(conformance): add comprehensive conformance test suite"
+        "chore: add workspace agent rules and skills for release development",
+        "chore: add agent quickstart prompt to README",
+        "noop",
+        "chore: remove accidental noop file",
+        "x",
+        "chore: remove accidental temporary file",
+        "docs: focus SemVerge adoption story",
+        "build(deps-dev): bump esbuild from 0.28.1 to 0.28.2",
+        "build(deps): bump pnpm/action-setup from 5 to 6",
+        "build(deps-dev): bump @types/node from 26.1.2 to 26.2.0",
+        "fix: do not mark plugin hooks complete before effects finish",
+        "fix: treat completed plugin effects as terminal across retries",
+        "build(deps-dev): bump vitest from 4.1.10 to 4.1.11",
+        "feat: add release verification workflow",
+        "fix: initialize release executions before plugin hooks",
+        "fix: fail closed on plugin effect detection errors",
+        "fix: validate workspace dependency range rewrites",
+        "chore: finish public consumer readiness",
+        "feat: add optional BYOK AI provider layer",
+        "feat: add structured customer communication model",
+        "feat: redesign customer release notes",
+        "feat: add customer communication quality gates",
+        "feat: separate external announcement copy",
+        "feat: complete AI release communication workflows",
+        "fix: remove CodeQL backtracking scans",
+        "fix: remove remaining CodeQL regex scans"
       ],
       "dependencies": [],
       "dependencyTypes": {}
@@ -44,5 +64,19 @@
     "failedCommands": [],
     "missingTasks": [],
     "requestedTasks": []
-  }
+  },
+  "communicationQuality": [
+    {
+      "artifact": "customer-notes",
+      "mode": "warn",
+      "passed": true,
+      "findings": []
+    },
+    {
+      "artifact": "announcement",
+      "mode": "warn",
+      "passed": true,
+      "findings": []
+    }
+  ]
 }
