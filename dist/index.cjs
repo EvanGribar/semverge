@@ -13047,8 +13047,65 @@ function boundedText(value, field, maxLength = MAX_AI_TEXT_LENGTH) {
   }
   return result;
 }
+var PRIVATE_KEY_BEGIN_MARKER = "-----begin";
+var PRIVATE_KEY_END_MARKER = "-----end";
+var PRIVATE_KEY_LABEL_SUFFIX = " private key";
+function findNextPrivateKeyMarker(value, fromIndex) {
+  for (let index = Math.max(0, fromIndex); index < value.length; index += 1) {
+    if (value.slice(index, index + PRIVATE_KEY_BEGIN_MARKER.length).toLowerCase() === PRIVATE_KEY_BEGIN_MARKER) {
+      return { start: index, marker: PRIVATE_KEY_BEGIN_MARKER, isBegin: true };
+    }
+    if (value.slice(index, index + PRIVATE_KEY_END_MARKER.length).toLowerCase() === PRIVATE_KEY_END_MARKER) {
+      return { start: index, marker: PRIVATE_KEY_END_MARKER, isBegin: false };
+    }
+  }
+  return void 0;
+}
+function privateKeyMarkerEnd(value, start, marker) {
+  if (value.slice(start, start + marker.length).toLowerCase() !== marker) return void 0;
+  const delimiter = value.indexOf("-----", start + marker.length);
+  if (delimiter < 0) return void 0;
+  const labelStart = start + marker.length;
+  const suffixStart = delimiter - PRIVATE_KEY_LABEL_SUFFIX.length;
+  if (suffixStart < labelStart || value.slice(suffixStart, delimiter).toLowerCase() !== PRIVATE_KEY_LABEL_SUFFIX) {
+    return void 0;
+  }
+  const qualifierLength = suffixStart - labelStart;
+  if (qualifierLength > 0) {
+    if (value[labelStart] !== " ") return void 0;
+    for (let index = labelStart + 1; index < suffixStart; index += 1) {
+      if (value[index] === "-") return void 0;
+    }
+  }
+  return delimiter + "-----".length;
+}
+function redactPrivateKeyBlocks(value) {
+  const pieces = [];
+  let copyFrom = 0;
+  let openStart;
+  let cursor = 0;
+  while (cursor < value.length) {
+    const nextMarker = findNextPrivateKeyMarker(value, cursor);
+    if (!nextMarker) break;
+    const markerEnd = privateKeyMarkerEnd(value, nextMarker.start, nextMarker.marker);
+    if (markerEnd === void 0) {
+      cursor = nextMarker.start + nextMarker.marker.length;
+      continue;
+    }
+    if (nextMarker.isBegin) {
+      if (openStart === void 0) openStart = nextMarker.start;
+    } else if (openStart !== void 0) {
+      pieces.push(value.slice(copyFrom, openStart), "[REDACTED PRIVATE KEY]");
+      copyFrom = markerEnd;
+      openStart = void 0;
+    }
+    cursor = markerEnd;
+  }
+  pieces.push(value.slice(copyFrom));
+  return pieces.join("");
+}
 function redactAiText(value, maxLength = MAX_AI_TEXT_LENGTH) {
-  const redacted = value.replace(/-----BEGIN(?: [^-]+)? PRIVATE KEY-----[\s\S]*?-----END(?: [^-]+)? PRIVATE KEY-----/gi, "[REDACTED PRIVATE KEY]").replace(/\b(?:bearer\s+)[A-Za-z0-9._~+/=-]{8,}/gi, "Bearer [REDACTED]").replace(/\b(?:sk|ghp|gho|ghu|ghs|github_pat|xoxb|xoxp)-[A-Za-z0-9_-]{8,}\b/gi, "[REDACTED TOKEN]").replace(/\bAKIA[0-9A-Z]{12,}\b/g, "[REDACTED ACCESS KEY]").replace(/(["']?\b(?:authorization|password|passwd|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret|npm[_-]?token|pypi[_-]?token|github[_-]?token|openai[_-]?api[_-]?key)\b["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\r\n,;}\]]+))/gi, (match) => `${match.slice(0, match.search(/[:=]/))}: [REDACTED]`).replace(/\b(?:OPENAI_API_KEY|GITHUB_TOKEN|NPM_TOKEN|PYPI_TOKEN)\b/gi, "[REDACTED ENVIRONMENT SECRET]");
+  const redacted = redactPrivateKeyBlocks(value).replace(/\b(?:bearer\s+)[A-Za-z0-9._~+/=-]{8,}/gi, "Bearer [REDACTED]").replace(/\b(?:sk|ghp|gho|ghu|ghs|github_pat|xoxb|xoxp)-[A-Za-z0-9_-]{8,}\b/gi, "[REDACTED TOKEN]").replace(/\bAKIA[0-9A-Z]{12,}\b/g, "[REDACTED ACCESS KEY]").replace(/(["']?\b(?:authorization|password|passwd|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret|npm[_-]?token|pypi[_-]?token|github[_-]?token|openai[_-]?api[_-]?key)\b["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\r\n,;}\]]+))/gi, (match) => `${match.slice(0, match.search(/[:=]/))}: [REDACTED]`).replace(/\b(?:OPENAI_API_KEY|GITHUB_TOKEN|NPM_TOKEN|PYPI_TOKEN)\b/gi, "[REDACTED ENVIRONMENT SECRET]");
   return redacted.trim().slice(0, maxLength);
 }
 function assertContext(context) {

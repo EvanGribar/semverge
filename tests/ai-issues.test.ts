@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { OPENAI_API_KEY_ENV, type FetchLike } from "../src/ai.js";
+import { OPENAI_API_KEY_ENV, redactAiText, type FetchLike } from "../src/ai.js";
 import { parseChange } from "../src/changes.js";
 import { buildReleasePlan } from "../src/release.js";
 import {
@@ -209,5 +209,43 @@ describe("AI release safety and issue coverage", () => {
     const block = renderMetadataBlock(suggestion.metadata);
     expect(block).toContain("type: feature");
     expect(applyMetadataBlock("Existing PR body.", suggestion.metadata)).toContain(block);
+  });
+
+  it("redacts PEM blocks with a linear scan, including repeated unterminated markers", () => {
+    const pem = [
+      "before",
+      "-----BEGIN RSA PRIVATE KEY-----",
+      "private-key-material",
+      "-----END RSA PRIVATE KEY-----",
+      "after"
+    ].join("\n");
+    expect(redactAiText(pem)).toBe("before\n[REDACTED PRIVATE KEY]\nafter");
+
+    const unterminated = "-----BEGIN PRIVATE KEY-----".repeat(2_000);
+    const redacted = redactAiText(unterminated);
+    expect(redacted).toHaveLength(4_000);
+    expect(redacted).toContain("-----BEGIN PRIVATE KEY-----");
+  });
+
+  it("replaces metadata blocks with a linear scan and preserves surrounding body text", () => {
+    const metadata = {
+      type: "feature" as const,
+      customer: "",
+      headline: "Bulk exports",
+      outcome: "Teams can export several projects together.",
+      detail: "",
+      impact: "new" as const,
+      action: "",
+      migration: "",
+      breaking: false
+    };
+    const existingBody = "Intro\n<!--  SeMvErGe release\nold: value\n-->\nTrailer";
+    const block = renderMetadataBlock(metadata);
+    const updated = applyMetadataBlock(existingBody, metadata);
+
+    expect(updated).toBe(`Intro\n${block}\nTrailer`);
+
+    const hostileBody = `<!--${" ".repeat(20_000)}semverge${" ".repeat(20_000)}`;
+    expect(applyMetadataBlock(hostileBody, metadata)).toContain(block);
   });
 });
