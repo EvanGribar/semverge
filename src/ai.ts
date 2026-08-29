@@ -156,14 +156,83 @@ function boundedText(value: unknown, field: string, maxLength = MAX_AI_TEXT_LENG
   return result;
 }
 
+const PRIVATE_KEY_BEGIN_MARKER = "-----begin";
+const PRIVATE_KEY_END_MARKER = "-----end";
+const PRIVATE_KEY_LABEL_SUFFIX = " private key";
+
+function findNextPrivateKeyMarker(value: string, fromIndex: number): { start: number; marker: string; isBegin: boolean } | undefined {
+  for (let index = Math.max(0, fromIndex); index < value.length; index += 1) {
+    if (value.slice(index, index + PRIVATE_KEY_BEGIN_MARKER.length).toLowerCase() === PRIVATE_KEY_BEGIN_MARKER) {
+      return { start: index, marker: PRIVATE_KEY_BEGIN_MARKER, isBegin: true };
+    }
+    if (value.slice(index, index + PRIVATE_KEY_END_MARKER.length).toLowerCase() === PRIVATE_KEY_END_MARKER) {
+      return { start: index, marker: PRIVATE_KEY_END_MARKER, isBegin: false };
+    }
+  }
+  return undefined;
+}
+
+function privateKeyMarkerEnd(value: string, start: number, marker: string): number | undefined {
+  if (value.slice(start, start + marker.length).toLowerCase() !== marker) return undefined;
+
+  const delimiter = value.indexOf("-----", start + marker.length);
+  if (delimiter < 0) return undefined;
+
+  const labelStart = start + marker.length;
+  const suffixStart = delimiter - PRIVATE_KEY_LABEL_SUFFIX.length;
+  if (suffixStart < labelStart || value.slice(suffixStart, delimiter).toLowerCase() !== PRIVATE_KEY_LABEL_SUFFIX) {
+    return undefined;
+  }
+
+  const qualifierLength = suffixStart - labelStart;
+  if (qualifierLength > 0) {
+    if (value[labelStart] !== " ") return undefined;
+    for (let index = labelStart + 1; index < suffixStart; index += 1) {
+      if (value[index] === "-") return undefined;
+    }
+  }
+
+  return delimiter + "-----".length;
+}
+
+/** Scan PEM markers in one forward pass so untrusted text cannot trigger regex backtracking. */
+function redactPrivateKeyBlocks(value: string): string {
+  const pieces: string[] = [];
+  let copyFrom = 0;
+  let openStart: number | undefined;
+  let cursor = 0;
+
+  while (cursor < value.length) {
+    const nextMarker = findNextPrivateKeyMarker(value, cursor);
+    if (!nextMarker) break;
+
+    const markerEnd = privateKeyMarkerEnd(value, nextMarker.start, nextMarker.marker);
+    if (markerEnd === undefined) {
+      cursor = nextMarker.start + nextMarker.marker.length;
+      continue;
+    }
+
+    if (nextMarker.isBegin) {
+      if (openStart === undefined) openStart = nextMarker.start;
+    } else if (openStart !== undefined) {
+      pieces.push(value.slice(copyFrom, openStart), "[REDACTED PRIVATE KEY]");
+      copyFrom = markerEnd;
+      openStart = undefined;
+    }
+    cursor = markerEnd;
+  }
+
+  pieces.push(value.slice(copyFrom));
+  return pieces.join("");
+}
+
 /**
  * Remove common credential-shaped values before any user-controlled text is
  * placed in a provider request. This deliberately redacts by key and token
  * shape rather than attempting to identify every possible secret format.
  */
 export function redactAiText(value: string, maxLength = MAX_AI_TEXT_LENGTH): string {
-  const redacted = value
-    .replace(/-----BEGIN(?: [^-]+)? PRIVATE KEY-----[\s\S]*?-----END(?: [^-]+)? PRIVATE KEY-----/gi, "[REDACTED PRIVATE KEY]")
+  const redacted = redactPrivateKeyBlocks(value)
     .replace(/\b(?:bearer\s+)[A-Za-z0-9._~+/=-]{8,}/gi, "Bearer [REDACTED]")
     .replace(/\b(?:sk|ghp|gho|ghu|ghs|github_pat|xoxb|xoxp)-[A-Za-z0-9_-]{8,}\b/gi, "[REDACTED TOKEN]")
     .replace(/\bAKIA[0-9A-Z]{12,}\b/g, "[REDACTED ACCESS KEY]")

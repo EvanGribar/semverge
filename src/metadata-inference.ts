@@ -342,11 +342,44 @@ export function renderMetadataBlock(metadata: ReleaseMetadataSuggestion["metadat
   return lines.join("\n");
 }
 
+const METADATA_OPEN_MARKER = "<!--";
+const METADATA_NAME = "semverge";
+const METADATA_CLOSE_MARKER = "-->";
+
+function isWhitespaceCharacter(value: string): boolean {
+  return value !== "" && value.trim() === "";
+}
+
+function findMetadataBlock(body: string): { start: number; end: number } | undefined {
+  let searchFrom = 0;
+
+  while (searchFrom < body.length) {
+    const start = body.indexOf(METADATA_OPEN_MARKER, searchFrom);
+    if (start < 0) return undefined;
+
+    let contentStart = start + METADATA_OPEN_MARKER.length;
+    while (contentStart < body.length && isWhitespaceCharacter(body[contentStart] ?? "")) {
+      contentStart += 1;
+    }
+
+    if (body.slice(contentStart, contentStart + METADATA_NAME.length).toLowerCase() !== METADATA_NAME) {
+      searchFrom = start + METADATA_OPEN_MARKER.length;
+      continue;
+    }
+
+    const close = body.indexOf(METADATA_CLOSE_MARKER, contentStart + METADATA_NAME.length);
+    if (close < 0) return undefined;
+    return { start, end: close + METADATA_CLOSE_MARKER.length };
+  }
+
+  return undefined;
+}
+
 export function applyMetadataBlock(body: string, metadata: ReleaseMetadataSuggestion["metadata"]): string {
   const block = renderMetadataBlock(metadata);
-  const existing = /<!--\s*semverge(?:\s+release)?\s*[\s\S]*?-->/i;
-  if (existing.test(body)) {
-    return body.replace(existing, block);
+  const existing = findMetadataBlock(body);
+  if (existing) {
+    return `${body.slice(0, existing.start)}${block}${body.slice(existing.end)}`;
   }
   const normalized = body.trim();
   return normalized ? `${block}\n\n${normalized}\n` : `${block}\n`;
