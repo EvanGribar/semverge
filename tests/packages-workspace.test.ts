@@ -391,6 +391,12 @@ describe("ecosystem version adapters", () => {
     expect(updateTargetVersion(target, content, "1.3.0").content).toContain('version = "1.3.0"');
   });
 
+  it("reads Python __version__ values without backtracking across repeated newlines", () => {
+    const target = { ecosystem: "python" as const, manifestPath: "src/__init__.py", directory: "src" };
+    const content = `${"\n".repeat(20_000)}  __version__ = '1.2.3'\n`;
+    expect(readTargetVersion(target, content)).toBe("1.2.3");
+  });
+
   it("reads and updates Rust Cargo versions", () => {
     const target = { ecosystem: "rust" as const, manifestPath: "Cargo.toml", directory: "" };
     const content = `[package]\nname = "demo"\nversion = "0.4.0"\n`;

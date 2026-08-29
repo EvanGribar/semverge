@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseChange, prereleaseChannelFromLabels, releaseChannelFromLabels } from "../src/changes.js";
+import { parseSemVergeMetadata } from "../src/metadata.js";
 
 describe("release change parsing", () => {
   it("uses product labels as a conventional-commit override", () => {
@@ -79,6 +80,18 @@ audience: [teams, admins]
 
     expect(fix.customerCommunication).toEqual({ outcome: "stabilize export retries", impact: "fixed" });
     expect(internal.customerCommunication).toEqual({ outcome: "refresh tooling", impact: "improved" });
+  });
+
+  it("parses conventional titles without backtracking on repeated whitespace", () => {
+    const change = parseChange({ title: `fix:${" ".repeat(20_000)}stabilize export retries`, source: "commit" });
+    expect(change.kind).toBe("fix");
+    expect(change.description).toBe("stabilize export retries");
+  });
+
+  it("parses metadata blocks without backtracking on repeated whitespace", () => {
+    const body = `<!-- semverge${" ".repeat(20_000)}customer: Export retries are stable. -->`;
+    expect(parseSemVergeMetadata(body)).toEqual({ customer: "Export retries are stable." });
+    expect(parseSemVergeMetadata(`<!-- semverge${" ".repeat(20_000)}`)).toEqual({});
   });
 
   it("allows ship:skip to suppress a release contribution", () => {

@@ -9370,9 +9370,44 @@ var import_node_util3 = require("node:util");
 var import_node_path4 = require("node:path");
 
 // src/metadata.ts
-var METADATA_BLOCK = /<!--\s*semverge(?:\s+release)?\s*([\s\S]*?)-->/i;
 var ALLOWED_TYPES = /* @__PURE__ */ new Set(["feature", "fix", "breaking", "docs", "internal", "other"]);
 var ALLOWED_IMPACTS = /* @__PURE__ */ new Set(["new", "improved", "fixed", "changed"]);
+var METADATA_OPEN_MARKER = "<!--";
+var METADATA_NAME = "semverge";
+var METADATA_CLOSE_MARKER = "-->";
+function isWhitespaceCharacter(value) {
+  return value !== "" && value.trim() === "";
+}
+function metadataPayload(body) {
+  let searchFrom = 0;
+  while (searchFrom < body.length) {
+    const start = body.indexOf(METADATA_OPEN_MARKER, searchFrom);
+    if (start < 0) return void 0;
+    let cursor = start + METADATA_OPEN_MARKER.length;
+    while (cursor < body.length && isWhitespaceCharacter(body[cursor] ?? "")) {
+      cursor += 1;
+    }
+    if (body.slice(cursor, cursor + METADATA_NAME.length).toLowerCase() !== METADATA_NAME) {
+      searchFrom = start + METADATA_OPEN_MARKER.length;
+      continue;
+    }
+    cursor += METADATA_NAME.length;
+    const releaseWhitespaceStart = cursor;
+    while (cursor < body.length && isWhitespaceCharacter(body[cursor] ?? "")) {
+      cursor += 1;
+    }
+    if (cursor > releaseWhitespaceStart && body.slice(cursor, cursor + "release".length).toLowerCase() === "release") {
+      cursor += "release".length;
+    }
+    while (cursor < body.length && isWhitespaceCharacter(body[cursor] ?? "")) {
+      cursor += 1;
+    }
+    const close = body.indexOf(METADATA_CLOSE_MARKER, cursor);
+    if (close < 0) return void 0;
+    return body.slice(cursor, close);
+  }
+  return void 0;
+}
 function nonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
@@ -9437,11 +9472,7 @@ function parseJsonMetadata(value) {
   }
 }
 function parseSemVergeMetadata(body = "") {
-  const match = METADATA_BLOCK.exec(body);
-  if (!match) {
-    return {};
-  }
-  const payload = match[1]?.trim() ?? "";
+  const payload = metadataPayload(body)?.trim() ?? "";
   if (!payload) {
     return {};
   }
@@ -9479,7 +9510,6 @@ function parseSemVergeMetadata(body = "") {
 }
 
 // src/changes.ts
-var HEADER_PATTERN = /^(?<type>[a-z]+)(?:\((?<scope>[^)]+)\))?(?<breaking>!)?:\s*(?<description>.+)$/i;
 var LABEL_KIND = {
   "ship:feature": "feature",
   "ship:fix": "fix",
@@ -9487,6 +9517,21 @@ var LABEL_KIND = {
   "ship:internal": "internal",
   "ship:docs": "docs"
 };
+function isWhitespaceCharacter2(value) {
+  return value !== "" && value.trim() === "";
+}
+function isAsciiLetter(value) {
+  const code = value.charCodeAt(0);
+  return code >= 65 && code <= 90 || code >= 97 && code <= 122;
+}
+function containsLineTerminator(value) {
+  for (let index = 0; index < value.length; index += 1) {
+    if (value[index] === "\r" || value[index] === "\n" || value[index] === "\u2028" || value[index] === "\u2029") {
+      return true;
+    }
+  }
+  return false;
+}
 var BUILTIN_CHANNEL_POLICIES = {
   beta: { label: "ship:beta", prerelease: "beta" },
   rc: { label: "ship:rc", prerelease: "rc" },
@@ -9543,17 +9588,47 @@ function customerImpact(kind, breaking) {
   return "improved";
 }
 function parseTitle(title) {
-  const match = HEADER_PATTERN.exec(title.trim());
-  if (!match?.groups) {
-    return { kind: "other", description: title.trim(), breaking: false };
+  const normalizedTitle = title.trim();
+  let cursor = 0;
+  while (cursor < normalizedTitle.length && isAsciiLetter(normalizedTitle[cursor] ?? "")) {
+    cursor += 1;
+  }
+  if (cursor === 0) {
+    return { kind: "other", description: normalizedTitle, breaking: false };
+  }
+  const type = normalizedTitle.slice(0, cursor);
+  let scope;
+  if (normalizedTitle[cursor] === "(") {
+    const scopeStart = cursor + 1;
+    const scopeEnd = normalizedTitle.indexOf(")", scopeStart);
+    if (scopeEnd <= scopeStart) {
+      return { kind: "other", description: normalizedTitle, breaking: false };
+    }
+    scope = normalizedTitle.slice(scopeStart, scopeEnd).trim();
+    cursor = scopeEnd + 1;
+  }
+  const breaking = normalizedTitle[cursor] === "!";
+  if (breaking) {
+    cursor += 1;
+  }
+  if (normalizedTitle[cursor] !== ":") {
+    return { kind: "other", description: normalizedTitle, breaking: false };
+  }
+  cursor += 1;
+  while (cursor < normalizedTitle.length && isWhitespaceCharacter2(normalizedTitle[cursor] ?? "")) {
+    cursor += 1;
+  }
+  const description = normalizedTitle.slice(cursor);
+  if (!description || containsLineTerminator(description)) {
+    return { kind: "other", description: normalizedTitle, breaking: false };
   }
   const result = {
-    kind: kindFromConventionalType(match.groups.type ?? ""),
-    description: (match.groups.description ?? title).trim(),
-    breaking: Boolean(match.groups.breaking)
+    kind: kindFromConventionalType(type),
+    description,
+    breaking
   };
-  if (match.groups.scope) {
-    result.scope = match.groups.scope.trim();
+  if (scope !== void 0) {
+    result.scope = scope;
   }
   return result;
 }
@@ -10799,6 +10874,9 @@ function promoteVersion(current) {
 }
 
 // src/version-adapters.ts
+function isWhitespaceCharacter3(value) {
+  return value !== "" && value.trim() === "";
+}
 function jsonObject(path, content) {
   try {
     const value = JSON.parse(content);
@@ -10863,9 +10941,36 @@ function pythonVersion(content, path) {
   if (location) {
     return location.value;
   }
-  const initMatch = /(?:^|\r?\n)\s*__version__\s*=\s*["']([^"']+)["']/.exec(content);
-  if (initMatch?.[1]) {
-    return initMatch[1];
+  for (const line of content.split(/\r?\n/)) {
+    let cursor = 0;
+    while (cursor < line.length && isWhitespaceCharacter3(line[cursor] ?? "")) {
+      cursor += 1;
+    }
+    if (line.slice(cursor, cursor + "__version__".length) !== "__version__") {
+      continue;
+    }
+    cursor += "__version__".length;
+    while (cursor < line.length && isWhitespaceCharacter3(line[cursor] ?? "")) {
+      cursor += 1;
+    }
+    if (line[cursor] !== "=") {
+      continue;
+    }
+    cursor += 1;
+    while (cursor < line.length && isWhitespaceCharacter3(line[cursor] ?? "")) {
+      cursor += 1;
+    }
+    const quote = line[cursor];
+    if (quote !== "'" && quote !== '"') {
+      continue;
+    }
+    const valueStart = cursor + 1;
+    const singleQuote = line.indexOf("'", valueStart);
+    const doubleQuote = line.indexOf('"', valueStart);
+    const close = singleQuote < 0 ? doubleQuote : doubleQuote < 0 ? singleQuote : Math.min(singleQuote, doubleQuote);
+    if (close > valueStart) {
+      return line.slice(valueStart, close);
+    }
   }
   throw new Error(`Could not find a Python version in ${path}.`);
 }

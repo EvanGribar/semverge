@@ -2,6 +2,10 @@ import type { Ecosystem } from "./types.js";
 import type { PackageDescriptor } from "./packages.js";
 import type { VersionFileChange } from "./version-files.js";
 
+function isWhitespaceCharacter(value: string): boolean {
+  return value !== "" && value.trim() === "";
+}
+
 export interface VersionTarget {
   ecosystem: Ecosystem;
   manifestPath: string;
@@ -76,9 +80,37 @@ function pythonVersion(content: string, path: string): string {
   if (location) {
     return location.value;
   }
-  const initMatch = /(?:^|\r?\n)\s*__version__\s*=\s*["']([^"']+)["']/.exec(content);
-  if (initMatch?.[1]) {
-    return initMatch[1];
+
+  for (const line of content.split(/\r?\n/)) {
+    let cursor = 0;
+    while (cursor < line.length && isWhitespaceCharacter(line[cursor] ?? "")) {
+      cursor += 1;
+    }
+    if (line.slice(cursor, cursor + "__version__".length) !== "__version__") {
+      continue;
+    }
+    cursor += "__version__".length;
+    while (cursor < line.length && isWhitespaceCharacter(line[cursor] ?? "")) {
+      cursor += 1;
+    }
+    if (line[cursor] !== "=") {
+      continue;
+    }
+    cursor += 1;
+    while (cursor < line.length && isWhitespaceCharacter(line[cursor] ?? "")) {
+      cursor += 1;
+    }
+    const quote = line[cursor];
+    if (quote !== "'" && quote !== '"') {
+      continue;
+    }
+    const valueStart = cursor + 1;
+    const singleQuote = line.indexOf("'", valueStart);
+    const doubleQuote = line.indexOf('"', valueStart);
+    const close = singleQuote < 0 ? doubleQuote : doubleQuote < 0 ? singleQuote : Math.min(singleQuote, doubleQuote);
+    if (close > valueStart) {
+      return line.slice(valueStart, close);
+    }
   }
   throw new Error(`Could not find a Python version in ${path}.`);
 }
