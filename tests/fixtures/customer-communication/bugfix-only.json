@@ -1,0 +1,15 @@
+{
+  "version": "1.8.1",
+  "date": "2026-08-29",
+  "changes": [
+    {
+      "title": "fix: retry interrupted exports",
+      "source": "pull_request",
+      "body": "<!-- semverge\noutcome: Interrupted exports now resume automatically.\nimpact: fixed\naction: No action is required.\n-->"
+    },
+    {
+      "title": "fix: keep empty results visible",
+      "source": "commit"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "version": "1.8.0",
+  "date": "2026-08-29",
+  "changes": [
+    {
+      "title": "feat: save filter views",
+      "source": "pull_request",
+      "body": "<!-- semverge\nheadline: Saved filter views\noutcome: Teams can return to their favorite project filters.\nimpact: new\n-->"
+    },
+    {
+      "title": "perf: speed up search results",
+      "source": "commit"
+    },
+    {
+      "title": "fix: clarify export errors",
+      "source": "pull_request",
+      "body": "<!-- semverge\noutcome: Export errors now explain how to recover.\nimpact: fixed\n-->"
+    }
+  ]
+}

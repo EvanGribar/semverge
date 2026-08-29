@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { runCli } from "../src/cli.js";
 import { createReleaseTransaction } from "../src/transaction.js";
 
@@ -92,6 +92,37 @@ describe("SemVerge CLI", () => {
       expect(output.stdout.join("\n")).toContain("AI assistance is disabled");
       expect(output.stderr).toEqual([]);
     } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("prints an advisory infer result and only applies it with an explicit body path", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "semverge-cli-infer-"));
+    const previousKey = process.env.OPENAI_API_KEY;
+    try {
+      writeFileSync(join(directory, ".semverge.yml"), `ai:\n  enabled: true\n  infer: true\n  provider: openai\n  model: test-model\n`);
+      writeFileSync(join(directory, "pr-body.md"), "Teams can export several projects together.\n");
+      process.env.OPENAI_API_KEY = "test-key";
+      vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({
+        metadata: { type: "feature", customer: "", headline: "Bulk exports", outcome: "Teams can export several projects together.", detail: "", impact: "new", action: "", migration: "", breaking: false },
+        confidence: "medium",
+        ambiguity: ["The title did not use a conventional commit prefix."]
+      }) } }] }), { status: 200 })));
+
+      const output = capture();
+      expect(await runCli(["infer", "Improve export workflow", "--body", "Teams can export several projects together.", "--json"], directory, output.io)).toBe(0);
+      const report = JSON.parse(output.stdout[0] ?? "{}");
+      expect(report).toMatchObject({ feature: "metadata-inference", status: "advisory", suggestion: { confidence: "medium" } });
+      expect(report.input.context.categories).toEqual(expect.arrayContaining(["pull-request-title", "pull-request-body", "conventional-commit", "labels"]));
+      expect(report.metadataBlock).toContain("type: feature");
+      expect(readFileSync(join(directory, "pr-body.md"), "utf8")).not.toContain("<!-- semverge");
+
+      const applied = capture();
+      expect(await runCli(["infer", "Improve export workflow", "--body", "Teams can export several projects together.", "--write", "pr-body.md", "--json"], directory, applied.io)).toBe(0);
+      expect(readFileSync(join(directory, "pr-body.md"), "utf8")).toContain("<!-- semverge");
+    } finally {
+      if (previousKey === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = previousKey;
+      vi.unstubAllGlobals();
       rmSync(directory, { recursive: true, force: true });
     }
   });

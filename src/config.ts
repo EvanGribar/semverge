@@ -1,7 +1,7 @@
 import { parse as parseYaml } from "yaml";
 import { parseOciImageRepository } from "./registries.js";
 import { DEFAULT_AI_TIMEOUT_MS } from "./types.js";
-import type { AiConfig, ArtifactConfig, BumpLevel, CommunicationConfig, CustomerQualityConfig, HealthMonitoringConfig, HealthWorkflow, NpmPublishConfig, OciPublishConfig, OutputConfig, ReadinessCommand, ReadinessTask, RegistryPublishConfig, ReleaseChannelPolicy, ReleasePromotion, SemVergeConfig } from "./types.js";
+import type { AiConfig, AiTone, AiVerbosity, ArtifactConfig, BumpLevel, CommunicationConfig, CustomerQualityConfig, HealthMonitoringConfig, HealthWorkflow, NpmPublishConfig, OciPublishConfig, OutputConfig, ReadinessCommand, ReadinessTask, RegistryPublishConfig, ReleaseChannelPolicy, ReleasePromotion, SemVergeConfig } from "./types.js";
 
 export type ConfigValidationSeverity = "error" | "warning";
 
@@ -339,7 +339,11 @@ export function validateConfigContent(content: string, fileName = ".semverge.yml
   const ai = section(raw, "ai", issues);
   if (ai) {
     booleanField(ai, "enabled", "ai", issues);
+    booleanField(ai, "releaseNotes", "ai", issues);
+    booleanField(ai, "infer", "ai", issues);
     enumField(ai, "provider", "ai", ["openai"], issues);
+    enumField(ai, "tone", "ai", ["neutral", "friendly", "professional"], issues);
+    enumField(ai, "verbosity", "ai", ["concise", "standard", "detailed"], issues);
     stringField(ai, "model", "ai", issues);
     numberField(ai, "timeoutMs", "ai", issues);
     if (typeof ai.timeoutMs === "number" && Number.isFinite(ai.timeoutMs) && (!Number.isInteger(ai.timeoutMs) || ai.timeoutMs <= 0)) {
@@ -403,6 +407,12 @@ export function validateConfig(config: SemVergeConfig): ConfigValidationIssue[] 
     }
     if (!Number.isInteger(config.ai.timeoutMs) || config.ai.timeoutMs <= 0) {
       issues.push({ path: "ai.timeoutMs", severity: "error", message: "must be a positive integer" });
+    }
+    if (config.ai.tone !== undefined && !["neutral", "friendly", "professional"].includes(config.ai.tone)) {
+      issues.push({ path: "ai.tone", severity: "error", message: "must be one of: neutral, friendly, professional" });
+    }
+    if (config.ai.verbosity !== undefined && !["concise", "standard", "detailed"].includes(config.ai.verbosity)) {
+      issues.push({ path: "ai.verbosity", severity: "error", message: "must be one of: concise, standard, detailed" });
     }
   }
   if (config.communication) {
@@ -577,12 +587,25 @@ function healthMonitoring(value: unknown, fallback: HealthMonitoringConfig): Hea
 
 function aiSettings(value: unknown, fallback: AiConfig): AiConfig {
   const object = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-  return {
+  const result: AiConfig = {
     enabled: booleanValue(object.enabled, fallback.enabled),
     provider: object.provider === "openai" ? "openai" : fallback.provider,
     model: typeof object.model === "string" ? object.model.trim() : fallback.model,
     timeoutMs: typeof object.timeoutMs === "number" && Number.isInteger(object.timeoutMs) && object.timeoutMs > 0 ? object.timeoutMs : fallback.timeoutMs
   };
+  if (typeof object.releaseNotes === "boolean") {
+    result.releaseNotes = object.releaseNotes;
+  }
+  if (typeof object.infer === "boolean") {
+    result.infer = object.infer;
+  }
+  if (object.tone === "neutral" || object.tone === "friendly" || object.tone === "professional") {
+    result.tone = object.tone as AiTone;
+  }
+  if (object.verbosity === "concise" || object.verbosity === "standard" || object.verbosity === "detailed") {
+    result.verbosity = object.verbosity as AiVerbosity;
+  }
+  return result;
 }
 
 function customerQualitySettings(value: unknown, fallback: CustomerQualityConfig): CustomerQualityConfig {

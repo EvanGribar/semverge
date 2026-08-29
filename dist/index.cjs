@@ -9798,8 +9798,8 @@ async function bearerToken(challenge, image, version, fetcher) {
   } catch {
     throw ociRegistryError(image, version, "the bearer-token response was not valid JSON");
   }
-  const record = payload && typeof payload === "object" && !Array.isArray(payload) ? payload : null;
-  const token = record && (typeof record.token === "string" ? record.token : typeof record.access_token === "string" ? record.access_token : "");
+  const record2 = payload && typeof payload === "object" && !Array.isArray(payload) ? payload : null;
+  const token = record2 && (typeof record2.token === "string" ? record2.token : typeof record2.access_token === "string" ? record2.access_token : "");
   if (!token) {
     throw ociRegistryError(image, version, "the bearer-token response did not contain a token");
   }
@@ -9980,11 +9980,11 @@ function commands(value) {
     if (!item || typeof item !== "object") {
       return [];
     }
-    const record = item;
-    if (typeof record.name !== "string" || typeof record.run !== "string" || !record.name.trim() || !record.run.trim()) {
+    const record2 = item;
+    if (typeof record2.name !== "string" || typeof record2.run !== "string" || !record2.name.trim() || !record2.run.trim()) {
       return [];
     }
-    return [{ name: record.name.trim(), run: record.run.trim() }];
+    return [{ name: record2.name.trim(), run: record2.run.trim() }];
   });
 }
 function readinessTasks(value) {
@@ -9995,13 +9995,13 @@ function readinessTasks(value) {
     if (!item || typeof item !== "object") {
       return [];
     }
-    const record = item;
-    if (typeof record.name !== "string" || !record.name.trim()) {
+    const record2 = item;
+    if (typeof record2.name !== "string" || !record2.name.trim()) {
       return [];
     }
-    const task = { name: record.name.trim() };
-    if (typeof record.label === "string" && record.label.trim()) task.label = record.label.trim();
-    if (typeof record.file === "string" && record.file.trim()) task.file = record.file.trim();
+    const task = { name: record2.name.trim() };
+    if (typeof record2.label === "string" && record2.label.trim()) task.label = record2.label.trim();
+    if (typeof record2.file === "string" && record2.file.trim()) task.file = record2.file.trim();
     return [task];
   });
 }
@@ -10013,12 +10013,12 @@ function healthWorkflows(value) {
     if (!item || typeof item !== "object") {
       return [];
     }
-    const record = item;
-    if (typeof record.name !== "string" || !record.name.trim()) {
+    const record2 = item;
+    if (typeof record2.name !== "string" || !record2.name.trim()) {
       return [];
     }
-    const purpose = record.purpose === "package" || record.purpose === "deployment" || record.purpose === "custom" ? record.purpose : "custom";
-    return [{ name: record.name.trim(), purpose, required: record.required !== false }];
+    const purpose = record2.purpose === "package" || record2.purpose === "deployment" || record2.purpose === "custom" ? record2.purpose : "custom";
+    return [{ name: record2.name.trim(), purpose, required: record2.required !== false }];
   });
 }
 function booleanValue(value, fallback) {
@@ -10059,12 +10059,25 @@ function healthMonitoring(value, fallback) {
 }
 function aiSettings(value, fallback) {
   const object = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  return {
+  const result = {
     enabled: booleanValue(object.enabled, fallback.enabled),
     provider: object.provider === "openai" ? "openai" : fallback.provider,
     model: typeof object.model === "string" ? object.model.trim() : fallback.model,
     timeoutMs: typeof object.timeoutMs === "number" && Number.isInteger(object.timeoutMs) && object.timeoutMs > 0 ? object.timeoutMs : fallback.timeoutMs
   };
+  if (typeof object.releaseNotes === "boolean") {
+    result.releaseNotes = object.releaseNotes;
+  }
+  if (typeof object.infer === "boolean") {
+    result.infer = object.infer;
+  }
+  if (object.tone === "neutral" || object.tone === "friendly" || object.tone === "professional") {
+    result.tone = object.tone;
+  }
+  if (object.verbosity === "concise" || object.verbosity === "standard" || object.verbosity === "detailed") {
+    result.verbosity = object.verbosity;
+  }
+  return result;
 }
 function customerQualitySettings(value, fallback) {
   const object = value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -10088,22 +10101,22 @@ function channelPolicies(value) {
     if (!item || typeof item !== "object" || Array.isArray(item)) {
       continue;
     }
-    const record = item;
-    if (typeof record.label !== "string" || !record.label.trim() || typeof record.prerelease !== "string" || !record.prerelease.trim()) {
+    const record2 = item;
+    if (typeof record2.label !== "string" || !record2.label.trim() || typeof record2.prerelease !== "string" || !record2.prerelease.trim()) {
       continue;
     }
-    const policy = { label: record.label.trim(), prerelease: record.prerelease.trim() };
-    if (typeof record.branch === "string" && record.branch.trim()) {
-      policy.branch = record.branch.trim();
+    const policy = { label: record2.label.trim(), prerelease: record2.prerelease.trim() };
+    if (typeof record2.branch === "string" && record2.branch.trim()) {
+      policy.branch = record2.branch.trim();
     }
-    if (typeof record.baseBranch === "string" && record.baseBranch.trim()) {
-      policy.baseBranch = record.baseBranch.trim();
+    if (typeof record2.baseBranch === "string" && record2.baseBranch.trim()) {
+      policy.baseBranch = record2.baseBranch.trim();
     }
-    if (typeof record.releaseBranch === "string" && record.releaseBranch.trim()) {
-      policy.releaseBranch = record.releaseBranch.trim();
+    if (typeof record2.releaseBranch === "string" && record2.releaseBranch.trim()) {
+      policy.releaseBranch = record2.releaseBranch.trim();
     }
-    if (typeof record.tagPrefix === "string") {
-      policy.tagPrefix = record.tagPrefix;
+    if (typeof record2.tagPrefix === "string") {
+      policy.tagPrefix = record2.tagPrefix;
     }
     result[name.trim()] = policy;
   }
@@ -12513,8 +12526,8 @@ function errorOutput(error) {
   if (!error || typeof error !== "object") {
     return String(error);
   }
-  const record = error;
-  return [record.stdout, record.stderr, record.message].filter((value) => typeof value === "string").join("\n");
+  const record2 = error;
+  return [record2.stdout, record2.stderr, record2.message].filter((value) => typeof value === "string").join("\n");
 }
 function isRegistryNotFound(error) {
   return /\be404\b|\b404\s+not\s+found\b|\bno\s+match\s+found\b|\bversion\s+not\s+found\b/i.test(errorOutput(error));
@@ -12792,77 +12805,77 @@ function mergeReleaseTransactions(states, expected) {
   }
   return merged;
 }
-function upgradeLegacyTransaction(record) {
-  if (typeof record.version !== "string" || typeof record.npmEnabled !== "boolean") {
+function upgradeLegacyTransaction(record2) {
+  if (typeof record2.version !== "string" || typeof record2.npmEnabled !== "boolean") {
     throw new Error("SemVerge found an invalid legacy release transaction marker.");
   }
-  const packageIds = stringArray(record.packageIds, "packageIds");
-  const tagNames = stringArray(record.tagNames, "tagNames");
-  const uploadedAssets = assetMap(record.uploadedAssets);
-  const publishedPackages = stringArray(record.publishedPackages, "publishedPackages");
-  if (typeof record.ready !== "boolean" || typeof record.published !== "boolean") {
+  const packageIds = stringArray(record2.packageIds, "packageIds");
+  const tagNames = stringArray(record2.tagNames, "tagNames");
+  const uploadedAssets = assetMap(record2.uploadedAssets);
+  const publishedPackages = stringArray(record2.publishedPackages, "publishedPackages");
+  if (typeof record2.ready !== "boolean" || typeof record2.published !== "boolean") {
     throw new Error("SemVerge found an invalid legacy release transaction marker.");
   }
-  const phase = record.published ? "published" : record.ready ? "built" : "prepared";
+  const phase = record2.published ? "published" : record2.ready ? "built" : "prepared";
   return {
     ...createReleaseTransaction({
-      id: `release_legacy_${record.version.replace(/[^0-9A-Za-z.-]/g, "-")}`,
-      version: record.version,
+      id: `release_legacy_${record2.version.replace(/[^0-9A-Za-z.-]/g, "-")}`,
+      version: record2.version,
       sourceCommit: "unknown",
       packageIds,
       tagNames,
-      npmEnabled: record.npmEnabled,
-      now: typeof record.updatedAt === "string" ? record.updatedAt : void 0
+      npmEnabled: record2.npmEnabled,
+      now: typeof record2.updatedAt === "string" ? record2.updatedAt : void 0
     }),
     phase,
     publishedPackages,
     uploadedAssets,
-    ready: record.ready,
-    published: record.published
+    ready: record2.ready,
+    published: record2.published
   };
 }
 function parseReleaseTransaction(value) {
-  const record = objectValue3(value);
-  if (!record) {
+  const record2 = objectValue3(value);
+  if (!record2) {
     throw new Error("SemVerge found an invalid release transaction marker.");
   }
-  if (record.schemaVersion === 1) {
-    return upgradeLegacyTransaction(record);
+  if (record2.schemaVersion === 1) {
+    return upgradeLegacyTransaction(record2);
   }
-  const hasArtifactDigests = record.schemaVersion === 3 || record.schemaVersion === 4 || record.schemaVersion === 5 || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
-  const hasNpmProvenance = record.schemaVersion === 4 || record.schemaVersion === 5 || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
-  const hasPublishingTargets = record.schemaVersion === 5 || record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
-  const hasOciImages = record.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
-  if (record.schemaVersion !== 2 && record.schemaVersion !== 3 && record.schemaVersion !== 4 && record.schemaVersion !== 5 && record.schemaVersion !== RELEASE_TRANSACTION_SCHEMA_VERSION || typeof record.id !== "string" || typeof record.version !== "string" || typeof record.sourceCommit !== "string" || typeof record.npmEnabled !== "boolean" || hasNpmProvenance && typeof record.npmProvenance !== "boolean" || hasPublishingTargets && record.publishingTargets === void 0 || hasOciImages && (record.ociImages === void 0 || record.publishedOciImages === void 0) || typeof record.ready !== "boolean" || typeof record.published !== "boolean" || typeof record.updatedAt !== "string" || !Array.isArray(record.events) || hasArtifactDigests && record.artifactDigests === void 0) {
+  const hasArtifactDigests = record2.schemaVersion === 3 || record2.schemaVersion === 4 || record2.schemaVersion === 5 || record2.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  const hasNpmProvenance = record2.schemaVersion === 4 || record2.schemaVersion === 5 || record2.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  const hasPublishingTargets = record2.schemaVersion === 5 || record2.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  const hasOciImages = record2.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  if (record2.schemaVersion !== 2 && record2.schemaVersion !== 3 && record2.schemaVersion !== 4 && record2.schemaVersion !== 5 && record2.schemaVersion !== RELEASE_TRANSACTION_SCHEMA_VERSION || typeof record2.id !== "string" || typeof record2.version !== "string" || typeof record2.sourceCommit !== "string" || typeof record2.npmEnabled !== "boolean" || hasNpmProvenance && typeof record2.npmProvenance !== "boolean" || hasPublishingTargets && record2.publishingTargets === void 0 || hasOciImages && (record2.ociImages === void 0 || record2.publishedOciImages === void 0) || typeof record2.ready !== "boolean" || typeof record2.published !== "boolean" || typeof record2.updatedAt !== "string" || !Array.isArray(record2.events) || hasArtifactDigests && record2.artifactDigests === void 0) {
     throw new Error("SemVerge found an invalid release transaction marker.");
   }
-  const failure = record.failure === void 0 ? void 0 : objectValue3(record.failure);
+  const failure = record2.failure === void 0 ? void 0 : objectValue3(record2.failure);
   if (failure && (typeof failure.phase !== "string" || typeof failure.message !== "string" || typeof failure.at !== "string")) {
     throw new Error("SemVerge found an invalid release transaction failure.");
   }
   const normalizedFailure = failure ? { ...typeof failure.key === "string" ? { key: failure.key } : {}, phase: phaseValue(failure.phase, "failure.phase"), message: failure.message, at: failure.at } : void 0;
   return {
     schemaVersion: RELEASE_TRANSACTION_SCHEMA_VERSION,
-    id: record.id,
-    version: record.version,
-    sourceCommit: record.sourceCommit,
-    phase: phaseValue(record.phase),
-    packageIds: stringArray(record.packageIds, "packageIds"),
-    tagNames: stringArray(record.tagNames, "tagNames"),
-    publishingTargets: hasPublishingTargets ? stringArray(record.publishingTargets, "publishingTargets") : record.npmEnabled ? ["npm"] : [],
-    ociImages: hasOciImages ? stringArray(record.ociImages, "ociImages") : [],
-    npmEnabled: record.npmEnabled,
-    npmProvenance: hasNpmProvenance ? record.npmProvenance : false,
-    artifactDigests: hasArtifactDigests ? digestMap(record.artifactDigests) : {},
-    ociDigests: hasOciImages && record.ociDigests !== void 0 ? ociDigestMap(record.ociDigests) : {},
-    publishedPackages: stringArray(record.publishedPackages, "publishedPackages"),
-    publishedOciImages: hasOciImages ? stringArray(record.publishedOciImages, "publishedOciImages") : [],
-    uploadedAssets: normalizeAssets(assetMap(record.uploadedAssets)),
-    ready: record.ready,
-    published: record.published,
-    events: record.events.map(eventValue),
+    id: record2.id,
+    version: record2.version,
+    sourceCommit: record2.sourceCommit,
+    phase: phaseValue(record2.phase),
+    packageIds: stringArray(record2.packageIds, "packageIds"),
+    tagNames: stringArray(record2.tagNames, "tagNames"),
+    publishingTargets: hasPublishingTargets ? stringArray(record2.publishingTargets, "publishingTargets") : record2.npmEnabled ? ["npm"] : [],
+    ociImages: hasOciImages ? stringArray(record2.ociImages, "ociImages") : [],
+    npmEnabled: record2.npmEnabled,
+    npmProvenance: hasNpmProvenance ? record2.npmProvenance : false,
+    artifactDigests: hasArtifactDigests ? digestMap(record2.artifactDigests) : {},
+    ociDigests: hasOciImages && record2.ociDigests !== void 0 ? ociDigestMap(record2.ociDigests) : {},
+    publishedPackages: stringArray(record2.publishedPackages, "publishedPackages"),
+    publishedOciImages: hasOciImages ? stringArray(record2.publishedOciImages, "publishedOciImages") : [],
+    uploadedAssets: normalizeAssets(assetMap(record2.uploadedAssets)),
+    ready: record2.ready,
+    published: record2.published,
+    events: record2.events.map(eventValue),
     ...normalizedFailure ? { failure: normalizedFailure } : {},
-    updatedAt: record.updatedAt
+    updatedAt: record2.updatedAt
   };
 }
 function findTransactionMarker(body) {
@@ -12974,6 +12987,732 @@ function releaseTransactionSummaryMarkdown(state) {
     ...summary.failure ? [`- Recorded failure: ${summary.failure}`] : [],
     `- Safe next action: ${summary.safeNextAction}`
   ].join("\n");
+}
+
+// src/ai.ts
+var OPENAI_API_KEY_ENV = "OPENAI_API_KEY";
+var OPENAI_CHAT_COMPLETIONS_ENDPOINT = "https://api.openai.com/v1/chat/completions";
+var MAX_AI_FEATURE_LENGTH = 80;
+var MAX_AI_TEXT_LENGTH = 4e3;
+var MAX_AI_CHANGE_COUNT = 100;
+var MAX_AI_CONTEXT_LABEL_COUNT = 50;
+var MAX_AI_CONTEXT_FILE_COUNT = 100;
+var MAX_AI_REQUEST_BYTES = 64e3;
+var SAFE_CONTEXT_FILE_PATH = /^(?![A-Za-z]:)(?![\\/])(?!.*(?:^|[\\/])\.\.(?:[\\/]|$))(?!.*(?:^|[\\/])(?:\.env(?:\.[^\\/]*)?|credentials?(?:\.[^\\/]*)?|secrets?(?:\.[^\\/]*)?|id_rsa(?:\.[^\\/]*)?)(?:[\\/]|$))(?!.*(?:^|[\\/])(?:node_modules|dist|build|coverage|generated|vendor)(?:[\\/]|$))[A-Za-z0-9._/@+\\-]+$/i;
+var AiProviderError = class extends Error {
+  constructor(message, kind) {
+    super(message);
+    this.kind = kind;
+    this.name = "AiProviderError";
+  }
+  kind;
+};
+function isRecord(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+function configurationError(message) {
+  return new AiProviderError(message, "configuration");
+}
+function requiredText(value, field, maxLength) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw configurationError(`AI ${field} must be a non-empty string.`);
+  }
+  const result = value.trim();
+  if (result.length > maxLength) {
+    throw configurationError(`AI ${field} must be ${maxLength} characters or fewer.`);
+  }
+  return result;
+}
+function exactKeys(value, expected, optional = []) {
+  const keys = Object.keys(value);
+  const allowed2 = /* @__PURE__ */ new Set([...expected, ...optional]);
+  return expected.every((key) => keys.includes(key)) && keys.every((key) => allowed2.has(key));
+}
+function releaseKind(value) {
+  return value === "feature" || value === "fix" || value === "breaking" || value === "docs" || value === "internal" || value === "other";
+}
+function bumpLevel2(value) {
+  return value === "none" || value === "patch" || value === "minor" || value === "major";
+}
+function customerImpact2(value) {
+  return value === "new" || value === "improved" || value === "fixed" || value === "changed";
+}
+function boundedText(value, field, maxLength = MAX_AI_TEXT_LENGTH) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw configurationError(`AI ${field} must be a non-empty string.`);
+  }
+  const result = redactAiText(value, maxLength);
+  if (!result) {
+    throw configurationError(`AI ${field} must be a non-empty string.`);
+  }
+  return result;
+}
+function redactAiText(value, maxLength = MAX_AI_TEXT_LENGTH) {
+  const redacted = value.replace(/-----BEGIN(?: [^-]+)? PRIVATE KEY-----[\s\S]*?-----END(?: [^-]+)? PRIVATE KEY-----/gi, "[REDACTED PRIVATE KEY]").replace(/\b(?:bearer\s+)[A-Za-z0-9._~+/=-]{8,}/gi, "Bearer [REDACTED]").replace(/\b(?:sk|ghp|gho|ghu|ghs|github_pat|xoxb|xoxp)-[A-Za-z0-9_-]{8,}\b/gi, "[REDACTED TOKEN]").replace(/\bAKIA[0-9A-Z]{12,}\b/g, "[REDACTED ACCESS KEY]").replace(/(["']?\b(?:authorization|password|passwd|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret|npm[_-]?token|pypi[_-]?token|github[_-]?token|openai[_-]?api[_-]?key)\b["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\r\n,;}\]]+))/gi, (match) => `${match.slice(0, match.search(/[:=]/))}: [REDACTED]`).replace(/\b(?:OPENAI_API_KEY|GITHUB_TOKEN|NPM_TOKEN|PYPI_TOKEN)\b/gi, "[REDACTED ENVIRONMENT SECRET]");
+  return redacted.trim().slice(0, maxLength);
+}
+function assertContext(context) {
+  if (!isRecord(context) || !exactKeys(context, ["categories"], ["title", "body", "labels", "files", "conventional", "explicitMetadata"])) {
+    throw configurationError("AI request context contains unsupported fields.");
+  }
+  if (!Array.isArray(context.categories) || context.categories.length === 0 || context.categories.length > 12 || context.categories.some((item) => typeof item !== "string" || !item.trim() || item.length > MAX_AI_FEATURE_LENGTH)) {
+    throw configurationError("AI request context categories must be a bounded list of non-empty strings.");
+  }
+  if (context.title !== void 0) boundedText(context.title, "context.title");
+  if (context.body !== void 0) boundedText(context.body, "context.body");
+  if (context.labels !== void 0 && (!Array.isArray(context.labels) || context.labels.length > MAX_AI_CONTEXT_LABEL_COUNT || context.labels.some((item) => typeof item !== "string" || !item.trim() || item.length > MAX_AI_FEATURE_LENGTH))) {
+    throw configurationError("AI request context labels must be a bounded list of non-empty strings.");
+  }
+  if (context.files !== void 0 && (!Array.isArray(context.files) || context.files.length > MAX_AI_CONTEXT_FILE_COUNT || context.files.some((item) => typeof item !== "string" || !item.trim() || item.length > MAX_AI_TEXT_LENGTH || /[\r\n\0]/.test(item) || !SAFE_CONTEXT_FILE_PATH.test(item)))) {
+    throw configurationError("AI request context files must be a bounded list of safe paths.");
+  }
+  if (context.conventional !== void 0) {
+    if (!isRecord(context.conventional) || !exactKeys(context.conventional, ["kind", "description", "breaking"], ["scope"]) || !releaseKind(context.conventional.kind) || typeof context.conventional.breaking !== "boolean") {
+      throw configurationError("AI request context conventional metadata is invalid.");
+    }
+    boundedText(context.conventional.description, "context.conventional.description");
+    if (context.conventional.scope !== void 0) boundedText(context.conventional.scope, "context.conventional.scope", MAX_AI_FEATURE_LENGTH);
+  }
+  if (context.explicitMetadata !== void 0) {
+    if (!isRecord(context.explicitMetadata) || Object.keys(context.explicitMetadata).some((key) => !["type", "customer", "headline", "outcome", "detail", "impact", "action", "audience", "migration", "internal", "announcement", "breaking", "skip", "readiness"].includes(key))) {
+      throw configurationError("AI request context explicit metadata contains unsupported fields.");
+    }
+    for (const [key, value] of Object.entries(context.explicitMetadata)) {
+      if (typeof value === "string") {
+        boundedText(value, `context.explicitMetadata.${key}`);
+      } else if (typeof value === "boolean") {
+        continue;
+      } else if (Array.isArray(value) && value.every((item) => typeof item === "string" && item.length <= MAX_AI_TEXT_LENGTH)) {
+        continue;
+      } else {
+        throw configurationError(`AI request context explicit metadata field ${key} is invalid.`);
+      }
+    }
+  }
+}
+function assertAiInputEnvelope(value) {
+  if (!isRecord(value) || !exactKeys(value, ["schemaVersion", "feature", "release"], ["context"]) || value.schemaVersion !== 1) {
+    throw configurationError("AI input must be a schemaVersion 1 release-facts envelope.");
+  }
+  requiredText(value.feature, "feature", MAX_AI_FEATURE_LENGTH);
+  if (!isRecord(value.release) || !exactKeys(value.release, ["version", "previousVersion", "bump", "channel", "changes"], ["promotion", "migrationRequired"])) {
+    throw configurationError("AI input release facts contain unsupported fields.");
+  }
+  requiredText(value.release.version, "release.version", MAX_AI_TEXT_LENGTH);
+  requiredText(value.release.previousVersion, "release.previousVersion", MAX_AI_TEXT_LENGTH);
+  if (!bumpLevel2(value.release.bump)) {
+    throw configurationError("AI input release.bump must be none, patch, minor, or major.");
+  }
+  requiredText(value.release.channel, "release.channel", MAX_AI_TEXT_LENGTH);
+  if (value.release.promotion !== void 0 && typeof value.release.promotion !== "boolean") {
+    throw configurationError("AI input release.promotion must be a boolean when provided.");
+  }
+  if (value.release.migrationRequired !== void 0 && typeof value.release.migrationRequired !== "boolean") {
+    throw configurationError("AI input release.migrationRequired must be a boolean when provided.");
+  }
+  if (!Array.isArray(value.release.changes) || value.release.changes.length > MAX_AI_CHANGE_COUNT) {
+    throw configurationError(`AI input release.changes must contain at most ${MAX_AI_CHANGE_COUNT} items.`);
+  }
+  for (const [index, change] of value.release.changes.entries()) {
+    if (!isRecord(change) || !exactKeys(change, ["kind", "title", "summary", "breaking"], ["id", "customerFacing", "impact", "migrationRequired", "migration"]) || !releaseKind(change.kind) || typeof change.breaking !== "boolean") {
+      throw configurationError(`AI input release.changes[${index}] is not a supported release fact.`);
+    }
+    if (change.id !== void 0) requiredText(change.id, `release.changes[${index}].id`, MAX_AI_TEXT_LENGTH);
+    requiredText(change.title, `release.changes[${index}].title`, MAX_AI_TEXT_LENGTH);
+    requiredText(change.summary, `release.changes[${index}].summary`, MAX_AI_TEXT_LENGTH);
+    if (change.customerFacing !== void 0 && typeof change.customerFacing !== "boolean") {
+      throw configurationError(`AI input release.changes[${index}].customerFacing must be a boolean when provided.`);
+    }
+    if (change.impact !== void 0 && !customerImpact2(change.impact)) {
+      throw configurationError(`AI input release.changes[${index}].impact is invalid.`);
+    }
+    if (change.migrationRequired !== void 0 && typeof change.migrationRequired !== "boolean") {
+      throw configurationError(`AI input release.changes[${index}].migrationRequired must be a boolean when provided.`);
+    }
+    if (change.migration !== void 0) requiredText(change.migration, `release.changes[${index}].migration`, MAX_AI_TEXT_LENGTH);
+  }
+  if (value.context !== void 0) {
+    assertContext(value.context);
+  }
+}
+function createAiInputEnvelope(feature, facts, context) {
+  const envelope = {
+    schemaVersion: 1,
+    feature: boundedText(feature, "feature", MAX_AI_FEATURE_LENGTH),
+    release: {
+      version: boundedText(facts.version, "release.version"),
+      previousVersion: boundedText(facts.previousVersion, "release.previousVersion"),
+      bump: facts.bump,
+      channel: boundedText(facts.channel, "release.channel"),
+      changes: facts.changes.map((change) => ({
+        ...change.id !== void 0 ? { id: boundedText(change.id, "release.change.id") } : {},
+        kind: change.kind,
+        title: boundedText(change.title, "release.change.title"),
+        summary: boundedText(change.summary, "release.change.summary"),
+        breaking: change.breaking,
+        ...change.customerFacing !== void 0 ? { customerFacing: change.customerFacing } : {},
+        ...change.impact !== void 0 ? { impact: change.impact } : {},
+        ...change.migrationRequired !== void 0 ? { migrationRequired: change.migrationRequired } : {},
+        ...change.migration !== void 0 ? { migration: boundedText(change.migration, "release.change.migration") } : {}
+      }))
+    }
+  };
+  if (facts.promotion !== void 0) envelope.release.promotion = facts.promotion;
+  if (facts.migrationRequired !== void 0) envelope.release.migrationRequired = facts.migrationRequired;
+  if (context !== void 0) {
+    envelope.context = {
+      categories: context.categories.map((category) => boundedText(category, "context.category", MAX_AI_FEATURE_LENGTH)),
+      ...context.title !== void 0 ? { title: boundedText(context.title, "context.title") } : {},
+      ...context.body !== void 0 ? { body: boundedText(context.body, "context.body") } : {},
+      ...context.labels !== void 0 ? { labels: context.labels.map((label) => boundedText(label, "context.label", MAX_AI_FEATURE_LENGTH)) } : {},
+      ...context.files !== void 0 ? { files: context.files.map((file) => boundedText(file, "context.file")) } : {},
+      ...context.conventional !== void 0 ? {
+        conventional: {
+          kind: context.conventional.kind,
+          ...context.conventional.scope !== void 0 ? { scope: boundedText(context.conventional.scope, "context.conventional.scope", MAX_AI_FEATURE_LENGTH) } : {},
+          description: boundedText(context.conventional.description, "context.conventional.description"),
+          breaking: context.conventional.breaking
+        }
+      } : {},
+      ...context.explicitMetadata !== void 0 ? { explicitMetadata: context.explicitMetadata } : {}
+    };
+  }
+  assertAiInputEnvelope(envelope);
+  return envelope;
+}
+function validateJsonRequest(request) {
+  if (!isRecord(request)) {
+    throw configurationError("AI request must be an object.");
+  }
+  const feature = requiredText(request.feature, "feature", MAX_AI_FEATURE_LENGTH);
+  assertAiInputEnvelope(request.input);
+  if (request.input.feature !== feature) {
+    throw configurationError("AI request feature must match the input envelope feature.");
+  }
+  requiredText(request.instructions, "instructions", MAX_AI_TEXT_LENGTH);
+  if (!isRecord(request.schema) || !/^[A-Za-z0-9_-]{1,64}$/.test(request.schema.name) || !isRecord(request.schema.schema)) {
+    throw configurationError("AI request schema must have a safe name and an object schema.");
+  }
+}
+function assertRequestSize(body) {
+  if (Buffer.byteLength(body, "utf8") > MAX_AI_REQUEST_BYTES) {
+    throw configurationError(`AI request exceeds the ${MAX_AI_REQUEST_BYTES}-byte safety limit.`);
+  }
+}
+function providerErrorDetail(value) {
+  if (!isRecord(value) || !isRecord(value.error) || typeof value.error.message !== "string") {
+    return "The provider returned an error.";
+  }
+  return redactAiText(value.error.message.replace(/\s+/g, " "), 240) || "The provider returned an error.";
+}
+function parsePayload(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return void 0;
+  }
+}
+function responseContent(payload, feature) {
+  if (!isRecord(payload) || !Array.isArray(payload.choices)) {
+    throw new AiProviderError(`OpenAI returned no JSON content for feature "${feature}".`, "malformed-output");
+  }
+  const choice = payload.choices[0];
+  const message = isRecord(choice) && isRecord(choice.message) ? choice.message : void 0;
+  if (message && typeof message.refusal === "string" && message.refusal.trim()) {
+    throw new AiProviderError(`OpenAI refused the optional AI feature "${feature}".`, "provider");
+  }
+  if (!message) {
+    throw new AiProviderError(`OpenAI returned no message for feature "${feature}".`, "malformed-output");
+  }
+  if (typeof message.content === "string" && message.content.trim()) {
+    return message.content;
+  }
+  if (Array.isArray(message.content)) {
+    const content = message.content.flatMap((part) => isRecord(part) && typeof part.text === "string" ? [part.text] : []).join("").trim();
+    if (content) {
+      return content;
+    }
+  }
+  throw new AiProviderError(`OpenAI returned empty content for feature "${feature}".`, "malformed-output");
+}
+function sameJsonValue(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+function schemaTypeMatches(value, type) {
+  if (type === "object") return isRecord(value);
+  if (type === "array") return Array.isArray(value);
+  if (type === "null") return value === null;
+  if (type === "integer") return typeof value === "number" && Number.isInteger(value);
+  if (type === "number") return typeof value === "number" && Number.isFinite(value);
+  if (type === "string") return typeof value === "string";
+  if (type === "boolean") return typeof value === "boolean";
+  return false;
+}
+function matchesAiJsonSchema(value, schema) {
+  if (Array.isArray(schema.enum) && !schema.enum.some((candidate) => sameJsonValue(candidate, value))) {
+    return false;
+  }
+  if ("const" in schema && !sameJsonValue(schema.const, value)) {
+    return false;
+  }
+  if (typeof schema.type === "string" && !schemaTypeMatches(value, schema.type)) {
+    return false;
+  }
+  if (Array.isArray(schema.type) && !schema.type.some((type) => typeof type === "string" && schemaTypeMatches(value, type))) {
+    return false;
+  }
+  if (typeof schema.minLength === "number" && typeof value === "string" && value.length < schema.minLength) {
+    return false;
+  }
+  if (typeof schema.maxLength === "number" && typeof value === "string" && value.length > schema.maxLength) {
+    return false;
+  }
+  if (typeof schema.minItems === "number" && Array.isArray(value) && value.length < schema.minItems) {
+    return false;
+  }
+  if (typeof schema.maxItems === "number" && Array.isArray(value) && value.length > schema.maxItems) {
+    return false;
+  }
+  if (Array.isArray(value)) {
+    if (isRecord(schema.items) && !value.every((item) => matchesAiJsonSchema(item, schema.items))) {
+      return false;
+    }
+    return true;
+  }
+  if (isRecord(value)) {
+    const properties = isRecord(schema.properties) ? schema.properties : {};
+    if (Array.isArray(schema.required) && schema.required.some((key) => typeof key !== "string" || !(key in value))) {
+      return false;
+    }
+    if (schema.additionalProperties === false && Object.keys(value).some((key) => !(key in properties))) {
+      return false;
+    }
+    return Object.entries(properties).every(([key, propertySchema]) => !(key in value) || isRecord(propertySchema) && matchesAiJsonSchema(value[key], propertySchema));
+  }
+  return true;
+}
+async function runWithTimeout(work, timeoutMs, signal) {
+  if (signal?.aborted) {
+    throw new AiProviderError("AI request was cancelled before it started.", "cancelled");
+  }
+  const controller = new AbortController();
+  let timeoutHandle;
+  let onAbort;
+  const workPromise = Promise.resolve().then(() => work(controller.signal));
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      controller.abort();
+      reject(new AiProviderError(`AI request timed out after ${timeoutMs}ms.`, "timeout"));
+    }, timeoutMs);
+  });
+  const racers = [workPromise, timeoutPromise];
+  if (signal) {
+    const cancellationPromise = new Promise((_, reject) => {
+      onAbort = () => {
+        controller.abort(signal.reason);
+        reject(new AiProviderError("AI request was cancelled.", "cancelled"));
+      };
+      if (signal.aborted) {
+        onAbort();
+      } else {
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
+    });
+    racers.push(cancellationPromise);
+  }
+  try {
+    return await Promise.race(racers);
+  } catch (error) {
+    if (error instanceof AiProviderError) {
+      throw error;
+    }
+    const message = error instanceof Error && error.message ? `: ${error.message}` : "";
+    throw new AiProviderError(`OpenAI request failed${message}.`, "transport");
+  } finally {
+    if (timeoutHandle !== void 0) {
+      clearTimeout(timeoutHandle);
+    }
+    if (signal && onAbort) {
+      signal.removeEventListener("abort", onAbort);
+    }
+  }
+}
+var OpenAiProvider = class {
+  name = "openai";
+  apiKey;
+  model;
+  timeoutMs;
+  fetchImpl;
+  endpoint;
+  constructor(options) {
+    if (typeof options.apiKey !== "string" || !options.apiKey.trim()) {
+      throw configurationError(`OpenAI requires ${OPENAI_API_KEY_ENV} to be set.`);
+    }
+    if (typeof options.model !== "string" || !options.model.trim()) {
+      throw configurationError("OpenAI requires ai.model when AI is enabled.");
+    }
+    const timeoutMs = options.timeoutMs ?? DEFAULT_AI_TIMEOUT_MS;
+    if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+      throw configurationError("AI timeoutMs must be a positive integer.");
+    }
+    this.apiKey = options.apiKey.trim();
+    this.model = options.model.trim();
+    this.timeoutMs = timeoutMs;
+    this.fetchImpl = options.fetchImpl ?? ((input2, init) => globalThis.fetch(input2, init));
+    this.endpoint = options.endpoint ?? OPENAI_CHAT_COMPLETIONS_ENDPOINT;
+  }
+  async generateJson(request, options = {}) {
+    validateJsonRequest(request);
+    const body = JSON.stringify({
+      model: this.model,
+      messages: [
+        {
+          role: "system",
+          content: [
+            "You provide optional advisory communication for SemVerge.",
+            "Use only the release facts in the input envelope.",
+            "Your response is communication guidance only and must not change version, readiness, publication, transaction, artifact-integrity, or registry decisions.",
+            request.instructions
+          ].join("\n")
+        },
+        { role: "user", content: JSON.stringify(request.input) }
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: request.schema.name,
+          strict: request.schema.strict ?? true,
+          schema: request.schema.schema
+        }
+      }
+    });
+    assertRequestSize(body);
+    const { response, text } = await runWithTimeout(async (signal) => {
+      const response2 = await this.fetchImpl(this.endpoint, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${this.apiKey}`
+        },
+        body,
+        signal
+      });
+      return { response: response2, text: await response2.text() };
+    }, this.timeoutMs, options.signal);
+    const payload = parsePayload(text);
+    if (!response.ok) {
+      throw new AiProviderError(`OpenAI request failed with HTTP ${response.status}: ${providerErrorDetail(payload)}`, "provider");
+    }
+    const content = responseContent(payload, request.feature);
+    let value;
+    try {
+      value = JSON.parse(content);
+    } catch {
+      throw new AiProviderError(`OpenAI returned malformed JSON for feature "${request.feature}".`, "malformed-output");
+    }
+    if (!matchesAiJsonSchema(value, request.schema.schema)) {
+      throw new AiProviderError(`OpenAI returned JSON that does not match the schema for feature "${request.feature}".`, "malformed-output");
+    }
+    return value;
+  }
+};
+function createAiProvider(config, env = process.env, options = {}) {
+  if (!config?.enabled) {
+    return null;
+  }
+  if (config.provider !== "openai") {
+    throw configurationError(`Unsupported AI provider "${String(config.provider)}".`);
+  }
+  const apiKey = env[OPENAI_API_KEY_ENV]?.trim();
+  if (!apiKey) {
+    throw configurationError(`AI is enabled, but ${OPENAI_API_KEY_ENV} is not set. Store the key in the environment or GitHub Actions secrets; never put it in .semverge.yml.`);
+  }
+  return new OpenAiProvider({
+    apiKey,
+    model: config.model,
+    timeoutMs: config.timeoutMs,
+    fetchImpl: options.fetchImpl,
+    endpoint: options.endpoint
+  });
+}
+async function runOptionalAiFeature(config, request, options = {}) {
+  if (!config?.enabled) {
+    return null;
+  }
+  try {
+    const provider = createAiProvider(config, options.env, options);
+    if (!provider) {
+      return null;
+    }
+    return await provider.generateJson(request, { signal: options.signal });
+  } catch (error) {
+    const failure = error instanceof AiProviderError ? error : new AiProviderError(error instanceof Error ? error.message : String(error), "transport");
+    if (options.fallback) {
+      return await options.fallback(failure);
+    }
+    throw failure;
+  }
+}
+
+// src/release-assistance.ts
+var RELEASE_NOTES_AI_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    version: { type: "string", minLength: 1, maxLength: 256 },
+    bump: { type: "string", enum: ["none", "patch", "minor", "major"] },
+    channel: { type: "string", minLength: 1, maxLength: 256 },
+    promotion: { type: "boolean" },
+    summary: { type: "string", minLength: 1, maxLength: 4e3 },
+    highlights: {
+      type: "array",
+      maxItems: 100,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          changeId: { type: "string", minLength: 1, maxLength: 256 },
+          impact: { type: "string", enum: ["new", "improved", "fixed", "changed"] },
+          text: { type: "string", minLength: 1, maxLength: 2e3 }
+        },
+        required: ["changeId", "impact", "text"]
+      }
+    },
+    migrationRequired: { type: "boolean" },
+    migrationNotes: {
+      type: "array",
+      maxItems: 100,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          changeId: { type: "string", minLength: 1, maxLength: 256 },
+          text: { type: "string", minLength: 1, maxLength: 2e3 }
+        },
+        required: ["changeId", "text"]
+      }
+    },
+    breakingChangeIds: {
+      type: "array",
+      maxItems: 100,
+      items: { type: "string", minLength: 1, maxLength: 256 }
+    }
+  },
+  required: ["version", "bump", "channel", "promotion", "summary", "highlights", "migrationRequired", "migrationNotes", "breakingChangeIds"]
+};
+var RELEASE_NOTES_FEATURE = "release-notes";
+var CUSTOMER_KINDS = /* @__PURE__ */ new Set(["feature", "fix", "breaking"]);
+function isNoAction2(value) {
+  return /^(?:no|none|not)\s+(?:customer\s+)?(?:action|migration)(?:\s+(?:is\s+)?required)?[.!]?$/i.test(value.trim()) || /^n\/a[.!]?$/i.test(value.trim());
+}
+function customerFacing(change) {
+  return CUSTOMER_KINDS.has(change.kind) || change.breaking;
+}
+function migrationText(change) {
+  const explicit = change.migration?.trim();
+  if (explicit && !isNoAction2(explicit)) {
+    return explicit;
+  }
+  const action = change.customerCommunication?.actionRequired?.trim();
+  if (action && !isNoAction2(action)) {
+    return action;
+  }
+  if (change.breaking || change.kind === "breaking") {
+    return `Review the changed behavior before upgrading: ${change.customerCommunication?.outcome ?? change.customerSummary}`;
+  }
+  return void 0;
+}
+function releaseChangeId(change, index) {
+  if (change.number !== void 0) {
+    return `pr:${change.number}`;
+  }
+  if (change.sha?.trim()) {
+    return `commit:${change.sha.trim()}`;
+  }
+  return `change:${index + 1}`;
+}
+function releaseNotesChangeFacts(plan) {
+  return plan.releaseChanges.map((change, index) => {
+    const visible = customerFacing(change);
+    const migration = migrationText(change);
+    const communication = change.customerCommunication;
+    return {
+      id: releaseChangeId(change, index),
+      kind: change.kind,
+      title: visible ? communication?.headline ?? communication?.outcome ?? change.customerSummary : "[internal change omitted]",
+      summary: visible ? communication?.outcome ?? change.customerSummary : "This release fact is not customer-facing and must not appear in customer communication.",
+      breaking: change.breaking,
+      customerFacing: visible,
+      ...visible ? { impact: change.breaking || change.kind === "breaking" ? "changed" : change.customerCommunication?.impact ?? (change.kind === "feature" ? "new" : change.kind === "fix" ? "fixed" : "improved") } : {},
+      migrationRequired: Boolean(migration),
+      ...migration ? { migration } : {}
+    };
+  });
+}
+function releaseNotesFacts(plan) {
+  const changes = releaseNotesChangeFacts(plan);
+  return {
+    version: plan.version,
+    previousVersion: plan.previousVersion,
+    bump: plan.bump,
+    channel: plan.channel,
+    promotion: plan.promotion,
+    migrationRequired: changes.some((change) => change.migrationRequired),
+    changes
+  };
+}
+function releaseNotesRequest(plan, options = {}) {
+  const facts = releaseNotesFacts(plan);
+  const tone = options.tone ?? "neutral";
+  const verbosity = options.verbosity ?? "standard";
+  return {
+    feature: RELEASE_NOTES_FEATURE,
+    input: createAiInputEnvelope(RELEASE_NOTES_FEATURE, facts),
+    instructions: [
+      "Draft customer-facing release notes from the authoritative release facts.",
+      `Use a ${tone} tone and ${verbosity} level of detail.`,
+      "Return every customer-facing change exactly once with its provided changeId and impact.",
+      "Do not mention internal-only facts, add changes, alter categories, change the version, or remove breaking or migration requirements.",
+      "The release facts, version, bump, channel, promotion, breaking ids, and migration requirement are immutable; echo them exactly."
+    ].join(" "),
+    schema: {
+      name: "semverge_release_notes",
+      schema: RELEASE_NOTES_AI_SCHEMA,
+      strict: true
+    }
+  };
+}
+function record(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+function sameMembers(actual, expected) {
+  return actual.length === expected.length && new Set(actual).size === actual.length && actual.every((item) => expected.includes(item));
+}
+function unsafeGeneratedText(value) {
+  return redactAiText(value, Math.max(value.length, 1)) !== value.trim();
+}
+function reconcileReleaseNotes(plan, suggestion) {
+  const violations = [];
+  if (!record(suggestion)) {
+    return { status: "rejected", accepted: false, violations: ["AI release-notes output must be an object."] };
+  }
+  const facts = releaseNotesChangeFacts({ releaseChanges: plan.releaseChanges });
+  const known = new Map(facts.flatMap((fact) => fact.id ? [[fact.id, fact]] : []));
+  const customerFacts = facts.filter((fact) => fact.customerFacing === true);
+  const customerIds = customerFacts.flatMap((fact) => fact.id ? [fact.id] : []);
+  const breakingIds = facts.filter((fact) => fact.breaking).flatMap((fact) => fact.id ? [fact.id] : []);
+  const migrationIds = facts.filter((fact) => fact.migrationRequired).flatMap((fact) => fact.id ? [fact.id] : []);
+  if (suggestion.version !== plan.version) violations.push("version does not match the deterministic release plan");
+  if (suggestion.bump !== plan.bump) violations.push("bump does not match the deterministic release plan");
+  if (suggestion.channel !== plan.channel) violations.push("channel does not match the deterministic release plan");
+  if (suggestion.promotion !== plan.promotion) violations.push("promotion does not match the deterministic release plan");
+  if (suggestion.migrationRequired !== migrationIds.length > 0) violations.push("migrationRequired does not match the deterministic release plan");
+  if (typeof suggestion.summary !== "string" || !suggestion.summary.trim() || suggestion.summary.length > 4e3) violations.push("summary is empty or exceeds the safety limit");
+  if (typeof suggestion.summary === "string" && unsafeGeneratedText(suggestion.summary)) violations.push("summary contains secret-like content");
+  const highlights = Array.isArray(suggestion.highlights) ? suggestion.highlights : [];
+  const highlightIds = [];
+  for (const item of highlights) {
+    if (!record(item) || typeof item.changeId !== "string" || typeof item.impact !== "string" || typeof item.text !== "string") {
+      violations.push("highlight is not a valid structured change entry");
+      continue;
+    }
+    highlightIds.push(item.changeId);
+    const fact = known.get(item.changeId);
+    if (!fact) violations.push(`highlight references unknown change ${item.changeId}`);
+    else if (fact.customerFacing !== true) violations.push(`highlight exposes non-customer change ${item.changeId}`);
+    else if (item.impact !== fact.impact) violations.push(`highlight changes the deterministic impact for ${item.changeId}`);
+    if (!item.text.trim() || item.text.length > 2e3) violations.push(`highlight text for ${item.changeId} is empty or exceeds the safety limit`);
+    if (unsafeGeneratedText(item.text)) violations.push(`highlight text for ${item.changeId} contains secret-like content`);
+  }
+  if (!sameMembers(highlightIds, customerIds)) violations.push("highlights do not contain exactly the deterministic customer-facing changes");
+  const breakingOutput = Array.isArray(suggestion.breakingChangeIds) && suggestion.breakingChangeIds.every((item) => typeof item === "string") ? suggestion.breakingChangeIds : [];
+  if (!sameMembers(breakingOutput, breakingIds)) violations.push("breaking-change ids do not preserve the deterministic breaking classification");
+  const migrationNotes = Array.isArray(suggestion.migrationNotes) ? suggestion.migrationNotes : [];
+  const migrationOutputIds = [];
+  for (const item of migrationNotes) {
+    if (!record(item) || typeof item.changeId !== "string" || typeof item.text !== "string") {
+      violations.push("migration note is not a valid structured entry");
+      continue;
+    }
+    migrationOutputIds.push(item.changeId);
+    const fact = known.get(item.changeId);
+    if (!fact) violations.push(`migration note references unknown change ${item.changeId}`);
+    else if (fact.migrationRequired !== true) violations.push(`migration note invents a requirement for ${item.changeId}`);
+    if (!item.text.trim() || item.text.length > 2e3) violations.push(`migration note for ${item.changeId} is empty or exceeds the safety limit`);
+    if (unsafeGeneratedText(item.text)) violations.push(`migration note for ${item.changeId} contains secret-like content`);
+  }
+  if (!sameMembers(migrationOutputIds, migrationIds)) violations.push("migration notes do not preserve the deterministic requirements");
+  if (violations.length > 0) {
+    return { status: "rejected", accepted: false, violations: [...new Set(violations)] };
+  }
+  return { status: "accepted", accepted: true, value: suggestion, violations: [] };
+}
+async function suggestAiReleaseNotes(plan, config, options = {}) {
+  const { tone, verbosity, ...providerOptions } = options;
+  let usedFallback = false;
+  const requestOptions = providerOptions.fallback ? {
+    ...providerOptions,
+    fallback: async (error) => {
+      usedFallback = true;
+      return providerOptions.fallback(error);
+    }
+  } : providerOptions;
+  const result = await runOptionalAiFeature(config, releaseNotesRequest(plan, { tone, verbosity }), requestOptions);
+  if (result === null) {
+    return null;
+  }
+  if (usedFallback) {
+    return result;
+  }
+  const reconciliation = reconcileReleaseNotes(plan, result);
+  if (!reconciliation.accepted || !reconciliation.value) {
+    throw new AiProviderError("AI release-notes output was rejected by deterministic reconciliation.", "malformed-output");
+  }
+  return reconciliation.value;
+}
+function renderAiReleaseNotes(suggestion, plan) {
+  const facts = releaseNotesChangeFacts({ releaseChanges: plan.releaseChanges });
+  const byId = new Map(facts.flatMap((fact) => fact.id ? [[fact.id, fact]] : []));
+  const lines = [`# What's new in ${plan.version}`, "", suggestion.summary.trim(), ""];
+  for (const [title, impact] of [["New", "new"], ["Improved", "improved"], ["Fixed", "fixed"], ["Changed", "changed"]]) {
+    const entries = suggestion.highlights.filter((highlight) => highlight.impact === impact);
+    if (entries.length === 0) continue;
+    lines.push(`## ${title}`, "", ...entries.map((highlight) => `- ${highlight.text.trim()}`), "");
+  }
+  if (facts.some((fact) => fact.breaking)) {
+    lines.push("## Important upgrade note", "", "Existing behavior changes in this release; review the required action before upgrading.", "");
+  }
+  if (suggestion.migrationRequired) {
+    lines.push("## Action required", "", ...suggestion.migrationNotes.map((note) => {
+      const deterministic = byId.get(note.changeId)?.migration;
+      return `- ${(deterministic ?? note.text).trim()}`;
+    }), "");
+  }
+  return `${lines.join("\n").replace(/\n{3,}/g, "\n\n").trim()}
+`;
+}
+async function buildAiReleaseNotesPreview(plan, config, options = {}) {
+  const deterministic = plan.customerNotes;
+  if (!config?.enabled || config.releaseNotes !== true) {
+    return { status: "disabled", deterministic };
+  }
+  if (!plan.releaseChanges.some(customerFacing)) {
+    return { status: "not-applicable", deterministic };
+  }
+  try {
+    const suggestion = await suggestAiReleaseNotes(plan, config, {
+      ...options,
+      tone: options.tone ?? config.tone,
+      verbosity: options.verbosity ?? config.verbosity
+    });
+    if (!suggestion) {
+      return { status: "unavailable", deterministic, reason: "provider" };
+    }
+    return { status: "generated", deterministic, suggestion, rendered: renderAiReleaseNotes(suggestion, plan) };
+  } catch (error) {
+    const reason = error instanceof AiProviderError ? error.kind : "transport";
+    return { status: "unavailable", deterministic, reason };
+  }
 }
 
 // src/action.ts
@@ -13155,7 +13894,29 @@ function releaseGraphMarkdown(plan) {
   }
   return lines;
 }
-function releasePrBody(plan, config) {
+function aiReleaseNotesMarkdown(previews) {
+  if (previews.length === 0) {
+    return [];
+  }
+  const lines = [
+    "## AI-enhanced customer notes (review draft)",
+    "",
+    "These notes are advisory. The deterministic customer notes above remain authoritative until a human reviews and explicitly applies a draft.",
+    ""
+  ];
+  for (const { packageName, preview } of previews) {
+    lines.push(`### ${packageName}`, "", `- Status: **${preview.status}**`);
+    if (preview.status === "generated" && preview.rendered) {
+      lines.push("", "#### AI draft", "", preview.rendered.trim(), "", "#### Deterministic baseline", "", preview.deterministic.trim());
+    } else {
+      lines.push(`- Deterministic fallback retained: **${preview.deterministic ? "yes" : "no"}**`);
+      if (preview.reason) lines.push(`- Provider status: **${preview.reason}**`);
+    }
+    lines.push("");
+  }
+  return lines;
+}
+function releasePrBody(plan, config, aiReleaseNotes = []) {
   const marker = JSON.stringify({ version: plan.version, manifest: config.outputs.manifest, mode: plan.mode, channel: plan.channel, promotion: plan.promotion });
   const packageLines = plan.packages.map(({ package: packageItem, plan: packagePlan }) => `- **${packageItem.name}**: ${packageItem.version} -> **${packagePlan.version}** (${packagePlan.bump}, ${packagePlan.channel}${packagePlan.promotion ? ", promotion" : ""})`);
   const notes = plan.packages.map(({ package: packageItem, plan: packagePlan }) => `### ${packageItem.name}
@@ -13185,6 +13946,8 @@ ${packagePlan.customerNotes.trim()}`).join("\n\n");
     "## Customer-facing notes",
     "",
     notes || "No customer-facing updates are included in this release.",
+    "",
+    ...aiReleaseNotesMarkdown(aiReleaseNotes),
     "",
     "---",
     "Generated by SemVerge. Merge this pull request to publish the tag and GitHub release."
@@ -13460,6 +14223,15 @@ async function prepareRelease(client, head, config, branch, defaultBranch, reque
     log(JSON.stringify(plan, null, 2));
     return;
   }
+  const aiReleaseNotes = effectiveConfig.ai?.enabled && effectiveConfig.ai.releaseNotes === true ? await Promise.all(plan.packages.map(async ({ package: packageItem, plan: packagePlan }) => ({
+    packageName: packageItem.name,
+    preview: await buildAiReleaseNotesPreview(packagePlan, effectiveConfig.ai)
+  }))) : [];
+  for (const { packageName, preview } of aiReleaseNotes) {
+    if (preview.status === "unavailable") {
+      log(`AI release-notes draft unavailable for ${packageName} (${preview.reason ?? "provider"}); deterministic notes were retained.`);
+    }
+  }
   const repository = await client.repositoryInfo();
   const entries = new Map(Object.entries(fileMapFromPlan(plan)));
   for (const change of plan.versionChanges) {
@@ -13475,7 +14247,7 @@ async function prepareRelease(client, head, config, branch, defaultBranch, reque
   }
   const titleVersion = plan.mode === "independent" ? plan.version : releaseTagName(effectiveConfig.release.tagPrefix, plan.version);
   const title = `chore(release): ${titleVersion}`;
-  const body = releasePrBody(plan, effectiveConfig);
+  const body = releasePrBody(plan, effectiveConfig, aiReleaseNotes);
   const existing = (await client.listPullRequests({ state: "open", head: `${repository.owner.login}:${effectiveConfig.release.branch}`, base: baseBranch }))[0];
   const releasePr = existing ? await client.updatePullRequest(existing.number, { title, body }) : await client.createPullRequest({ title, body, head: effectiveConfig.release.branch, base: baseBranch });
   setOutput("release-pr", releasePr.html_url);

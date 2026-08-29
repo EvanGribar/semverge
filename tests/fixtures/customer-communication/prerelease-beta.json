@@ -1,0 +1,11 @@
+{
+  "version": "2.1.0-beta.2",
+  "date": "2026-08-29",
+  "changes": [
+    {
+      "title": "feat: preview scheduled exports",
+      "source": "pull_request",
+      "body": "<!-- semverge\nheadline: Scheduled exports preview\noutcome: Teams can try scheduled exports before the stable release.\nimpact: new\n-->"
+    }
+  ]
+}

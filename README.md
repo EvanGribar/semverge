@@ -79,6 +79,7 @@ The package includes a small deterministic local workflow for setup and troubles
 npx semverge init       # create .semverge.yml without overwriting it
 npx semverge plan "feat: add bulk export"
 npx semverge explain "feat: add bulk export"
+npx semverge infer "feat: add bulk export" --body "Teams can export several projects." --json
 npx semverge migrate changesets  # inspect an existing release tool
 npx semverge doctor     # report local setup, configuration, and hosted-release signals
 npx semverge recover release_01J... --state .semverge/release-state.json
@@ -88,6 +89,8 @@ npx semverge verify v1.2.3 --json # emit a deterministic CI-friendly report
 
 `init` is safe by default and requires `--force` to replace an existing file. `plan` prints the same release-plan shape used by the action, `explain` turns that plan into a human-readable decision and recovery guide, while `doctor` reports local package-manager, workspace, tag, release-tool, registry, build, workflow-permission, and configuration signals before a hosted run. It never prints auth settings and cannot prove provider-side eligibility. See [docs/doctor.md](docs/doctor.md).
 `migrate` detects Release Please, Changesets, and semantic-release configuration and produces a conservative report; add `--write` only after reviewing it. `recover` prints the durable transaction state and safe next action. `verify` is read-only: it checks the transaction, source tag, recorded artifact digests, GitHub release assets, configured package registries, npm provenance evidence, and recorded OCI digests where those providers are available. Its report distinguishes `verified`, `mismatch`, `unavailable`, and `not-applicable`; it exits `0` for a complete verification, `1` for integrity mismatches, and `2` when required provider evidence is unavailable. With `GITHUB_REPOSITORY` and a token it verifies the hosted release; `--state` is useful for a local exported marker or fixture. See [docs/verification.md](docs/verification.md) and [docs/migration.md](docs/migration.md).
+
+`infer` is an explicit, advisory metadata suggestion. It can use bounded title/body/label context and safe file paths, but never file contents or diffs; review the returned block before applying it with `--write <body-file>`.
 
 The optional dependency-free [project surface](website/README.md) is Vercel-compatible but not hosted or required. See [docs/vercel.md](docs/vercel.md) for the current no-deployment boundary.
 
@@ -201,9 +204,18 @@ health:
       purpose: package
     - name: Deploy production
       purpose: deployment
+ai:
+  enabled: true
+  provider: openai
+  model: your-provider-supported-model
+  timeoutMs: 10000
+  releaseNotes: true # review-only draft in the release PR
+  infer: true        # allow the explicit infer command
+  tone: neutral
+  verbosity: standard
 ```
 
-AI assistance is disabled by default. The explicit `assist` command can request advisory release communication through the BYOK provider layer without changing the deterministic release plan. See [docs/ai.md](docs/ai.md) for the data envelope, environment credential, timeout, and fallback contract.
+AI assistance is disabled by default. The explicit `assist` command can request advisory release communication, `releaseNotes` can add a review-only draft to a release PR, and `infer` can suggest structured pull-request metadata. All three use the BYOK provider layer; deterministic release facts and artifacts remain authoritative, and provider failures fall back safely. See [docs/ai.md](docs/ai.md) for the data envelope, environment credential, timeout, and fallback contract.
 
 Readiness checks are reported in the release PR. A missing required label or file blocks publication but does not hide the proposed version or generated communication.
 

@@ -16,6 +16,10 @@ export type ReleasePromotion = "stable";
 
 export type CustomerImpact = "new" | "improved" | "fixed" | "changed";
 
+export type AiTone = "neutral" | "friendly" | "professional";
+
+export type AiVerbosity = "concise" | "standard" | "detailed";
+
 export interface CustomerCommunication {
   headline?: string;
   outcome: string;
@@ -34,6 +38,12 @@ export interface AiConfig {
   provider: AiProviderName;
   model: string;
   timeoutMs: number;
+  /** Generate an advisory release-notes draft in the release PR. */
+  releaseNotes?: boolean;
+  /** Allow the explicit `infer` command to request metadata suggestions. */
+  infer?: boolean;
+  tone?: AiTone;
+  verbosity?: AiVerbosity;
 }
 
 export type PackageReleaseReason = "direct-change" | "dependency-update" | "fixed-workspace";
