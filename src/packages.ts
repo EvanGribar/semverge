@@ -2,7 +2,7 @@ import { basename, dirname, posix } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { parseVersion } from "./semver.js";
 import { readTargetName, readTargetVersion, type VersionTarget } from "./version-adapters.js";
-import type { Ecosystem, MonorepoMode, SemVergeConfig, WorkspaceDependencyField } from "./types.js";
+import type { Ecosystem, MonorepoMode, SemVergeConfig, VersionFileConfig, WorkspaceDependencyField } from "./types.js";
 
 export interface PackageDescriptor extends VersionTarget {
   id: string;
@@ -143,6 +143,82 @@ function packageTarget(path: string): { ecosystem: Ecosystem; directory: string 
   return null;
 }
 
+interface GenericVersionFileGroup {
+  name: string;
+  specs: VersionFileConfig[];
+}
+
+function genericVersionFileGroups(config: SemVergeConfig): GenericVersionFileGroup[] {
+  const specs = config.versionFiles.map((spec) => ({ ...spec, path: normalize(spec.path) }));
+  if (specs.length === 0) {
+    return [];
+  }
+
+  const groups = new Map<string, GenericVersionFileGroup>();
+  for (const spec of specs) {
+    const requestedName = spec.package?.trim();
+    const key = requestedName ? normalize(requestedName).toLowerCase() : "root";
+    const existing = groups.get(key);
+    if (existing) {
+      existing.specs.push(spec);
+      continue;
+    }
+    groups.set(key, { name: requestedName ? normalize(requestedName) : "root", specs: [spec] });
+  }
+  return [...groups.values()];
+}
+
+function genericDescriptor(group: GenericVersionFileGroup, files: Map<string, string>): PackageDescriptor {
+  const first = group.specs[0];
+  if (!first) {
+    throw new Error("SemVerge could not create a generic version target without a version file.");
+  }
+  const manifestPath = normalize(first.path);
+  const directory = dirname(manifestPath) === "." ? "" : normalize(dirname(manifestPath));
+  const target: VersionTarget = {
+    ecosystem: "generic",
+    manifestPath,
+    directory,
+    versionFile: { ...first, path: manifestPath }
+  };
+  const versions = group.specs.map((spec) => {
+    const path = normalize(spec.path);
+    const content = files.get(path);
+    if (content === undefined) {
+      throw new Error(`Configured version file ${path} was not found at the release commit.`);
+    }
+    const version = readTargetVersion({
+      ecosystem: "generic",
+      manifestPath: path,
+      directory: dirname(path) === "." ? "" : normalize(dirname(path)),
+      versionFile: { ...spec, path }
+    }, content);
+    if (!parseVersion(version)) {
+      throw new Error(`${path} contains an invalid semantic version: ${version}`);
+    }
+    return version;
+  });
+  const uniqueVersions = new Set(versions);
+  if (uniqueVersions.size > 1) {
+    throw new Error(`Configured version files for generic package ${group.name} do not agree on one current version.`);
+  }
+  const version = versions[0];
+  if (!version) {
+    throw new Error(`Configured version files for generic package ${group.name} did not contain a version.`);
+  }
+  return {
+    ...target,
+    id: group.name,
+    name: group.name,
+    manifestPath,
+    version,
+    private: false,
+    releaseable: true,
+    workspaceDependencies: [],
+    workspaceDependencyTypes: {}
+  };
+}
+
 function descriptor(path: string, content: string, releaseable: boolean): PackageDescriptor {
   const normalized = normalize(path);
   const target = packageTarget(normalized);
@@ -259,11 +335,15 @@ export function discoverPackages(files: Record<string, string>, allPaths: string
         discovered.push(descriptor(path, content, true));
       }
     }
+  } else if (config.versionFiles.length > 0) {
+    for (const group of genericVersionFileGroups(config)) {
+      discovered.push(genericDescriptor(group, normalizedFiles));
+    }
   }
 
   const unique = [...new Map(discovered.map((item) => [item.manifestPath, item])).values()];
   if (unique.length === 0) {
-    throw new Error("SemVerge could not find a supported package manifest (package.json, pyproject.toml, or Cargo.toml).");
+    throw new Error("SemVerge could not find a supported package manifest or configured generic version file (package.json, pyproject.toml, Cargo.toml, or versionFiles).");
   }
   const internalPackageNames = new Set(unique.filter((item) => item.ecosystem === "node").map((item) => item.name));
   for (const packageItem of unique.filter((item) => item.ecosystem === "node")) {

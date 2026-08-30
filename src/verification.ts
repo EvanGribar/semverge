@@ -189,7 +189,7 @@ export function parseVerificationManifest(content: string): VerificationManifest
           ...(typeof packageRecord.id === "string" ? { id: packageRecord.id } : {}),
           ...(typeof packageRecord.name === "string" ? { name: packageRecord.name } : {}),
           ...(typeof packageRecord.directory === "string" ? { directory: packageRecord.directory } : {}),
-          ...(packageRecord.ecosystem === "node" || packageRecord.ecosystem === "python" || packageRecord.ecosystem === "rust" ? { ecosystem: packageRecord.ecosystem } : {}),
+          ...(packageRecord.ecosystem === "node" || packageRecord.ecosystem === "python" || packageRecord.ecosystem === "rust" || packageRecord.ecosystem === "generic" ? { ecosystem: packageRecord.ecosystem } : {}),
           ...(typeof packageRecord.version === "string" ? { version: packageRecord.version } : {}),
           ...(typeof packageRecord.private === "boolean" ? { private: packageRecord.private } : {}),
           ...(typeof packageRecord.releaseable === "boolean" ? { releaseable: packageRecord.releaseable } : {})

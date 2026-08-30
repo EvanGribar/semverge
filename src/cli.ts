@@ -17,7 +17,11 @@ import { parseVersion } from "./semver.js";
 import { parseReleaseTransaction, parseReleaseTransactionBody, recordReleaseTransactionEvent, releaseTransactionSummaryMarkdown, updateReleaseTransactionBody, type ReleaseTransaction } from "./transaction.js";
 import { createPluginRegistryFromConfig, runTransactionOwnedPluginHook } from "./plugin-sdk.js";
 import { readPackageVersion } from "./version-files.js";
+import { discoverPackages } from "./packages.js";
+import { buildWorkspaceReleasePlan, type WorkspaceReleasePlan } from "./workspace-release.js";
+import { readVersionFile, validateVersionFileConfig } from "./version-updaters.js";
 import { verifyRelease, verificationReportJson, verificationReportMarkdown } from "./verification.js";
+import type { ReleasePlan, SemVergeConfig } from "./types.js";
 
 export const DEFAULT_CONFIG_TEMPLATE = `# SemVerge configuration. Remove this file to use zero-configuration defaults.
 release:
@@ -147,15 +151,45 @@ async function init(cwd: string, force: boolean, detect: boolean, io: CliIo): Pr
   return 0;
 }
 
-async function localPlan(cwd: string, configPath: string, title: string) {
-  const packageJson = await readFile(join(cwd, "package.json"), "utf8");
+type LocalPlan = ReleasePlan | WorkspaceReleasePlan;
+
+function primaryLocalPlan(plan: LocalPlan): ReleasePlan {
+  if ("bump" in plan) {
+    return plan;
+  }
+  return plan.packages[0]?.plan ?? buildReleasePlan({ currentVersion: plan.version, changes: plan.changes });
+}
+
+async function localPlan(cwd: string, configPath: string, title: string): Promise<LocalPlan> {
   const configContent = await readOptional(join(cwd, configPath)) ?? "";
   const config = parseConfig(configContent, configPath);
-  const currentVersion = readPackageVersion(packageJson);
-  return buildReleasePlan({
-    currentVersion,
+  const packageJson = await readOptional(join(cwd, "package.json"));
+  const changes = [parseChange({ title: title || "fix: generated local preview", source: "commit" })];
+  if (packageJson !== undefined || config.versionFiles.length === 0) {
+    const packageContent = packageJson ?? await readFile(join(cwd, "package.json"), "utf8");
+    return buildReleasePlan({
+      currentVersion: readPackageVersion(packageContent),
+      config,
+      changes
+    });
+  }
+
+  const files: Record<string, string> = {};
+  for (const spec of config.versionFiles) {
+    const content = await readOptional(localVersionFilePath(cwd, spec));
+    if (content === undefined) {
+      throw new Error(`Configured version file ${spec.path} was not found in ${cwd}.`);
+    }
+    files[spec.path] = content;
+    readVersionFile(spec, content);
+  }
+  const discovered = discoverPackages(files, Object.keys(files), config);
+  return buildWorkspaceReleasePlan({
+    packages: discovered.packages,
+    mode: discovered.mode,
+    files,
     config,
-    changes: [parseChange({ title: title || "fix: generated local preview", source: "commit" })]
+    changes
   });
 }
 
@@ -171,7 +205,7 @@ async function assist(cwd: string, configPath: string, title: string, io: CliIo)
     io.stdout("AI assistance is disabled; no provider request was made.");
     return 0;
   }
-  const plan = await localPlan(cwd, configPath, title);
+  const plan = primaryLocalPlan(await localPlan(cwd, configPath, title));
   const suggestion = await suggestReleaseCommunication(plan, config.ai, {
     fallback: (error) => {
       io.stderr(`AI assistance unavailable: ${error.message}`);
@@ -275,8 +309,21 @@ async function infer(
   }
 }
 
+function localVersionFilePath(cwd: string, spec: SemVergeConfig["versionFiles"][number]): string {
+  const validation = validateVersionFileConfig(spec);
+  if (validation.length > 0) {
+    throw new Error(`Invalid version file ${spec.path}: ${validation.join("; ")}`);
+  }
+  const absolute = resolve(cwd, spec.path);
+  const outside = relative(cwd, absolute);
+  if (outside === ".." || outside.startsWith(`..${sep}`) || outside.includes(`..${sep}`)) {
+    throw new Error(`Version file ${spec.path} must stay inside the working directory.`);
+  }
+  return absolute;
+}
+
 async function explain(cwd: string, configPath: string, title: string, io: CliIo): Promise<number> {
-  io.stdout(explainReleasePlan(await localPlan(cwd, configPath, title)));
+  io.stdout(explainReleasePlan(primaryLocalPlan(await localPlan(cwd, configPath, title))));
   return 0;
 }
 
@@ -298,8 +345,43 @@ async function doctor(cwd: string, configPath: string, io: CliIo): Promise<numbe
   const issues: ConfigValidationIssue[] = [];
   const packagePath = join(cwd, "package.json");
   const packageJson = await readOptional(packagePath);
-  if (packageJson === undefined) {
-    issues.push({ path: "package.json", severity: "error", message: "file is required for the local plan" });
+  const configContent = await readOptional(join(cwd, configPath));
+  let config: SemVergeConfig | undefined;
+  if (configContent === undefined) {
+    io.stdout(`INFO ${configPath}: not found; using zero-configuration defaults.`);
+  } else {
+    const contentIssues = validateConfigContent(configContent, configPath);
+    issues.push(...contentIssues);
+    if (!contentIssues.some((issue) => issue.severity === "error")) {
+      config = parseConfig(configContent, configPath);
+      issues.push(...validateConfig(config));
+    }
+  }
+
+  if (packageJson === undefined && config?.versionFiles.length) {
+    for (const spec of config.versionFiles) {
+      let content: string | undefined;
+      try {
+        content = await readOptional(localVersionFilePath(cwd, spec));
+      } catch (error) {
+        issues.push({ path: spec.path, severity: "error", message: error instanceof Error ? error.message : String(error) });
+        continue;
+      }
+      if (content === undefined) {
+        issues.push({ path: `versionFiles.${spec.path}`, severity: "error", message: "configured version file was not found" });
+        continue;
+      }
+      try {
+        const version = readVersionFile(spec, content);
+        if (!parseVersion(version)) {
+          issues.push({ path: `${spec.path}.version`, severity: "error", message: `is not valid semantic versioning: ${version}` });
+        }
+      } catch (error) {
+        issues.push({ path: spec.path, severity: "error", message: error instanceof Error ? error.message : String(error) });
+      }
+    }
+  } else if (packageJson === undefined) {
+    issues.push({ path: "package.json", severity: "error", message: "file is required unless versionFiles defines a generic repository target" });
   } else {
     try {
       const version = readPackageVersion(packageJson);
@@ -308,18 +390,6 @@ async function doctor(cwd: string, configPath: string, io: CliIo): Promise<numbe
       }
     } catch (error) {
       issues.push({ path: "package.json", severity: "error", message: error instanceof Error ? error.message : String(error) });
-    }
-  }
-
-  const configContent = await readOptional(join(cwd, configPath));
-  if (configContent === undefined) {
-    io.stdout(`INFO ${configPath}: not found; using zero-configuration defaults.`);
-  } else {
-    const contentIssues = validateConfigContent(configContent, configPath);
-    issues.push(...contentIssues);
-    if (!contentIssues.some((issue) => issue.severity === "error")) {
-      const config = parseConfig(configContent, configPath);
-      issues.push(...validateConfig(config));
     }
   }
 

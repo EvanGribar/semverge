@@ -4,7 +4,7 @@ export type ReleaseKind = "feature" | "fix" | "breaking" | "docs" | "internal" |
 
 export type BumpLevel = "none" | "patch" | "minor" | "major";
 
-export type Ecosystem = "node" | "python" | "rust";
+export type Ecosystem = "node" | "python" | "rust" | "generic";
 
 export type MonorepoMode = "auto" | "single" | "fixed" | "independent";
 

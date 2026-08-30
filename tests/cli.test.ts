@@ -118,6 +118,45 @@ describe("SemVerge CLI", () => {
     }
   });
 
+  it("plans and diagnoses a generic repository without package.json", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "semverge-cli-generic-"));
+    try {
+      writeFileSync(join(directory, "VERSION"), "VERSION=1.0.0\n");
+      writeFileSync(join(directory, ".semverge.yml"), `versionFiles:
+  - path: VERSION
+    format: text
+    pattern: VERSION={{version}}
+`);
+
+      const planOutput = capture();
+      expect(await runCli(["plan", "fix: repair the release marker"], directory, planOutput.io)).toBe(0);
+      expect(JSON.parse(planOutput.stdout[0] ?? "{}")).toMatchObject({ version: "1.0.1", packages: [{ package: { ecosystem: "generic", version: "1.0.0" } }] });
+
+      const doctorOutput = capture();
+      expect(await runCli(["doctor"], directory, doctorOutput.io)).toBe(0);
+      expect(doctorOutput.stderr).toEqual([]);
+      expect(doctorOutput.stdout.join("\n")).toContain("OK");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects generic version-file paths outside the working directory", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "semverge-cli-generic-path-"));
+    try {
+      writeFileSync(join(directory, ".semverge.yml"), `versionFiles:
+  - path: ../VERSION
+    format: text
+    pattern: VERSION={{version}}
+`);
+      const output = capture();
+      expect(await runCli(["plan", "fix: reject unsafe path"], directory, output.io)).toBe(1);
+      expect(output.stderr.join("\n")).toContain("must stay inside the repository");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("prints an advisory infer result and only applies it with an explicit body path", async () => {
     const directory = mkdtempSync(join(tmpdir(), "semverge-cli-infer-"));
     const previousKey = process.env.OPENAI_API_KEY;

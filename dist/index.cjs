@@ -9814,13 +9814,25 @@ function publishConfigForEcosystem(config, ecosystem) {
   if (ecosystem === "node") {
     return config.publishing.npm;
   }
-  return config.publishing[ecosystem];
+  if (ecosystem === "python") {
+    return config.publishing.python;
+  }
+  if (ecosystem === "rust") {
+    return config.publishing.rust;
+  }
+  return { enabled: false, command: "", idempotency: "declared" };
 }
 function publisherName(ecosystem) {
   if (ecosystem === "node") {
     return "npm";
   }
-  return ecosystem === "python" ? "PyPI" : "crates.io";
+  if (ecosystem === "python") {
+    return "PyPI";
+  }
+  if (ecosystem === "rust") {
+    return "crates.io";
+  }
+  return "repository-only";
 }
 async function registryVersionExists(ecosystem, name, version, fetcher = defaultFetcher) {
   const identity = packageIdentity(name, version);
@@ -10551,6 +10563,9 @@ function createVersionFileUpdater(config) {
     return textUpdater(config.pattern ?? "");
   }
   return xmlUpdater(config.xpath ?? "");
+}
+function readVersionFile(config, content) {
+  return createVersionFileUpdater(config).read(config.path, content);
 }
 function updateVersionFile(config, content, version) {
   return { path: config.path, content: createVersionFileUpdater(config).update(config.path, content, version) };
@@ -11626,6 +11641,12 @@ function readTargetVersion(target, content) {
   if (target.ecosystem === "python") {
     return pythonVersion(content, target.manifestPath);
   }
+  if (target.ecosystem === "generic") {
+    if (!target.versionFile) {
+      throw new Error(`${target.manifestPath} is missing its generic version-file configuration.`);
+    }
+    return readVersionFile(target.versionFile, content);
+  }
   return rustVersion(content, target.manifestPath);
 }
 function readTargetName(target, content) {
@@ -11635,6 +11656,9 @@ function readTargetName(target, content) {
   }
   if (target.ecosystem === "python") {
     return tomlName(content, ["project", "tool.poetry"]);
+  }
+  if (target.ecosystem === "generic") {
+    return void 0;
   }
   return tomlName(content, ["package"]);
 }
@@ -11652,13 +11676,20 @@ function updateTargetVersion(target, content, version) {
     }
     return { path: target.manifestPath, content: replaceTomlVersion(target.manifestPath, content, ["project", "tool.poetry"], version) };
   }
+  if (target.ecosystem === "generic") {
+    if (!target.versionFile) {
+      throw new Error(`${target.manifestPath} is missing its generic version-file configuration.`);
+    }
+    return updateVersionFile(target.versionFile, content, version);
+  }
   return { path: target.manifestPath, content: replaceTomlVersion(target.manifestPath, content, ["package"], version) };
 }
 function targetFromDescriptor(descriptor2) {
   return {
     ecosystem: descriptor2.ecosystem,
     manifestPath: descriptor2.manifestPath,
-    directory: descriptor2.directory
+    directory: descriptor2.directory,
+    ...descriptor2.versionFile ? { versionFile: descriptor2.versionFile } : {}
   };
 }
 
@@ -11778,6 +11809,74 @@ function packageTarget(path) {
   }
   return null;
 }
+function genericVersionFileGroups(config) {
+  const specs = config.versionFiles.map((spec) => ({ ...spec, path: normalize(spec.path) }));
+  if (specs.length === 0) {
+    return [];
+  }
+  const groups = /* @__PURE__ */ new Map();
+  for (const spec of specs) {
+    const requestedName = spec.package?.trim();
+    const key = requestedName ? normalize(requestedName).toLowerCase() : "root";
+    const existing = groups.get(key);
+    if (existing) {
+      existing.specs.push(spec);
+      continue;
+    }
+    groups.set(key, { name: requestedName ? normalize(requestedName) : "root", specs: [spec] });
+  }
+  return [...groups.values()];
+}
+function genericDescriptor(group, files) {
+  const first = group.specs[0];
+  if (!first) {
+    throw new Error("SemVerge could not create a generic version target without a version file.");
+  }
+  const manifestPath = normalize(first.path);
+  const directory = (0, import_node_path.dirname)(manifestPath) === "." ? "" : normalize((0, import_node_path.dirname)(manifestPath));
+  const target = {
+    ecosystem: "generic",
+    manifestPath,
+    directory,
+    versionFile: { ...first, path: manifestPath }
+  };
+  const versions = group.specs.map((spec) => {
+    const path = normalize(spec.path);
+    const content = files.get(path);
+    if (content === void 0) {
+      throw new Error(`Configured version file ${path} was not found at the release commit.`);
+    }
+    const version2 = readTargetVersion({
+      ecosystem: "generic",
+      manifestPath: path,
+      directory: (0, import_node_path.dirname)(path) === "." ? "" : normalize((0, import_node_path.dirname)(path)),
+      versionFile: { ...spec, path }
+    }, content);
+    if (!parseVersion(version2)) {
+      throw new Error(`${path} contains an invalid semantic version: ${version2}`);
+    }
+    return version2;
+  });
+  const uniqueVersions = new Set(versions);
+  if (uniqueVersions.size > 1) {
+    throw new Error(`Configured version files for generic package ${group.name} do not agree on one current version.`);
+  }
+  const version = versions[0];
+  if (!version) {
+    throw new Error(`Configured version files for generic package ${group.name} did not contain a version.`);
+  }
+  return {
+    ...target,
+    id: group.name,
+    name: group.name,
+    manifestPath,
+    version,
+    private: false,
+    releaseable: true,
+    workspaceDependencies: [],
+    workspaceDependencyTypes: {}
+  };
+}
 function descriptor(path, content, releaseable) {
   const normalized = normalize(path);
   const target = packageTarget(normalized);
@@ -11889,10 +11988,14 @@ function discoverPackages(files, allPaths, config) {
         discovered.push(descriptor(path, content, true));
       }
     }
+  } else if (config.versionFiles.length > 0) {
+    for (const group of genericVersionFileGroups(config)) {
+      discovered.push(genericDescriptor(group, normalizedFiles));
+    }
   }
   const unique2 = [...new Map(discovered.map((item) => [item.manifestPath, item])).values()];
   if (unique2.length === 0) {
-    throw new Error("SemVerge could not find a supported package manifest (package.json, pyproject.toml, or Cargo.toml).");
+    throw new Error("SemVerge could not find a supported package manifest or configured generic version file (package.json, pyproject.toml, Cargo.toml, or versionFiles).");
   }
   const internalPackageNames = new Set(unique2.filter((item) => item.ecosystem === "node").map((item) => item.name));
   for (const packageItem of unique2.filter((item) => item.ecosystem === "node")) {
@@ -12997,6 +13100,9 @@ function updateConfiguredVersionFiles(input2, packages, versions, hasRelease, ve
     }
     const version = packageItem ? versions.get(packageItem.manifestPath) : versionValues[0];
     if (!version) {
+      if (packageItem) {
+        continue;
+      }
       throw new Error(`No released package version is available for configured version file ${spec.path}.`);
     }
     const content = input2.files[spec.path];
@@ -15376,7 +15482,7 @@ async function publishRelease(client, pr, config) {
       await persistReleaseProgress(client, executions, progress);
       continue;
     }
-    const alreadyPublished = publisher.idempotency === "registry" ? ecosystem === "node" ? await npmVersionExists(packageItem.name, packageItem.version, packageWorkspace) : await registryVersionExists(ecosystem, packageItem.name, packageItem.version) : false;
+    const alreadyPublished = publisher.idempotency === "registry" ? ecosystem === "node" ? await npmVersionExists(packageItem.name, packageItem.version, packageWorkspace) : ecosystem === "python" || ecosystem === "rust" ? await registryVersionExists(ecosystem, packageItem.name, packageItem.version) : false : false;
     if (alreadyPublished) {
       log(`Found ${packageItem.name}@${packageItem.version} in the ${publisherName(ecosystem)} registry; treating publication as already complete.`);
       progress.publishedPackages = [.../* @__PURE__ */ new Set([...progress.publishedPackages, id])];

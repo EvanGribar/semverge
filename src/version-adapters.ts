@@ -1,6 +1,7 @@
-import type { Ecosystem } from "./types.js";
+import type { Ecosystem, VersionFileConfig } from "./types.js";
 import type { PackageDescriptor } from "./packages.js";
 import type { VersionFileChange } from "./version-files.js";
+import { readVersionFile, updateVersionFile } from "./version-updaters.js";
 
 function isWhitespaceCharacter(value: string): boolean {
   return value !== "" && value.trim() === "";
@@ -10,6 +11,7 @@ export interface VersionTarget {
   ecosystem: Ecosystem;
   manifestPath: string;
   directory: string;
+  versionFile?: VersionFileConfig;
 }
 
 function jsonObject(path: string, content: string): Record<string, unknown> {
@@ -134,6 +136,12 @@ export function readTargetVersion(target: VersionTarget, content: string): strin
   if (target.ecosystem === "python") {
     return pythonVersion(content, target.manifestPath);
   }
+  if (target.ecosystem === "generic") {
+    if (!target.versionFile) {
+      throw new Error(`${target.manifestPath} is missing its generic version-file configuration.`);
+    }
+    return readVersionFile(target.versionFile, content);
+  }
   return rustVersion(content, target.manifestPath);
 }
 
@@ -144,6 +152,9 @@ export function readTargetName(target: VersionTarget, content: string): string |
   }
   if (target.ecosystem === "python") {
     return tomlName(content, ["project", "tool.poetry"]);
+  }
+  if (target.ecosystem === "generic") {
+    return undefined;
   }
   return tomlName(content, ["package"]);
 }
@@ -161,6 +172,12 @@ export function updateTargetVersion(target: VersionTarget, content: string, vers
     }
     return { path: target.manifestPath, content: replaceTomlVersion(target.manifestPath, content, ["project", "tool.poetry"], version) };
   }
+  if (target.ecosystem === "generic") {
+    if (!target.versionFile) {
+      throw new Error(`${target.manifestPath} is missing its generic version-file configuration.`);
+    }
+    return updateVersionFile(target.versionFile, content, version);
+  }
   return { path: target.manifestPath, content: replaceTomlVersion(target.manifestPath, content, ["package"], version) };
 }
 
@@ -168,6 +185,7 @@ export function targetFromDescriptor(descriptor: PackageDescriptor): VersionTarg
   return {
     ecosystem: descriptor.ecosystem,
     manifestPath: descriptor.manifestPath,
-    directory: descriptor.directory
+    directory: descriptor.directory,
+    ...(descriptor.versionFile ? { versionFile: descriptor.versionFile } : {})
   };
 }
