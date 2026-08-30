@@ -10109,7 +10109,12 @@ function writeProperty(value, segments, version, path) {
   if (!object || !Object.prototype.hasOwnProperty.call(object, final)) {
     error(path, `the property selector does not exist at ${final}`);
   }
-  object[final] = version;
+  Object.defineProperty(object, final, {
+    configurable: true,
+    enumerable: true,
+    value: version,
+    writable: true
+  });
 }
 function parseStructured(path, content) {
   try {
