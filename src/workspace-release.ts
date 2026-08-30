@@ -420,6 +420,9 @@ function updateConfiguredVersionFiles(
     }
     const version = packageItem ? versions.get(packageItem.manifestPath) : versionValues[0];
     if (!version) {
+      if (packageItem) {
+        continue;
+      }
       throw new Error(`No released package version is available for configured version file ${spec.path}.`);
     }
     const content = input.files[spec.path];

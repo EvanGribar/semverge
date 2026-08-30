@@ -37,3 +37,25 @@ versionFiles:
 ```
 
 An independent release with more than one resulting version must bind each custom file. This makes the release graph explicit and prevents one package's version from being written into another package's metadata.
+
+## Generic repositories
+
+A repository does not need a package-manager manifest. If `versionFiles` is configured and no `package.json`, `pyproject.toml`, or `Cargo.toml` exists, SemVerge creates a repository-only generic target and still prepares the normal release PR, changelog, notes, manifest, and tags. Publication is intentionally skipped because a generic target has no implied registry.
+
+With one or more unbound files, all selected locations must contain the same current semantic version. To release independent generic targets, bind every location with `package` and set `monorepo.mode: independent`:
+
+```yaml
+monorepo:
+  mode: independent
+versionFiles:
+  - path: services/api/VERSION
+    format: text
+    pattern: VERSION={{version}}
+    package: api
+  - path: services/web/VERSION
+    format: text
+    pattern: VERSION={{version}}
+    package: web
+```
+
+An individual bound location for a package that is not released is left unchanged. A missing location, invalid version, divergent set of unbound locations, or unknown package binding stops planning before the release PR is created.

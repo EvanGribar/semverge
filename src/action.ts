@@ -978,7 +978,9 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
     const alreadyPublished = publisher.idempotency === "registry"
       ? ecosystem === "node"
         ? await npmVersionExists(packageItem.name, packageItem.version, packageWorkspace)
-        : await registryVersionExists(ecosystem, packageItem.name, packageItem.version)
+        : ecosystem === "python" || ecosystem === "rust"
+          ? await registryVersionExists(ecosystem, packageItem.name, packageItem.version)
+          : false
       : false;
     if (alreadyPublished) {
       log(`Found ${packageItem.name}@${packageItem.version} in the ${publisherName(ecosystem)} registry; treating publication as already complete.`);

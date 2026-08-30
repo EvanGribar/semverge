@@ -102,4 +102,80 @@ versionFiles:
       files: independentFiles
     })).toThrow("must set package");
   });
+
+  it("discovers a repository that uses only configured version files", () => {
+    const config = parseConfig(`versionFiles:
+  - path: VERSION
+    format: text
+    pattern: VERSION={{version}}
+  - path: Dockerfile
+    format: text
+    pattern: ARG APP_VERSION={{version}}
+`);
+    const files = {
+      VERSION: "VERSION=1.4.2\n",
+      Dockerfile: "FROM node:20\nARG APP_VERSION=1.4.2\n"
+    };
+    const discovered = discoverPackages(files, Object.keys(files), config);
+    expect(discovered.mode).toBe("single");
+    expect(discovered.packages).toMatchObject([{ ecosystem: "generic", name: "root", version: "1.4.2" }]);
+
+    const plan = buildWorkspaceReleasePlan({
+      packages: discovered.packages,
+      mode: discovered.mode,
+      files,
+      config,
+      changes: [parseChange({ title: "fix: refresh the image", source: "commit", files: ["Dockerfile"] })],
+      date: "2026-08-04"
+    });
+    expect(plan.version).toBe("1.4.3");
+    expect(plan.versionChanges).toEqual(expect.arrayContaining([
+      { path: "VERSION", content: "VERSION=1.4.3\n" },
+      { path: "Dockerfile", content: "FROM node:20\nARG APP_VERSION=1.4.3\n" }
+    ]));
+  });
+
+  it("supports independent generic targets when every version location is bound", () => {
+    const config = parseConfig(`monorepo:
+  mode: independent
+versionFiles:
+  - path: services/api/VERSION
+    format: text
+    pattern: VERSION={{version}}
+    package: api
+  - path: services/web/VERSION
+    format: text
+    pattern: VERSION={{version}}
+    package: web
+`);
+    const files = {
+      "services/api/VERSION": "VERSION=1.0.0\n",
+      "services/web/VERSION": "VERSION=2.0.0\n"
+    };
+    const discovered = discoverPackages(files, Object.keys(files), config);
+    const plan = buildWorkspaceReleasePlan({
+      packages: discovered.packages,
+      mode: discovered.mode,
+      files,
+      config,
+      changes: [parseChange({ title: "fix(api): repair the API", source: "commit", files: ["services/api/server.go"] })],
+      date: "2026-08-04"
+    });
+
+    expect(plan.packages.map((item) => [item.package.name, item.plan.version])).toEqual([["api", "1.0.1"]]);
+    expect(plan.versionChanges).toEqual([{ path: "services/api/VERSION", content: "VERSION=1.0.1\n" }]);
+    expect(plan.unchangedPackages.map((item) => item.name)).toEqual(["web"]);
+  });
+
+  it("rejects generic version files that disagree on the current version", () => {
+    const config = parseConfig(`versionFiles:
+  - path: VERSION
+    format: text
+    pattern: VERSION={{version}}
+  - path: image/VERSION
+    format: text
+    pattern: VERSION={{version}}
+`);
+    expect(() => discoverPackages({ VERSION: "VERSION=1.0.0\n", "image/VERSION": "VERSION=2.0.0\n" }, ["VERSION", "image/VERSION"], config)).toThrow("do not agree");
+  });
 });

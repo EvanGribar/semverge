@@ -112,18 +112,30 @@ export function publishConfigForEcosystem(config: SemVergeConfig, ecosystem: Eco
   if (ecosystem === "node") {
     return config.publishing.npm;
   }
-  return config.publishing[ecosystem];
+  if (ecosystem === "python") {
+    return config.publishing.python;
+  }
+  if (ecosystem === "rust") {
+    return config.publishing.rust;
+  }
+  return { enabled: false, command: "", idempotency: "declared" };
 }
 
-export function publisherName(ecosystem: Ecosystem): "npm" | "PyPI" | "crates.io" {
+export function publisherName(ecosystem: Ecosystem): "npm" | "PyPI" | "crates.io" | "repository-only" {
   if (ecosystem === "node") {
     return "npm";
   }
-  return ecosystem === "python" ? "PyPI" : "crates.io";
+  if (ecosystem === "python") {
+    return "PyPI";
+  }
+  if (ecosystem === "rust") {
+    return "crates.io";
+  }
+  return "repository-only";
 }
 
 export async function registryVersionExists(
-  ecosystem: Exclude<Ecosystem, "node">,
+  ecosystem: Exclude<Ecosystem, "node" | "generic">,
   name: string,
   version: string,
   fetcher: RegistryVersionFetcher = defaultFetcher

@@ -18,6 +18,7 @@ SemVerge is release automation that understands whether a release is ready and w
 - Git tag and GitHub release publication
 - Prerelease channels with beta, RC, nightly, and canary label overrides, fixed/independent npm and pnpm workspaces, Python and Rust version adapters
 - Native Python `uv`/PDM and Rust Cargo workspace member discovery with deterministic fixed/independent version planning
+- Repository-only generic targets driven by explicitly configured version files, with fail-closed single and independent release planning
 - Configurable npm publishing, release artifacts, immediate post-release verification, and a local CLI (`init`, `plan`, `doctor`)
 - Explicit durable release transactions with monotonic phases, idempotent side-effect events, failure recording, legacy-marker upgrades, release-body summaries, SHA-256 artifact digests, and `recover` inspection
 - Test-only deterministic failure injection for package publication, asset upload, finalization, and post-release verification, with retry coverage for build, package, asset, finalization, and verification failures
