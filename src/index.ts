@@ -20,5 +20,6 @@ export * from "./transaction.js";
 export * from "./types.js";
 export * from "./version-adapters.js";
 export * from "./version-files.js";
+export * from "./version-updaters.js";
 export * from "./workspace-release.js";
 export * from "./verification.js";

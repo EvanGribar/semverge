@@ -1,7 +1,6 @@
-export interface VersionFileChange {
-  path: string;
-  content: string;
-}
+import type { VersionFileChange } from "./version-updaters.js";
+
+export type { VersionFileChange } from "./version-updaters.js";
 
 function parseJson(path: string, content: string): Record<string, unknown> {
   try {
