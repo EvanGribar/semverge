@@ -1,35 +1,17 @@
-# What's new in 0.14.0
+# What's new in 0.15.0
 
-add release verification workflow.
+add configurable version file updaters.
 
 ## New
 
-- add release verification workflow.
+- add configurable version file updaters.
 
-- add optional BYOK AI provider layer.
+- improve migration and init guidance.
 
-- add structured customer communication model.
-
-- redesign customer release notes.
-
-- add customer communication quality gates.
-
-- separate external announcement copy.
-
-- complete AI release communication workflows.
+- support generic version-file repositories.
 
 ## Fixed
 
-- do not mark plugin hooks complete before effects finish.
+- block prototype pollution in version selectors.
 
-- treat completed plugin effects as terminal across retries.
-
-- initialize release executions before plugin hooks.
-
-- fail closed on plugin effect detection errors.
-
-- validate workspace dependency range rewrites.
-
-- remove CodeQL backtracking scans.
-
-- remove remaining CodeQL regex scans.
+- avoid computed prototype assignments.

@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.15.0] - 2026-08-30
+
+### Features
+
+- [add configurable version file updaters](https://github.com/EvanGribar/semverge/pull/124) (#124)
+- [improve migration and init guidance](https://github.com/EvanGribar/semverge/pull/126) (#126)
+- [support generic version-file repositories](https://github.com/EvanGribar/semverge/pull/128) (#128)
+
+### Bug Fixes
+
+- [block prototype pollution in version selectors](https://github.com/EvanGribar/semverge/pull/129) (#129)
+- [avoid computed prototype assignments](https://github.com/EvanGribar/semverge/pull/130) (#130)
+
+### Internal Changes
+
+- [expand conformance matrix and release PR guidance](https://github.com/EvanGribar/semverge/pull/127) (#127)
+
 ## [0.14.0] - 2026-08-29
 
 ### Features
