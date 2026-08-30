@@ -30,6 +30,8 @@ describe("configurable version updaters", () => {
     expect(readVersionFile(config, "VERSION=1.0.0\n")).toBe("1.0.0");
     expect(updateVersionFile(config, "VERSION=1.0.0\n", "1.1.0").content).toBe("VERSION=1.1.0\n");
     expect(() => updateVersionFile({ ...config, pattern: "VERSION={{version}}\nVERSION={{version}}" }, "VERSION=1.0.0\n", "1.1.0")).toThrow("exactly one");
+    const wholeFile = { path: "VERSION", format: "text" as const, pattern: "{{version}}" };
+    expect(updateVersionFile(wholeFile, "1.0.0\n", "1.1.0").content).toBe("1.1.0\n");
   });
 
   it("updates a leaf XML element selected by a restricted XPath", () => {

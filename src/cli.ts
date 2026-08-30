@@ -35,6 +35,11 @@ release:
 #   infer: true
 #   tone: neutral
 #   verbosity: standard
+# Optional repository-owned version locations. Selectors are literal and fail closed.
+# versionFiles:
+#   - path: Dockerfile
+#     format: text
+#     pattern: "ARG APP_VERSION={{version}}"
 `;
 
 export interface CliIo {
@@ -72,6 +77,7 @@ function usage(): string {
     "  --apply <path>       Alias for --write",
     "  --json               Print a deterministic machine-readable verification report",
     "  --write              Write a migration-generated .semverge.yml (migrate only)",
+    "  --detect             Let init include detected workspace and release-tool guidance",
     "  --force              Allow init to replace an existing configuration file",
     "  --help               Show this help"
   ].join("\n");
@@ -114,13 +120,29 @@ function reportIssues(issues: ConfigValidationIssue[], io: CliIo): void {
   }
 }
 
-async function init(cwd: string, force: boolean, io: CliIo): Promise<number> {
+function detectedInitTemplate(report: Awaited<ReturnType<typeof inspectRepository>>): string {
+  const lines = [DEFAULT_CONFIG_TEMPLATE.trimEnd(), "", "# Detected repository signals (review before committing):", `# package manager: ${report.packageManager.name} (${report.packageManager.source})`];
+  if (report.workspace.kind === "workspace" && report.workspace.patterns.length > 0) {
+    lines.push("", "monorepo:", `  mode: ${report.workspace.strategy === "fixed" || report.workspace.strategy === "independent" ? report.workspace.strategy : "auto"}`, "  packages:", ...report.workspace.patterns.map((pattern) => `    - ${JSON.stringify(pattern)}`), "  includeRoot: true");
+  }
+  if (report.releaseTools.length > 0) {
+    lines.push(`# release tools detected: ${report.releaseTools.map((tool) => tool.name).join(", ")}`);
+    lines.push("# Run `semverge migrate <tool>` for a report before removing an existing release workflow.");
+  }
+  if (report.github.workflowFiles.length === 0) {
+    lines.push("# No GitHub workflow was detected; add the workflow from the SemVerge README before enabling publication.");
+  }
+  return `${lines.join("\n")}\n`;
+}
+
+async function init(cwd: string, force: boolean, detect: boolean, io: CliIo): Promise<number> {
   const path = join(cwd, ".semverge.yml");
   if (!force && await exists(path)) {
     io.stderr(`${path} already exists; pass --force to replace it.`);
     return 1;
   }
-  await writeFile(path, DEFAULT_CONFIG_TEMPLATE, { encoding: "utf8", flag: force ? "w" : "wx" });
+  const template = detect ? detectedInitTemplate(await inspectRepository(cwd)) : DEFAULT_CONFIG_TEMPLATE;
+  await writeFile(path, template, { encoding: "utf8", flag: force ? "w" : "wx" });
   io.stdout(`Created ${path}`);
   return 0;
 }
@@ -452,6 +474,7 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd(), 
   const applyOption = option(filesOption.rest, "--apply");
   const writeOption = option(applyOption.rest, "--write");
   const force = commandArgs.includes("--force");
+  const detect = commandArgs.includes("--detect");
   const write = commandArgs.includes("--write");
   const apply = commandArgs.includes("--apply");
   const json = commandArgs.includes("--json");
@@ -460,7 +483,7 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd(), 
 
   try {
     if (command === "init") {
-      return await init(cwd, force, io);
+      return await init(cwd, force, detect, io);
     }
     if (command === "doctor") {
       return await doctor(cwd, configPath, io);

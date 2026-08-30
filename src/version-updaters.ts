@@ -379,6 +379,19 @@ function textLocation(content: string, path: string, pattern: string): TextLocat
   const prefix = pattern.slice(0, markerAt);
   const suffix = pattern.slice(markerAt + marker.length);
   const locations: TextLocation[] = [];
+  if (!prefix && !suffix) {
+    for (const range of lineRanges(content)) {
+      const value = range.text.trim();
+      if (value && !value.includes("\r") && !value.includes("\n")) {
+        const valueStart = range.start + range.text.search(/\S/u);
+        locations.push({ valueStart, valueEnd: range.end, value });
+      }
+    }
+    if (locations.length !== 1) {
+      error(path, locations.length === 0 ? `the text pattern ${pattern} was not found` : `the text pattern ${pattern} matched ${locations.length} locations; make it more specific`);
+    }
+    return locations[0] as TextLocation;
+  }
   let cursor = 0;
   while (true) {
     const prefixAt = content.indexOf(prefix, cursor);

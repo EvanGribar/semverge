@@ -96,6 +96,28 @@ describe("SemVerge CLI", () => {
     }
   });
 
+  it("can seed init with detected workspace and migration guidance", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "semverge-cli-init-detect-"));
+    try {
+      writeFileSync(join(directory, "package.json"), JSON.stringify({
+        name: "demo",
+        version: "1.0.0",
+        packageManager: "pnpm@10.0.0",
+        workspaces: ["packages/*"],
+        devDependencies: { "release-please": "^16.0.0" }
+      }));
+      const output = capture();
+      expect(await runCli(["init", "--detect"], directory, output.io)).toBe(0);
+      const config = readFileSync(join(directory, ".semverge.yml"), "utf8");
+      expect(config).toContain("# package manager: pnpm");
+      expect(config).toContain("packages/*");
+      expect(config).toContain("# release tools detected: release-please");
+      expect(config).toContain("semverge migrate <tool>");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
   it("prints an advisory infer result and only applies it with an explicit body path", async () => {
     const directory = mkdtempSync(join(tmpdir(), "semverge-cli-infer-"));
     const previousKey = process.env.OPENAI_API_KEY;
