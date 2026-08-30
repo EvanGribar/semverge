@@ -8,7 +8,9 @@ npx semverge migrate changesets
 npx semverge migrate semantic-release
 ```
 
-The command inspects known configuration files and package dependencies, reports what it detected, maps only settings SemVerge can identify deterministically, and emits a conservative starter `.semverge.yml`. Publication is disabled in generated configuration until registry credentials, trusted publishing, and retry behavior are reviewed.
+The command inspects known configuration files, package dependencies, and (for Release Please) the release workflow and manifest. It reports what it detected, maps only settings SemVerge can identify deterministically, and emits a conservative starter `.semverge.yml`. The report also includes a compatibility comparison with `mapped`, `review`, and `unsupported` entries so a migration does not imply semantic equivalence. Publication is disabled in generated configuration until registry credentials, trusted publishing, and retry behavior are reviewed.
+
+Release Please package `version-file` and `extra-files` entries are proposed as `versionFiles` rules when their format can be inferred. Review text markers, TOML properties, XML paths, and package bindings before writing the file.
 
 To write the generated configuration, opt in explicitly:
 

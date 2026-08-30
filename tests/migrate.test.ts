@@ -19,7 +19,36 @@ describe("migration diagnostics", () => {
       expect(report.generatedConfig).toContain("docs/CHANGELOG.md");
       expect(report.generatedConfig).toContain("enabled: false");
       expect(report.mappedSettings).toContain("monorepo.mode <- independent Release Please package configuration");
+      expect(report.comparison).toEqual(expect.arrayContaining([
+        expect.objectContaining({ area: "workspace scope", status: "mapped" }),
+        expect.objectContaining({ area: "release strategy", status: "review" })
+      ]));
       expect(migrationReportMarkdown(report)).toContain("Conservative generated configuration:");
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("maps Release Please package version files and unsupported release-PR settings explicitly", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "semverge-migrate-release-please-files-"));
+    try {
+      writeFileSync(join(directory, "package.json"), JSON.stringify({ devDependencies: { "release-please": "^16.0.0" } }));
+      writeFileSync(join(directory, "release-please-config.json"), JSON.stringify({
+        packages: {
+          "packages/web": {
+            "version-file": "VERSION",
+            "extra-files": [{ type: "json", path: "deploy/metadata.json", jsonpath: "release.version" }]
+          }
+        },
+        "pull-request-title-pattern": "chore(release): ${component}"
+      }));
+
+      const report = await inspectMigration(directory, "release-please");
+      expect(report.generatedConfig).toContain("packages/web/VERSION");
+      expect(report.generatedConfig).toContain("packages/web/deploy/metadata.json");
+      expect(report.generatedConfig).toContain("release.version");
+      expect(report.comparison).toContainEqual(expect.objectContaining({ area: "pull-request-title-pattern", status: "unsupported" }));
+      expect(migrationReportMarkdown(report)).toContain("Compatibility comparison:");
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
