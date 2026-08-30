@@ -14,6 +14,8 @@ export interface VersionFileUpdater {
 
 type PropertySegment = string | number;
 
+const UNSAFE_PROPERTY_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
@@ -109,6 +111,9 @@ function parsePropertyPath(selector: string, path: string): PropertySegment[] {
   if (segments.length === 0) {
     error(path, "the property selector must identify a property");
   }
+  if (segments.some((segment) => typeof segment === "string" && UNSAFE_PROPERTY_KEYS.has(segment))) {
+    error(path, "the property selector cannot access prototype keys");
+  }
   return segments;
 }
 
@@ -122,7 +127,7 @@ function readProperty(value: unknown, segments: PropertySegment[], path: string)
       current = current[segment];
     } else {
       const object = record(current);
-      if (!object || !(segment in object)) {
+      if (!object || !Object.prototype.hasOwnProperty.call(object, segment)) {
         error(path, `the property selector does not exist at ${segment}`);
       }
       current = object[segment];
@@ -162,7 +167,10 @@ function writeProperty(value: unknown, segments: PropertySegment[], version: str
     return;
   }
   const object = record(current);
-  if (!object || !(final in object)) {
+  if (typeof final === "string" && UNSAFE_PROPERTY_KEYS.has(final)) {
+    error(path, "the property selector cannot access prototype keys");
+  }
+  if (!object || !Object.prototype.hasOwnProperty.call(object, final)) {
     error(path, `the property selector does not exist at ${final}`);
   }
   object[final] = version;

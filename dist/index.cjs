@@ -9960,6 +9960,7 @@ var DEFAULT_AI_TIMEOUT_MS = 1e4;
 
 // src/version-updaters.ts
 var import_yaml = __toESM(require_dist(), 1);
+var UNSAFE_PROPERTY_KEYS = /* @__PURE__ */ new Set(["__proto__", "constructor", "prototype"]);
 function record(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
@@ -10048,6 +10049,9 @@ function parsePropertyPath(selector, path) {
   if (segments.length === 0) {
     error(path, "the property selector must identify a property");
   }
+  if (segments.some((segment) => typeof segment === "string" && UNSAFE_PROPERTY_KEYS.has(segment))) {
+    error(path, "the property selector cannot access prototype keys");
+  }
   return segments;
 }
 function readProperty(value, segments, path) {
@@ -10060,7 +10064,7 @@ function readProperty(value, segments, path) {
       current = current[segment];
     } else {
       const object = record(current);
-      if (!object || !(segment in object)) {
+      if (!object || !Object.prototype.hasOwnProperty.call(object, segment)) {
         error(path, `the property selector does not exist at ${segment}`);
       }
       current = object[segment];
@@ -10099,7 +10103,10 @@ function writeProperty(value, segments, version, path) {
     return;
   }
   const object = record(current);
-  if (!object || !(final in object)) {
+  if (typeof final === "string" && UNSAFE_PROPERTY_KEYS.has(final)) {
+    error(path, "the property selector cannot access prototype keys");
+  }
+  if (!object || !Object.prototype.hasOwnProperty.call(object, final)) {
     error(path, `the property selector does not exist at ${final}`);
   }
   object[final] = version;

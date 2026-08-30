@@ -14,6 +14,11 @@ describe("configurable version updaters", () => {
     expect(JSON.parse(change.content)).toEqual({ release: { version: "1.1.0", name: "demo" } });
   });
 
+  it("rejects prototype keys in structured selectors", () => {
+    const config = { path: "manifest.json", format: "json" as const, property: "__proto__.version" };
+    expect(() => updateVersionFile(config, JSON.stringify({ version: "1.0.0" }), "1.1.0")).toThrow("prototype keys");
+  });
+
   it("updates YAML and TOML properties while preserving TOML comments and layout", () => {
     const yamlConfig = { path: "release.yml", format: "yaml" as const, property: "project.version" };
     expect(readVersionFile(yamlConfig, "project:\n  version: 1.0.0\n")).toBe("1.0.0");
