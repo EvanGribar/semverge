@@ -12,6 +12,10 @@ const fixtureNames = readdirSync(fixtureDirectory)
   .map((name) => name.slice(0, -5))
   .sort();
 
+function readFixture(path: string): string {
+  return readFileSync(path, "utf8").replace(/\r\n/g, "\n");
+}
+
 interface CustomerCommunicationFixture {
   version: string;
   date: string;
@@ -36,22 +40,22 @@ describe("golden customer communication fixtures", () => {
 
   for (const name of fixtureNames) {
     it(`keeps ${name} customer output stable and audience-specific`, () => {
-      const fixture = JSON.parse(readFileSync(join(fixtureDirectory, `${name}.json`), "utf8")) as CustomerCommunicationFixture;
+      const fixture = JSON.parse(readFixture(join(fixtureDirectory, `${name}.json`))) as CustomerCommunicationFixture;
       const changes = fixture.changes.map((change) => parseChange(change));
       const customerNotes = renderCustomerNotes(fixture.version, changes);
       const announcement = renderAnnouncement(fixture.version, changes);
       const changelog = renderChangelogSection(fixture.version, fixture.date, changes);
 
-      expect(customerNotes).toBe(readFileSync(join(fixtureDirectory, `${name}.customer.md`), "utf8"));
-      expect(announcement).toBe(readFileSync(join(fixtureDirectory, `${name}.announcement.md`), "utf8"));
-      expect(changelog).toBe(readFileSync(join(fixtureDirectory, `${name}.changelog.md`), "utf8"));
+      expect(customerNotes).toBe(readFixture(join(fixtureDirectory, `${name}.customer.md`)));
+      expect(announcement).toBe(readFixture(join(fixtureDirectory, `${name}.announcement.md`)));
+      expect(changelog).toBe(readFixture(join(fixtureDirectory, `${name}.changelog.md`)));
     });
   }
 
   it("preserves legitimate API terminology while keeping package internals out of customer output", () => {
-    const api = readFileSync(join(fixtureDirectory, "api-technical.customer.md"), "utf8");
-    const packageNotes = readFileSync(join(fixtureDirectory, "monorepo-package.customer.md"), "utf8");
-    const packageChangelog = readFileSync(join(fixtureDirectory, "monorepo-package.changelog.md"), "utf8");
+    const api = readFixture(join(fixtureDirectory, "api-technical.customer.md"));
+    const packageNotes = readFixture(join(fixtureDirectory, "monorepo-package.customer.md"));
+    const packageChangelog = readFixture(join(fixtureDirectory, "monorepo-package.changelog.md"));
     expect(api).toContain("cursor tokens");
     expect(packageNotes).not.toContain("export adapter internals");
     expect(packageChangelog).toContain("rename export adapter internals");

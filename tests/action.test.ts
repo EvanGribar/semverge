@@ -135,6 +135,9 @@ describe("GitHub Action orchestration", () => {
     expect(requests.some((request) => request.path.split("?")[0]?.endsWith("/commits/head-sha/pulls"))).toBe(true);
     const releasePullRequest = requests.find((request) => request.method === "POST" && request.path.endsWith("/pulls"));
     expect(String(releasePullRequest?.body?.body)).toContain("## Release graph");
+    expect(String(releasePullRequest?.body?.body)).toContain("## Release files");
+    expect(String(releasePullRequest?.body?.body)).toContain("`package.json`");
+    expect(String(releasePullRequest?.body?.body)).toContain("## Operator checklist");
     expect(String(releasePullRequest?.body?.body)).toContain("Channel: **stable**");
     expect(String(releasePullRequest?.body?.body)).toContain("direct change: add exports");
     expect(String(releasePullRequest?.body?.body)).toContain("## AI-enhanced customer notes (review draft)");

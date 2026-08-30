@@ -268,6 +268,43 @@ function aiReleaseNotesMarkdown(previews: AiReleaseNotesPackagePreview[]): strin
   return lines;
 }
 
+function releaseFilesMarkdown(plan: WorkspaceReleasePlan, config: SemVergeConfig): string[] {
+  const changedFiles = [...new Set([
+    ...plan.versionChanges.map((change) => change.path),
+    ...plan.outputs.map((output) => output.path)
+  ])].sort();
+  const customFiles = config.versionFiles.map((item) => item.path);
+  const lines = [
+    "## Release files",
+    "",
+    "The release commit will update:",
+    ...(changedFiles.length > 0 ? changedFiles.map((path) => `- \`${path}\``) : ["- No generated files."])
+  ];
+  if (customFiles.length > 0) {
+    lines.push("", "Configured version locations:", ...customFiles.map((path) => `- [ ] Review selector for \`${path}\``));
+  }
+  return lines;
+}
+
+function releaseOperatorChecklist(plan: WorkspaceReleasePlan, config: SemVergeConfig): string[] {
+  const publicationTargets = [
+    ...(config.publishing.npm.enabled ? ["npm"] : []),
+    ...(config.publishing.python.enabled ? ["PyPI"] : []),
+    ...(config.publishing.rust.enabled ? ["crates.io"] : []),
+    ...(config.publishing.oci.enabled ? ["OCI images"] : [])
+  ];
+  return [
+    "## Operator checklist",
+    "",
+    `- [${plan.readiness.passed ? "x" : " "}] Readiness checks ${plan.readiness.passed ? "pass" : "are resolved before publication"}.`,
+    `- [${config.versionFiles.length > 0 ? " " : "x"}] Review repository-owned version-file selectors and generated file changes.`,
+    `- [${publicationTargets.length > 0 ? " " : "x"}] Confirm workflow permissions and credentials for ${publicationTargets.length > 0 ? publicationTargets.join(", ") : "the GitHub release only"}.`,
+    "- [ ] Merge this pull request only after the version graph, customer notes, and recovery path are understood.",
+    "",
+    "If a side effect is interrupted, use `semverge recover <release-id>`; the transaction marker is retained in the release body."
+  ];
+}
+
 function releasePrBody(plan: WorkspaceReleasePlan, config: SemVergeConfig, aiReleaseNotes: AiReleaseNotesPackagePreview[] = []): string {
   const marker = JSON.stringify({ version: plan.version, manifest: config.outputs.manifest, mode: plan.mode, channel: plan.channel, promotion: plan.promotion });
   const packageLines = plan.packages.map(({ package: packageItem, plan: packagePlan }) => `- **${packageItem.name}**: ${packageItem.version} -> **${packagePlan.version}** (${packagePlan.bump}, ${packagePlan.channel}${packagePlan.promotion ? ", promotion" : ""})`);
@@ -292,6 +329,10 @@ function releasePrBody(plan: WorkspaceReleasePlan, config: SemVergeConfig, aiRel
     ...communicationQualityMarkdown(plan.communicationQuality ?? []),
     "",
     ...releaseGraphMarkdown(plan),
+    "",
+    ...releaseFilesMarkdown(plan, config),
+    "",
+    ...releaseOperatorChecklist(plan, config),
     "",
     "## Customer-facing notes",
     "",
