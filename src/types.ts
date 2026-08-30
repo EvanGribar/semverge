@@ -155,6 +155,22 @@ export interface OutputConfig {
   announcement: string;
 }
 
+export type VersionFileFormat = "json" | "yaml" | "toml" | "text" | "xml";
+
+/**
+ * A deterministic version location outside the built-in package manifests.
+ * Structured selectors use a small JSONPath-compatible property syntax;
+ * text patterns use one literal {{version}} placeholder; XML uses a leaf XPath.
+ */
+export interface VersionFileConfig {
+  path: string;
+  format: VersionFileFormat;
+  property?: string;
+  pattern?: string;
+  xpath?: string;
+  package?: string;
+}
+
 export type CommunicationArtifact = "customer-notes" | "announcement";
 
 export type CustomerQualityMode = "off" | "warn" | "error";
@@ -256,6 +272,7 @@ export interface SemVergeConfig {
   release: ReleaseConfig;
   readiness: ReadinessConfig;
   outputs: OutputConfig;
+  versionFiles: VersionFileConfig[];
   artifacts: ArtifactConfig;
   monorepo: MonorepoConfig;
   health: HealthConfig;

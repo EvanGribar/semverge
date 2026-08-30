@@ -512,7 +512,8 @@ async function prepareRelease(client: GitHubClient, head: string, config: SemVer
   const baseCommit = await client.getCommit(head);
   const repositoryTree = await client.getTree(baseCommit.tree.sha);
   const allPaths = repositoryTree.filter((entry) => entry.type === "blob").map((entry) => entry.path);
-  const manifestPaths = allPaths.filter((path) => path === "package.json" || path.endsWith("/package.json") || path === "pyproject.toml" || path.endsWith("/pyproject.toml") || path === "Cargo.toml" || path.endsWith("/Cargo.toml") || path === "pnpm-workspace.yaml");
+  const configuredVersionPaths = new Set(config.versionFiles.map((item) => item.path));
+  const manifestPaths = allPaths.filter((path) => configuredVersionPaths.has(path) || path === "package.json" || path.endsWith("/package.json") || path === "pyproject.toml" || path.endsWith("/pyproject.toml") || path === "Cargo.toml" || path.endsWith("/Cargo.toml") || path === "pnpm-workspace.yaml");
   const manifestEntries = await Promise.all(manifestPaths.map(async (path) => [path, await fileAtHead(client, path, head)] as const));
   const manifestFiles = Object.fromEntries(manifestEntries.flatMap(([path, content]) => content === null ? [] : [[path, content]]));
   const discovered = discoverPackages(manifestFiles, allPaths, config);

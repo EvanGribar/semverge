@@ -371,8 +371,8 @@ var require_directives = __commonJS({
         if (prefix) {
           try {
             return prefix + decodeURIComponent(suffix);
-          } catch (error) {
-            onError(String(error));
+          } catch (error2) {
+            onError(String(error2));
             return null;
           }
         }
@@ -474,9 +474,9 @@ var require_anchors = __commonJS({
             if (typeof ref === "object" && ref.anchor && (identity.isScalar(ref.node) || identity.isCollection(ref.node))) {
               ref.node.anchor = ref.anchor;
             } else {
-              const error = new Error("Failed to resolve repeated object (this should not happen)");
-              error.source = source;
-              throw error;
+              const error2 = new Error("Failed to resolve repeated object (this should not happen)");
+              error2.source = source;
+              throw error2;
             }
           }
         },
@@ -3724,12 +3724,12 @@ var require_errors = __commonJS({
         super("YAMLWarning", pos, code, message);
       }
     };
-    var prettifyError = (src, lc) => (error) => {
-      if (error.pos[0] === -1)
+    var prettifyError = (src, lc) => (error2) => {
+      if (error2.pos[0] === -1)
         return;
-      error.linePos = error.pos.map((pos) => lc.linePos(pos));
-      const { line, col } = error.linePos[0];
-      error.message += ` at line ${line}, column ${col}`;
+      error2.linePos = error2.pos.map((pos) => lc.linePos(pos));
+      const { line, col } = error2.linePos[0];
+      error2.message += ` at line ${line}, column ${col}`;
       let ci = col - 1;
       let lineStr = src.substring(lc.lineStarts[line - 1], lc.lineStarts[line]).replace(/[\n\r]+$/, "");
       if (ci >= 60 && lineStr.length > 80) {
@@ -3747,12 +3747,12 @@ var require_errors = __commonJS({
       }
       if (/[^ ]/.test(lineStr)) {
         let count = 1;
-        const end = error.linePos[1];
+        const end = error2.linePos[1];
         if (end?.line === line && end.col > col) {
           count = Math.max(1, Math.min(end.col - col, 80 - ci));
         }
         const pointer = " ".repeat(ci) + "^".repeat(count);
-        error.message += `:
+        error2.message += `:
 
 ${lineStr}
 ${pointer}
@@ -4555,7 +4555,7 @@ var require_resolve_block_scalar = __commonJS({
       const mode = source[0];
       let indent = 0;
       let chomp = "";
-      let error = -1;
+      let error2 = -1;
       for (let i = 1; i < source.length; ++i) {
         const ch = source[i];
         if (!chomp && (ch === "-" || ch === "+"))
@@ -4564,12 +4564,12 @@ var require_resolve_block_scalar = __commonJS({
           const n = Number(ch);
           if (!indent && n)
             indent = n;
-          else if (error === -1)
-            error = offset + i;
+          else if (error2 === -1)
+            error2 = offset + i;
         }
       }
-      if (error !== -1)
-        onError(error, "UNEXPECTED_TOKEN", `Block scalar header includes extra characters: ${source}`);
+      if (error2 !== -1)
+        onError(error2, "UNEXPECTED_TOKEN", `Block scalar header includes extra characters: ${source}`);
       let hasSpace = false;
       let comment = "";
       let length = source.length;
@@ -4864,8 +4864,8 @@ var require_compose_scalar = __commonJS({
       try {
         const res = tag.resolve(value, (msg) => onError(tagToken ?? token, "TAG_RESOLVE_FAILED", msg), ctx.options);
         scalar = identity.isScalar(res) ? res : new Scalar.Scalar(res);
-      } catch (error) {
-        const msg = error instanceof Error ? error.message : String(error);
+      } catch (error2) {
+        const msg = error2 instanceof Error ? error2.message : String(error2);
         onError(tagToken ?? token, "TAG_RESOLVE_FAILED", msg);
         scalar = new Scalar.Scalar(value);
       }
@@ -4988,8 +4988,8 @@ var require_compose_node = __commonJS({
             node = composeCollection.composeCollection(CN, ctx, token, props, onError);
             if (anchor)
               node.anchor = anchor.source.substring(1);
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
+          } catch (error2) {
+            const message = error2 instanceof Error ? error2.message : String(error2);
             onError(token, "RESOURCE_EXHAUSTION", message);
           }
           break;
@@ -5254,11 +5254,11 @@ ${cb}` : comment;
             break;
           case "error": {
             const msg = token.source ? `${token.message}: ${JSON.stringify(token.source)}` : token.message;
-            const error = new errors.YAMLParseError(getErrorPos(token), "UNEXPECTED_TOKEN", msg);
+            const error2 = new errors.YAMLParseError(getErrorPos(token), "UNEXPECTED_TOKEN", msg);
             if (this.atDirectives || !this.doc)
-              this.errors.push(error);
+              this.errors.push(error2);
             else
-              this.doc.errors.push(error);
+              this.doc.errors.push(error2);
             break;
           }
           case "doc-end": {
@@ -6571,8 +6571,8 @@ var require_parser = __commonJS({
       peek(n) {
         return this.stack[this.stack.length - n];
       }
-      *pop(error) {
-        const token = error ?? this.stack.pop();
+      *pop(error2) {
+        const token = error2 ?? this.stack.pop();
         if (!token) {
           const message = "Tried to pop an empty stack";
           yield { type: "error", offset: this.offset, source: "", message };
@@ -9717,7 +9717,7 @@ function formatChangeReference(change) {
 }
 
 // src/config.ts
-var import_yaml = __toESM(require_dist(), 1);
+var import_yaml2 = __toESM(require_dist(), 1);
 
 // src/registries.ts
 var PYPI_JSON_URL = "https://pypi.org/pypi";
@@ -9873,8 +9873,8 @@ async function bearerToken(challenge, image, version, fetcher) {
   } catch {
     throw ociRegistryError(image, version, "the bearer-token response was not valid JSON");
   }
-  const record2 = payload && typeof payload === "object" && !Array.isArray(payload) ? payload : null;
-  const token = record2 && (typeof record2.token === "string" ? record2.token : typeof record2.access_token === "string" ? record2.access_token : "");
+  const record3 = payload && typeof payload === "object" && !Array.isArray(payload) ? payload : null;
+  const token = record3 && (typeof record3.token === "string" ? record3.token : typeof record3.access_token === "string" ? record3.access_token : "");
   if (!token) {
     throw ociRegistryError(image, version, "the bearer-token response did not contain a token");
   }
@@ -9946,6 +9946,603 @@ async function ociImageVersionDigest(image, version, fetcher = defaultFetcher) {
 // src/types.ts
 var DEFAULT_AI_TIMEOUT_MS = 1e4;
 
+// src/version-updaters.ts
+var import_yaml = __toESM(require_dist(), 1);
+function record(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function error(path, message) {
+  throw new Error(`Cannot update ${path}: ${message}`);
+}
+function versionValue(path, value) {
+  if (typeof value !== "string" || !value.trim()) {
+    error(path, "the selected property must contain a non-empty version string");
+  }
+  return value.trim();
+}
+function safeVersion(path, version) {
+  if (!version.trim()) {
+    error(path, "the replacement version must not be empty");
+  }
+  if (version.includes("\r") || version.includes("\n")) {
+    error(path, "the replacement version must be a single line");
+  }
+  return version;
+}
+function isDigit(value) {
+  return value !== void 0 && value >= "0" && value <= "9";
+}
+function parsePropertyPath(selector, path) {
+  let input2 = selector.trim();
+  if (input2.startsWith("$")) {
+    input2 = input2.slice(1);
+  }
+  if (input2.startsWith(".")) {
+    input2 = input2.slice(1);
+  }
+  if (!input2) {
+    error(path, "the property selector must not be empty");
+  }
+  const segments = [];
+  let cursor = 0;
+  while (cursor < input2.length) {
+    if (input2[cursor] === ".") {
+      cursor += 1;
+      continue;
+    }
+    if (input2[cursor] === "[") {
+      const close = input2.indexOf("]", cursor + 1);
+      if (close < 0) {
+        error(path, "the property selector contains an unterminated bracket");
+      }
+      const token = input2.slice(cursor + 1, close).trim();
+      if (!token) {
+        error(path, "the property selector contains an empty bracket");
+      }
+      const first = token[0];
+      const last = token[token.length - 1];
+      if ((first === "'" || first === '"') && last === first && token.length >= 2) {
+        segments.push(token.slice(1, -1));
+      } else {
+        let numeric = true;
+        for (const character of token) {
+          if (!isDigit(character)) {
+            numeric = false;
+            break;
+          }
+        }
+        if (!numeric) {
+          error(path, `the property selector bracket ${token} must contain a quoted key or array index`);
+        }
+        const index = Number(token);
+        if (!Number.isSafeInteger(index)) {
+          error(path, "the property selector array index is too large");
+        }
+        segments.push(index);
+      }
+      cursor = close + 1;
+      continue;
+    }
+    const start = cursor;
+    while (cursor < input2.length && input2[cursor] !== "." && input2[cursor] !== "[") {
+      cursor += 1;
+    }
+    const key = input2.slice(start, cursor).trim();
+    if (!key || key.includes("]")) {
+      error(path, "the property selector contains an invalid key");
+    }
+    segments.push(key);
+  }
+  if (segments.length === 0) {
+    error(path, "the property selector must identify a property");
+  }
+  return segments;
+}
+function readProperty(value, segments, path) {
+  let current = value;
+  for (const segment of segments) {
+    if (typeof segment === "number") {
+      if (!Array.isArray(current) || current[segment] === void 0) {
+        error(path, `the property selector does not exist at array index ${segment}`);
+      }
+      current = current[segment];
+    } else {
+      const object = record(current);
+      if (!object || !(segment in object)) {
+        error(path, `the property selector does not exist at ${segment}`);
+      }
+      current = object[segment];
+    }
+  }
+  return current;
+}
+function writeProperty(value, segments, version, path) {
+  if (segments.length === 0) {
+    error(path, "the property selector must identify a property");
+  }
+  let current = value;
+  for (const segment of segments.slice(0, -1)) {
+    if (typeof segment === "number") {
+      if (!Array.isArray(current) || current[segment] === void 0) {
+        error(path, `the property selector does not exist at array index ${segment}`);
+      }
+      current = current[segment];
+    } else {
+      const object2 = record(current);
+      if (!object2 || !(segment in object2)) {
+        error(path, `the property selector does not exist at ${segment}`);
+      }
+      current = object2[segment];
+    }
+  }
+  const final = segments[segments.length - 1];
+  if (final === void 0) {
+    error(path, "the property selector must identify a property");
+  }
+  if (typeof final === "number") {
+    if (!Array.isArray(current) || current[final] === void 0) {
+      error(path, `the property selector does not exist at array index ${final}`);
+    }
+    current[final] = version;
+    return;
+  }
+  const object = record(current);
+  if (!object || !(final in object)) {
+    error(path, `the property selector does not exist at ${final}`);
+  }
+  object[final] = version;
+}
+function parseStructured(path, content) {
+  try {
+    return JSON.parse(content);
+  } catch (parseError) {
+    error(path, parseError instanceof Error ? parseError.message : String(parseError));
+  }
+}
+function structuredUpdater(format, defaultSelector = "version") {
+  return {
+    format,
+    read(path, content) {
+      let parsed;
+      try {
+        parsed = format === "json" ? parseStructured(path, content) : (0, import_yaml.parse)(content);
+      } catch (parseError) {
+        error(path, parseError instanceof Error ? parseError.message : String(parseError));
+      }
+      const segments = parsePropertyPath(defaultSelector, path);
+      return versionValue(path, readProperty(parsed, segments, path));
+    },
+    update(path, content, version) {
+      let parsed;
+      try {
+        parsed = format === "json" ? parseStructured(path, content) : (0, import_yaml.parse)(content);
+      } catch (parseError) {
+        error(path, parseError instanceof Error ? parseError.message : String(parseError));
+      }
+      const replacement = safeVersion(path, version);
+      const segments = parsePropertyPath(defaultSelector, path);
+      versionValue(path, readProperty(parsed, segments, path));
+      writeProperty(parsed, segments, replacement, path);
+      return format === "json" ? `${JSON.stringify(parsed, null, 2)}
+` : (0, import_yaml.stringify)(parsed);
+    }
+  };
+}
+function lineRanges(content) {
+  const ranges = [];
+  let start = 0;
+  for (let cursor = 0; cursor <= content.length; cursor += 1) {
+    if (cursor !== content.length && content[cursor] !== "\n") {
+      continue;
+    }
+    const end = cursor > start && content[cursor - 1] === "\r" ? cursor - 1 : cursor;
+    ranges.push({ text: content.slice(start, end), start, end });
+    start = cursor + 1;
+  }
+  return ranges;
+}
+function trimTomlKey(key) {
+  const trimmed = key.trim();
+  if (trimmed.length >= 2 && (trimmed.startsWith('"') && trimmed.endsWith('"') || trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+}
+function tomlSection(line) {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("[") || !trimmed.endsWith("]") || trimmed.startsWith("[[")) {
+    return void 0;
+  }
+  return trimmed.slice(1, -1).trim();
+}
+function equalsOutsideQuotes(line) {
+  let quote = "";
+  let escaped = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    if (quote) {
+      if (quote === '"' && escaped) {
+        escaped = false;
+      } else if (quote === '"' && character === "\\") {
+        escaped = true;
+      } else if (character === quote) {
+        quote = "";
+      }
+    } else if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === "#") {
+      return -1;
+    } else if (character === "=") {
+      return index;
+    }
+  }
+  return -1;
+}
+function tomlQuotedValue(line, valueStart) {
+  const quote = line[valueStart];
+  if (quote !== '"' && quote !== "'") {
+    return null;
+  }
+  let escaped = false;
+  for (let cursor = valueStart + 1; cursor < line.length; cursor += 1) {
+    const character = line[cursor];
+    if (quote === '"' && escaped) {
+      escaped = false;
+      continue;
+    }
+    if (quote === '"' && character === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (character === quote) {
+      return { valueEnd: cursor, value: line.slice(valueStart + 1, cursor) };
+    }
+  }
+  return null;
+}
+function tomlLocation(content, path, selector) {
+  const segments = parsePropertyPath(selector, path);
+  if (segments.some((segment) => typeof segment !== "string")) {
+    error(path, "TOML selectors must use dotted property names");
+  }
+  const names = segments;
+  const expectedSection = names.slice(0, -1).join(".");
+  const expectedKey = names[names.length - 1] ?? "";
+  let section2 = "";
+  for (const range of lineRanges(content)) {
+    const currentSection = tomlSection(range.text);
+    if (currentSection !== void 0) {
+      section2 = currentSection;
+      continue;
+    }
+    const equals = equalsOutsideQuotes(range.text);
+    if (equals < 0) {
+      continue;
+    }
+    const key = trimTomlKey(range.text.slice(0, equals));
+    const qualifiedKey = section2 ? `${section2}.${key}` : key;
+    if (key !== expectedKey || section2 !== expectedSection) {
+      if (qualifiedKey !== names.join(".")) {
+        continue;
+      }
+    }
+    let valueStart = equals + 1;
+    while (valueStart < range.text.length && (range.text[valueStart] === " " || range.text[valueStart] === "	")) {
+      valueStart += 1;
+    }
+    const quoted = tomlQuotedValue(range.text, valueStart);
+    if (!quoted) {
+      error(path, `the TOML property ${selector} must contain a quoted string`);
+    }
+    return { valueStart: range.start + valueStart + 1, valueEnd: range.start + quoted.valueEnd, value: quoted.value };
+  }
+  error(path, `the TOML property ${selector} was not found`);
+}
+function tomlUpdater(selector) {
+  return {
+    format: "toml",
+    read(path, content) {
+      return versionValue(path, tomlLocation(content, path, selector).value);
+    },
+    update(path, content, version) {
+      const replacement = safeVersion(path, version);
+      const location = tomlLocation(content, path, selector);
+      versionValue(path, location.value);
+      return `${content.slice(0, location.valueStart)}${replacement}${content.slice(location.valueEnd)}`;
+    }
+  };
+}
+function countOccurrences(content, needle) {
+  if (!needle) {
+    return 0;
+  }
+  let count = 0;
+  let cursor = 0;
+  while (true) {
+    const found = content.indexOf(needle, cursor);
+    if (found < 0) {
+      return count;
+    }
+    count += 1;
+    cursor = found + needle.length;
+  }
+}
+function textLocation(content, path, pattern) {
+  const marker = "{{version}}";
+  const markerAt = pattern.indexOf(marker);
+  if (markerAt < 0 || countOccurrences(pattern, marker) !== 1) {
+    error(path, 'text patterns must contain exactly one "{{version}}" placeholder');
+  }
+  const prefix = pattern.slice(0, markerAt);
+  const suffix = pattern.slice(markerAt + marker.length);
+  const locations = [];
+  let cursor = 0;
+  while (true) {
+    const prefixAt = content.indexOf(prefix, cursor);
+    if (prefixAt < 0) {
+      break;
+    }
+    const valueStart = prefixAt + prefix.length;
+    let valueEnd;
+    if (suffix) {
+      valueEnd = content.indexOf(suffix, valueStart);
+      if (valueEnd < 0) {
+        cursor = valueStart;
+        continue;
+      }
+    } else {
+      const newline = content.indexOf("\n", valueStart);
+      valueEnd = newline < 0 ? content.length : newline;
+      if (valueEnd > valueStart && content[valueEnd - 1] === "\r") {
+        valueEnd -= 1;
+      }
+    }
+    const value = content.slice(valueStart, valueEnd).trim();
+    if (value && !value.includes("\r") && !value.includes("\n")) {
+      locations.push({ valueStart, valueEnd, value });
+    }
+    cursor = Math.max(valueStart + 1, valueEnd + suffix.length);
+  }
+  if (locations.length !== 1) {
+    error(path, locations.length === 0 ? `the text pattern ${pattern} was not found` : `the text pattern ${pattern} matched ${locations.length} locations; make it more specific`);
+  }
+  return locations[0];
+}
+function textUpdater(pattern) {
+  return {
+    format: "text",
+    read(path, content) {
+      return versionValue(path, textLocation(content, path, pattern).value);
+    },
+    update(path, content, version) {
+      const replacement = safeVersion(path, version);
+      const location = textLocation(content, path, pattern);
+      versionValue(path, location.value);
+      return `${content.slice(0, location.valueStart)}${replacement}${content.slice(location.valueEnd)}`;
+    }
+  };
+}
+function xmlNameCharacter(value, first) {
+  if (!value) {
+    return false;
+  }
+  if (first) {
+    return value >= "A" && value <= "Z" || value >= "a" && value <= "z" || value === "_" || value === ":";
+  }
+  return xmlNameCharacter(value, true) || value >= "0" && value <= "9" || value === "-" || value === ".";
+}
+function parseXmlPath(path, xpath) {
+  const value = xpath.trim();
+  const descendant = value.startsWith("//");
+  if (!descendant && !value.startsWith("/")) {
+    error(path, "XML selectors must be absolute paths such as /project/version or //version");
+  }
+  const rawSegments = value.slice(descendant ? 2 : 1).split("/");
+  const segments = [];
+  for (const segment of rawSegments) {
+    if (!segment || [...segment].some((character, index) => !xmlNameCharacter(character, index === 0))) {
+      error(path, `XML selector ${xpath} contains an unsupported element name`);
+    }
+    segments.push(segment);
+  }
+  if (segments.length === 0) {
+    error(path, "the XML selector must identify an element");
+  }
+  return { descendant, segments };
+}
+function xmlTagEnd(content, start, path) {
+  let quote = "";
+  for (let cursor = start + 1; cursor < content.length; cursor += 1) {
+    const character = content[cursor];
+    if (quote) {
+      if (character === quote) {
+        quote = "";
+      }
+    } else if (character === '"' || character === "'") {
+      quote = character;
+    } else if (character === ">") {
+      return cursor;
+    }
+  }
+  error(path, "XML contains an unterminated tag");
+}
+function xmlTagName(raw, path) {
+  let cursor = 0;
+  while (cursor < raw.length && (raw[cursor] === " " || raw[cursor] === "	" || raw[cursor] === "\r" || raw[cursor] === "\n")) {
+    cursor += 1;
+  }
+  const start = cursor;
+  while (cursor < raw.length && xmlNameCharacter(raw[cursor], cursor === start)) {
+    cursor += 1;
+  }
+  const name = raw.slice(start, cursor);
+  if (!name) {
+    error(path, "XML contains a tag without a valid element name");
+  }
+  return name;
+}
+function xmlPathMatches(stack, selector) {
+  if (selector.descendant) {
+    if (stack.length < selector.segments.length) {
+      return false;
+    }
+    const offset = stack.length - selector.segments.length;
+    return selector.segments.every((segment, index) => stack[offset + index]?.name === segment);
+  }
+  return stack.length === selector.segments.length && selector.segments.every((segment, index) => stack[index]?.name === segment);
+}
+function preserveWhitespace(value, replacement) {
+  let left = 0;
+  while (left < value.length && (value[left] === " " || value[left] === "	" || value[left] === "\r" || value[left] === "\n")) {
+    left += 1;
+  }
+  let right = value.length;
+  while (right > left && (value[right - 1] === " " || value[right - 1] === "	" || value[right - 1] === "\r" || value[right - 1] === "\n")) {
+    right -= 1;
+  }
+  return `${value.slice(0, left)}${replacement}${value.slice(right)}`;
+}
+function xmlLocation(content, path, xpath) {
+  const selector = parseXmlPath(path, xpath);
+  const stack = [];
+  let cursor = 0;
+  while (cursor < content.length) {
+    const start = content.indexOf("<", cursor);
+    if (start < 0) {
+      break;
+    }
+    if (content.startsWith("<!--", start)) {
+      const endComment = content.indexOf("-->", start + 4);
+      if (endComment < 0) {
+        error(path, "XML contains an unterminated comment");
+      }
+      cursor = endComment + 3;
+      continue;
+    }
+    if (content.startsWith("<![CDATA[", start)) {
+      const endCdata = content.indexOf("]]>", start + 9);
+      if (endCdata < 0) {
+        error(path, "XML contains an unterminated CDATA section");
+      }
+      cursor = endCdata + 3;
+      continue;
+    }
+    const end = xmlTagEnd(content, start, path);
+    const raw = content.slice(start + 1, end);
+    if (raw.startsWith("?") || raw.startsWith("!")) {
+      cursor = end + 1;
+      continue;
+    }
+    if (raw.startsWith("/")) {
+      const closing = xmlTagName(raw.slice(1), path);
+      const frame = stack.pop();
+      if (!frame || frame.name !== closing) {
+        error(path, `XML closing tag ${closing} does not match its opening tag`);
+      }
+      if (frame.matches) {
+        const rawValue = content.slice(frame.contentStart, start);
+        if (rawValue.includes("<")) {
+          error(path, "the selected XML element contains nested markup; use a leaf element");
+        }
+        return { valueStart: frame.contentStart, valueEnd: start, value: rawValue.trim() };
+      }
+    } else {
+      const selfClosing = raw.trimEnd().endsWith("/");
+      const name = xmlTagName(raw, path);
+      if (!selfClosing) {
+        stack.push({ name, contentStart: end + 1, matches: xmlPathMatches([...stack, { name, contentStart: end + 1, matches: false }], selector) });
+      } else if (xmlPathMatches([...stack, { name, contentStart: end + 1, matches: false }], selector)) {
+        error(path, "the selected XML element is self-closing and has no version value");
+      }
+    }
+    cursor = end + 1;
+  }
+  error(path, `the XML selector ${xpath} was not found`);
+}
+function xmlUpdater(xpath) {
+  return {
+    format: "xml",
+    read(path, content) {
+      return versionValue(path, xmlLocation(content, path, xpath).value);
+    },
+    update(path, content, version) {
+      const replacement = safeVersion(path, version);
+      const location = xmlLocation(content, path, xpath);
+      versionValue(path, location.value);
+      return `${content.slice(0, location.valueStart)}${preserveWhitespace(content.slice(location.valueStart, location.valueEnd), replacement)}${content.slice(location.valueEnd)}`;
+    }
+  };
+}
+function formatValue(value) {
+  return value === "json" || value === "yaml" || value === "toml" || value === "text" || value === "xml";
+}
+function validateVersionFileConfig(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return ["must be an object"];
+  }
+  const spec = value;
+  const issues = [];
+  if (typeof spec.path !== "string" || !spec.path.trim()) {
+    issues.push("path must be a non-empty string");
+  } else {
+    const normalizedPath = spec.path.trim().replace(/\\/g, "/");
+    const segments = normalizedPath.split("/");
+    if (normalizedPath.startsWith("/") || /^[A-Za-z]:\//.test(normalizedPath) || segments.some((segment) => segment === "..")) {
+      issues.push("path must stay inside the repository and must not be absolute or contain .. segments");
+    }
+  }
+  if (!formatValue(spec.format)) {
+    issues.push("format must be one of: json, yaml, toml, text, xml");
+  }
+  if (spec.package !== void 0 && (typeof spec.package !== "string" || !spec.package.trim())) {
+    issues.push("package must be a non-empty string when provided");
+  }
+  if (spec.property !== void 0 && (typeof spec.property !== "string" || !spec.property.trim())) {
+    issues.push("property must be a non-empty string when provided");
+  }
+  if (spec.pattern !== void 0 && (typeof spec.pattern !== "string" || !spec.pattern)) {
+    issues.push("pattern must be a non-empty string when provided");
+  }
+  if (spec.xpath !== void 0 && (typeof spec.xpath !== "string" || !spec.xpath.trim())) {
+    issues.push("xpath must be a non-empty string when provided");
+  }
+  if (spec.format === "text" && (typeof spec.pattern !== "string" || countOccurrences(spec.pattern, "{{version}}") !== 1)) {
+    issues.push('text format requires exactly one "{{version}}" placeholder in pattern');
+  }
+  if (spec.format === "xml" && (typeof spec.xpath !== "string" || !spec.xpath.trim())) {
+    issues.push("xml format requires xpath");
+  }
+  if ((spec.format === "json" || spec.format === "yaml" || spec.format === "toml") && spec.pattern !== void 0) {
+    issues.push(`${spec.format} format does not use pattern; use property instead`);
+  }
+  if (spec.format !== "text" && spec.format !== "xml" && spec.xpath !== void 0) {
+    issues.push(`${String(spec.format)} format does not use xpath`);
+  }
+  return issues;
+}
+function createVersionFileUpdater(config) {
+  const issues = validateVersionFileConfig(config);
+  if (issues.length > 0) {
+    error(config.path || "version file", issues.join("; "));
+  }
+  if (config.format === "json") {
+    return structuredUpdater("json", config.property?.trim() || "version");
+  }
+  if (config.format === "yaml") {
+    return structuredUpdater("yaml", config.property?.trim() || "version");
+  }
+  if (config.format === "toml") {
+    return tomlUpdater(config.property?.trim() || "version");
+  }
+  if (config.format === "text") {
+    return textUpdater(config.pattern ?? "");
+  }
+  return xmlUpdater(config.xpath ?? "");
+}
+function updateVersionFile(config, content, version) {
+  return { path: config.path, content: createVersionFileUpdater(config).update(config.path, content, version) };
+}
+
 // src/config.ts
 var DEFAULT_CHANNEL_POLICIES = {
   beta: { label: "ship:beta", prerelease: "beta" },
@@ -9977,6 +10574,7 @@ var DEFAULT_CONFIG = {
     manifest: "release-manifest.json",
     announcement: "RELEASE_ANNOUNCEMENT.md"
   },
+  versionFiles: [],
   communication: {
     customerQuality: {
       mode: "warn",
@@ -10055,11 +10653,11 @@ function commands(value) {
     if (!item || typeof item !== "object") {
       return [];
     }
-    const record2 = item;
-    if (typeof record2.name !== "string" || typeof record2.run !== "string" || !record2.name.trim() || !record2.run.trim()) {
+    const record3 = item;
+    if (typeof record3.name !== "string" || typeof record3.run !== "string" || !record3.name.trim() || !record3.run.trim()) {
       return [];
     }
-    return [{ name: record2.name.trim(), run: record2.run.trim() }];
+    return [{ name: record3.name.trim(), run: record3.run.trim() }];
   });
 }
 function readinessTasks(value) {
@@ -10070,13 +10668,13 @@ function readinessTasks(value) {
     if (!item || typeof item !== "object") {
       return [];
     }
-    const record2 = item;
-    if (typeof record2.name !== "string" || !record2.name.trim()) {
+    const record3 = item;
+    if (typeof record3.name !== "string" || !record3.name.trim()) {
       return [];
     }
-    const task = { name: record2.name.trim() };
-    if (typeof record2.label === "string" && record2.label.trim()) task.label = record2.label.trim();
-    if (typeof record2.file === "string" && record2.file.trim()) task.file = record2.file.trim();
+    const task = { name: record3.name.trim() };
+    if (typeof record3.label === "string" && record3.label.trim()) task.label = record3.label.trim();
+    if (typeof record3.file === "string" && record3.file.trim()) task.file = record3.file.trim();
     return [task];
   });
 }
@@ -10088,12 +10686,12 @@ function healthWorkflows(value) {
     if (!item || typeof item !== "object") {
       return [];
     }
-    const record2 = item;
-    if (typeof record2.name !== "string" || !record2.name.trim()) {
+    const record3 = item;
+    if (typeof record3.name !== "string" || !record3.name.trim()) {
       return [];
     }
-    const purpose = record2.purpose === "package" || record2.purpose === "deployment" || record2.purpose === "custom" ? record2.purpose : "custom";
-    return [{ name: record2.name.trim(), purpose, required: record2.required !== false }];
+    const purpose = record3.purpose === "package" || record3.purpose === "deployment" || record3.purpose === "custom" ? record3.purpose : "custom";
+    return [{ name: record3.name.trim(), purpose, required: record3.required !== false }];
   });
 }
 function booleanValue(value, fallback) {
@@ -10154,6 +10752,26 @@ function aiSettings(value, fallback) {
   }
   return result;
 }
+function versionFiles(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return [];
+    }
+    const record3 = item;
+    if (typeof record3.path !== "string" || !record3.path.trim() || record3.format !== "json" && record3.format !== "yaml" && record3.format !== "toml" && record3.format !== "text" && record3.format !== "xml") {
+      return [];
+    }
+    const result = { path: record3.path.trim().replace(/\\/g, "/").replace(/^\.\//, ""), format: record3.format };
+    if (typeof record3.property === "string" && record3.property.trim()) result.property = record3.property.trim();
+    if (typeof record3.pattern === "string" && record3.pattern) result.pattern = record3.pattern;
+    if (typeof record3.xpath === "string" && record3.xpath.trim()) result.xpath = record3.xpath.trim();
+    if (typeof record3.package === "string" && record3.package.trim()) result.package = record3.package.trim();
+    return [result];
+  });
+}
 function customerQualitySettings(value, fallback) {
   const object = value && typeof value === "object" && !Array.isArray(value) ? value : {};
   return {
@@ -10176,22 +10794,22 @@ function channelPolicies(value) {
     if (!item || typeof item !== "object" || Array.isArray(item)) {
       continue;
     }
-    const record2 = item;
-    if (typeof record2.label !== "string" || !record2.label.trim() || typeof record2.prerelease !== "string" || !record2.prerelease.trim()) {
+    const record3 = item;
+    if (typeof record3.label !== "string" || !record3.label.trim() || typeof record3.prerelease !== "string" || !record3.prerelease.trim()) {
       continue;
     }
-    const policy = { label: record2.label.trim(), prerelease: record2.prerelease.trim() };
-    if (typeof record2.branch === "string" && record2.branch.trim()) {
-      policy.branch = record2.branch.trim();
+    const policy = { label: record3.label.trim(), prerelease: record3.prerelease.trim() };
+    if (typeof record3.branch === "string" && record3.branch.trim()) {
+      policy.branch = record3.branch.trim();
     }
-    if (typeof record2.baseBranch === "string" && record2.baseBranch.trim()) {
-      policy.baseBranch = record2.baseBranch.trim();
+    if (typeof record3.baseBranch === "string" && record3.baseBranch.trim()) {
+      policy.baseBranch = record3.baseBranch.trim();
     }
-    if (typeof record2.releaseBranch === "string" && record2.releaseBranch.trim()) {
-      policy.releaseBranch = record2.releaseBranch.trim();
+    if (typeof record3.releaseBranch === "string" && record3.releaseBranch.trim()) {
+      policy.releaseBranch = record3.releaseBranch.trim();
     }
-    if (typeof record2.tagPrefix === "string") {
-      policy.tagPrefix = record2.tagPrefix;
+    if (typeof record3.tagPrefix === "string") {
+      policy.tagPrefix = record3.tagPrefix;
     }
     result[name.trim()] = policy;
   }
@@ -10205,6 +10823,7 @@ function mergeConfig(raw) {
   const release = object.release && typeof object.release === "object" ? object.release : {};
   const readiness = object.readiness && typeof object.readiness === "object" ? object.readiness : {};
   const outputs = object.outputs && typeof object.outputs === "object" ? object.outputs : {};
+  const configuredVersionFiles = object.versionFiles;
   const artifacts = object.artifacts && typeof object.artifacts === "object" ? object.artifacts : {};
   const monorepo = object.monorepo && typeof object.monorepo === "object" ? object.monorepo : {};
   const dependencyPolicy = monorepo.dependencyPolicy && typeof monorepo.dependencyPolicy === "object" ? monorepo.dependencyPolicy : {};
@@ -10240,6 +10859,7 @@ function mergeConfig(raw) {
       manifest: typeof outputs.manifest === "string" && outputs.manifest.trim() ? outputs.manifest.trim() : DEFAULT_CONFIG.outputs.manifest,
       announcement: typeof outputs.announcement === "string" && outputs.announcement.trim() ? outputs.announcement.trim() : DEFAULT_CONFIG.outputs.announcement
     },
+    versionFiles: versionFiles(configuredVersionFiles),
     artifacts: {
       paths: strings(artifacts.paths)
     },
@@ -10297,9 +10917,9 @@ function parseConfig(content, fileName = ".semverge.yml") {
   }
   let raw;
   try {
-    raw = fileName.toLowerCase().endsWith(".json") ? JSON.parse(content) : (0, import_yaml.parse)(content);
-  } catch (error) {
-    throw new Error(`Could not parse ${fileName}: ${error instanceof Error ? error.message : String(error)}`);
+    raw = fileName.toLowerCase().endsWith(".json") ? JSON.parse(content) : (0, import_yaml2.parse)(content);
+  } catch (error2) {
+    throw new Error(`Could not parse ${fileName}: ${error2 instanceof Error ? error2.message : String(error2)}`);
   }
   return mergeConfig(raw);
 }
@@ -10308,6 +10928,7 @@ function withOverrides(config, overrides) {
     release: { ...config.release, channels: Object.fromEntries(Object.entries(config.release.channels).map(([name, policy]) => [name, { ...policy }])) },
     readiness: { ...config.readiness, requiredLabels: [...config.readiness.requiredLabels], requiredFiles: [...config.readiness.requiredFiles], commands: [...config.readiness.commands], tasks: [...config.readiness.tasks] },
     outputs: { ...config.outputs },
+    versionFiles: config.versionFiles.map((item) => ({ ...item })),
     artifacts: { ...config.artifacts, paths: [...config.artifacts.paths] },
     monorepo: { ...config.monorepo, packages: [...config.monorepo.packages], dependencyPolicy: { ...config.monorepo.dependencyPolicy } },
     health: { ...config.health, workflows: [...config.health.workflows], expectedArtifacts: [...config.health.expectedArtifacts], requiredLinks: [...config.health.requiredLinks], ...config.health.monitoring ? { monitoring: { ...config.health.monitoring } } : {} },
@@ -10793,7 +11414,7 @@ function releaseTagName(prefix, version) {
 
 // src/packages.ts
 var import_node_path = require("node:path");
-var import_yaml2 = __toESM(require_dist(), 1);
+var import_yaml3 = __toESM(require_dist(), 1);
 
 // src/semver.ts
 var import_semver = __toESM(require_semver2(), 1);
@@ -10884,8 +11505,8 @@ function jsonObject(path, content) {
       throw new Error("expected a JSON object");
     }
     return value;
-  } catch (error) {
-    throw new Error(`Cannot read ${path}: ${error instanceof Error ? error.message : String(error)}`);
+  } catch (error2) {
+    throw new Error(`Cannot read ${path}: ${error2 instanceof Error ? error2.message : String(error2)}`);
   }
 }
 function tomlVersionLine(content, sections) {
@@ -11095,7 +11716,7 @@ function workspacePatterns(rootContent, pnpmWorkspaceContent, config, ecosystem)
   }
   if (pnpmWorkspaceContent) {
     try {
-      const parsed = (0, import_yaml2.parse)(pnpmWorkspaceContent);
+      const parsed = (0, import_yaml3.parse)(pnpmWorkspaceContent);
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
         const packages = parsed.packages;
         if (Array.isArray(packages)) {
@@ -11274,7 +11895,7 @@ function discoverPackages(files, allPaths, config) {
 // src/workspace-release.ts
 var import_node_path3 = require("node:path");
 var import_semver4 = __toESM(require_semver2(), 1);
-var import_yaml3 = __toESM(require_dist(), 1);
+var import_yaml4 = __toESM(require_dist(), 1);
 
 // src/notes.ts
 function section(title, changes) {
@@ -11640,12 +12261,12 @@ function runReleasePluginHookSync(registry, hook, context) {
       }
       const result = normalizePluginResult(plugin.name, hook, res);
       invocations.push({ plugin: plugin.name, result });
-    } catch (error) {
-      if (error instanceof Error && error.message.startsWith(`SemVerge plugin ${plugin.name} returned`)) {
-        throw error;
+    } catch (error2) {
+      if (error2 instanceof Error && error2.message.startsWith(`SemVerge plugin ${plugin.name} returned`)) {
+        throw error2;
       }
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`SemVerge plugin ${plugin.name} failed during ${hook}: ${message}`, { cause: error });
+      const message = error2 instanceof Error ? error2.message : String(error2);
+      throw new Error(`SemVerge plugin ${plugin.name} failed during ${hook}: ${message}`, { cause: error2 });
     }
   }
   return invocations;
@@ -11734,8 +12355,8 @@ function hasUncompletedPluginEffect(state, pluginName) {
 function hasCompletedTransactionEvent(state, key) {
   return state.events.some((event) => event.key === key && event.status === "completed");
 }
-function errorMessage(error) {
-  return error instanceof Error ? error.message : String(error);
+function errorMessage(error2) {
+  return error2 instanceof Error ? error2.message : String(error2);
 }
 async function runTransactionOwnedPluginHook(registry, hook, context, transaction, recordEventFn, persistFn) {
   let currentState = transaction;
@@ -11877,18 +12498,18 @@ async function runTransactionOwnedPluginHook(registry, hook, context, transactio
       if (result.blocked) {
         throw new Error(`SemVerge plugin ${plugin.name} blocked the release during ${hook}: ${result.summary ?? "release blocked"}`);
       }
-    } catch (error) {
-      if (currentState && recordEventFn && !(error instanceof Error && error.message.startsWith(`SemVerge plugin ${plugin.name} blocked`))) {
+    } catch (error2) {
+      if (currentState && recordEventFn && !(error2 instanceof Error && error2.message.startsWith(`SemVerge plugin ${plugin.name} blocked`))) {
         currentState = recordEventFn(currentState, {
           key: hookKey,
           kind: `plugin-hook-${hook}`,
           target: plugin.name,
           status: "failed",
-          detail: error instanceof Error ? error.message : String(error)
+          detail: error2 instanceof Error ? error2.message : String(error2)
         });
         await persist(currentState);
       }
-      throw error;
+      throw error2;
     }
   }
   return { invocations, transaction: currentState };
@@ -12213,7 +12834,7 @@ function updateInternalDependencyRanges(files, packages, versions) {
 function updatePnpmLock(content, packages, versions) {
   let parsed;
   try {
-    parsed = (0, import_yaml3.parse)(content);
+    parsed = (0, import_yaml4.parse)(content);
   } catch {
     return null;
   }
@@ -12278,7 +12899,7 @@ function updatePnpmLock(content, packages, versions) {
       }
     }
   }
-  return changed ? (0, import_yaml3.stringify)(lock) : null;
+  return changed ? (0, import_yaml4.stringify)(lock) : null;
 }
 function updateNodeLocks(files, packages, versions) {
   const changes = [];
@@ -12340,6 +12961,38 @@ function updateNodeLocks(files, packages, versions) {
 ` });
   }
   return changes;
+}
+function packageForVersionFile(spec, packages) {
+  const requested = spec.package?.trim().toLowerCase();
+  if (!requested) {
+    return void 0;
+  }
+  return packages.find((packageItem) => [packageItem.id, packageItem.name, packageItem.directory, packageItem.manifestPath].some((value) => value.toLowerCase() === requested));
+}
+function updateConfiguredVersionFiles(input2, packages, versions, hasRelease, versionChanges) {
+  if (!hasRelease) {
+    return;
+  }
+  const versionValues = [...new Set(versions.values())];
+  for (const spec of input2.config.versionFiles) {
+    const packageItem = packageForVersionFile(spec, packages);
+    if (spec.package && !packageItem) {
+      throw new Error(`Configured version file ${spec.path} references unknown package ${spec.package}. Use a package id, name, directory, or manifest path.`);
+    }
+    if (input2.mode === "independent" && !packageItem && versions.size > 1) {
+      throw new Error(`Configured version file ${spec.path} must set package for an independent release with multiple versions.`);
+    }
+    const version = packageItem ? versions.get(packageItem.manifestPath) : versionValues[0];
+    if (!version) {
+      throw new Error(`No released package version is available for configured version file ${spec.path}.`);
+    }
+    const content = input2.files[spec.path];
+    if (content === void 0) {
+      throw new Error(`Configured version file ${spec.path} was not found at the release commit.`);
+    }
+    const change = updateVersionFile(spec, content, version);
+    versionChanges.set(change.path, change);
+  }
 }
 function manifestContent(plan) {
   return `${JSON.stringify({
@@ -12495,6 +13148,7 @@ function buildWorkspaceReleasePlan(input2) {
   for (const change of updateNodeLocks(input2.files, input2.packages, versionMap)) {
     versionChangeMap.set(change.path, change);
   }
+  updateConfiguredVersionFiles(input2, input2.packages, versionMap, hasRelease, versionChangeMap);
   const versionChanges = [...versionChangeMap.values()];
   const outputMap = /* @__PURE__ */ new Map();
   for (const item of packageReleases) {
@@ -12627,15 +13281,15 @@ var defaultNpmViewRunner = async (executable, args, options) => {
 function npmExecutable() {
   return process.platform === "win32" ? "npm.cmd" : "npm";
 }
-function errorOutput(error) {
-  if (!error || typeof error !== "object") {
-    return String(error);
+function errorOutput(error2) {
+  if (!error2 || typeof error2 !== "object") {
+    return String(error2);
   }
-  const record2 = error;
-  return [record2.stdout, record2.stderr, record2.message].filter((value) => typeof value === "string").join("\n");
+  const record3 = error2;
+  return [record3.stdout, record3.stderr, record3.message].filter((value) => typeof value === "string").join("\n");
 }
-function isRegistryNotFound(error) {
-  return /\be404\b|\b404\s+not\s+found\b|\bno\s+match\s+found\b|\bversion\s+not\s+found\b/i.test(errorOutput(error));
+function isRegistryNotFound(error2) {
+  return /\be404\b|\b404\s+not\s+found\b|\bno\s+match\s+found\b|\bversion\s+not\s+found\b/i.test(errorOutput(error2));
 }
 function exactVersion(stdout, version) {
   const value = stdout.trim();
@@ -12658,8 +13312,8 @@ async function npmVersionExists(name, version, cwd, runner = defaultNpmViewRunne
   try {
     const result = await runner(npmExecutable(), ["view", spec, "version", "--json"], { cwd });
     return exactVersion(result.stdout, packageVersion);
-  } catch (error) {
-    if (isRegistryNotFound(error)) {
+  } catch (error2) {
+    if (isRegistryNotFound(error2)) {
       return false;
     }
     throw new Error(`Could not verify ${spec} in the npm registry before publishing. Fix npm registry access and retry; SemVerge will not assume the version is absent.`);
@@ -12684,8 +13338,8 @@ async function assertWorkspaceAtCommit(workspace, mergeSha, readHead = readWorks
   let head;
   try {
     head = await readHead(workspace);
-  } catch (error) {
-    throw new Error(`SemVerge requires a checkout at release merge commit ${mergeSha}; could not read ${workspace} with git rev-parse HEAD. Check out the merge commit before publication.`, { cause: error });
+  } catch (error2) {
+    throw new Error(`SemVerge requires a checkout at release merge commit ${mergeSha}; could not read ${workspace} with git rev-parse HEAD. Check out the merge commit before publication.`, { cause: error2 });
   }
   if (head.toLowerCase() !== mergeSha.toLowerCase()) {
     throw new Error(`SemVerge requires GITHUB_WORKSPACE at release merge commit ${mergeSha}, but found ${head || "<no HEAD>"}. Check out the merge commit before publication.`);
@@ -12910,77 +13564,77 @@ function mergeReleaseTransactions(states, expected) {
   }
   return merged;
 }
-function upgradeLegacyTransaction(record2) {
-  if (typeof record2.version !== "string" || typeof record2.npmEnabled !== "boolean") {
+function upgradeLegacyTransaction(record3) {
+  if (typeof record3.version !== "string" || typeof record3.npmEnabled !== "boolean") {
     throw new Error("SemVerge found an invalid legacy release transaction marker.");
   }
-  const packageIds = stringArray(record2.packageIds, "packageIds");
-  const tagNames = stringArray(record2.tagNames, "tagNames");
-  const uploadedAssets = assetMap(record2.uploadedAssets);
-  const publishedPackages = stringArray(record2.publishedPackages, "publishedPackages");
-  if (typeof record2.ready !== "boolean" || typeof record2.published !== "boolean") {
+  const packageIds = stringArray(record3.packageIds, "packageIds");
+  const tagNames = stringArray(record3.tagNames, "tagNames");
+  const uploadedAssets = assetMap(record3.uploadedAssets);
+  const publishedPackages = stringArray(record3.publishedPackages, "publishedPackages");
+  if (typeof record3.ready !== "boolean" || typeof record3.published !== "boolean") {
     throw new Error("SemVerge found an invalid legacy release transaction marker.");
   }
-  const phase = record2.published ? "published" : record2.ready ? "built" : "prepared";
+  const phase = record3.published ? "published" : record3.ready ? "built" : "prepared";
   return {
     ...createReleaseTransaction({
-      id: `release_legacy_${record2.version.replace(/[^0-9A-Za-z.-]/g, "-")}`,
-      version: record2.version,
+      id: `release_legacy_${record3.version.replace(/[^0-9A-Za-z.-]/g, "-")}`,
+      version: record3.version,
       sourceCommit: "unknown",
       packageIds,
       tagNames,
-      npmEnabled: record2.npmEnabled,
-      now: typeof record2.updatedAt === "string" ? record2.updatedAt : void 0
+      npmEnabled: record3.npmEnabled,
+      now: typeof record3.updatedAt === "string" ? record3.updatedAt : void 0
     }),
     phase,
     publishedPackages,
     uploadedAssets,
-    ready: record2.ready,
-    published: record2.published
+    ready: record3.ready,
+    published: record3.published
   };
 }
 function parseReleaseTransaction(value) {
-  const record2 = objectValue3(value);
-  if (!record2) {
+  const record3 = objectValue3(value);
+  if (!record3) {
     throw new Error("SemVerge found an invalid release transaction marker.");
   }
-  if (record2.schemaVersion === 1) {
-    return upgradeLegacyTransaction(record2);
+  if (record3.schemaVersion === 1) {
+    return upgradeLegacyTransaction(record3);
   }
-  const hasArtifactDigests = record2.schemaVersion === 3 || record2.schemaVersion === 4 || record2.schemaVersion === 5 || record2.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
-  const hasNpmProvenance = record2.schemaVersion === 4 || record2.schemaVersion === 5 || record2.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
-  const hasPublishingTargets = record2.schemaVersion === 5 || record2.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
-  const hasOciImages = record2.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
-  if (record2.schemaVersion !== 2 && record2.schemaVersion !== 3 && record2.schemaVersion !== 4 && record2.schemaVersion !== 5 && record2.schemaVersion !== RELEASE_TRANSACTION_SCHEMA_VERSION || typeof record2.id !== "string" || typeof record2.version !== "string" || typeof record2.sourceCommit !== "string" || typeof record2.npmEnabled !== "boolean" || hasNpmProvenance && typeof record2.npmProvenance !== "boolean" || hasPublishingTargets && record2.publishingTargets === void 0 || hasOciImages && (record2.ociImages === void 0 || record2.publishedOciImages === void 0) || typeof record2.ready !== "boolean" || typeof record2.published !== "boolean" || typeof record2.updatedAt !== "string" || !Array.isArray(record2.events) || hasArtifactDigests && record2.artifactDigests === void 0) {
+  const hasArtifactDigests = record3.schemaVersion === 3 || record3.schemaVersion === 4 || record3.schemaVersion === 5 || record3.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  const hasNpmProvenance = record3.schemaVersion === 4 || record3.schemaVersion === 5 || record3.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  const hasPublishingTargets = record3.schemaVersion === 5 || record3.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  const hasOciImages = record3.schemaVersion === RELEASE_TRANSACTION_SCHEMA_VERSION;
+  if (record3.schemaVersion !== 2 && record3.schemaVersion !== 3 && record3.schemaVersion !== 4 && record3.schemaVersion !== 5 && record3.schemaVersion !== RELEASE_TRANSACTION_SCHEMA_VERSION || typeof record3.id !== "string" || typeof record3.version !== "string" || typeof record3.sourceCommit !== "string" || typeof record3.npmEnabled !== "boolean" || hasNpmProvenance && typeof record3.npmProvenance !== "boolean" || hasPublishingTargets && record3.publishingTargets === void 0 || hasOciImages && (record3.ociImages === void 0 || record3.publishedOciImages === void 0) || typeof record3.ready !== "boolean" || typeof record3.published !== "boolean" || typeof record3.updatedAt !== "string" || !Array.isArray(record3.events) || hasArtifactDigests && record3.artifactDigests === void 0) {
     throw new Error("SemVerge found an invalid release transaction marker.");
   }
-  const failure = record2.failure === void 0 ? void 0 : objectValue3(record2.failure);
+  const failure = record3.failure === void 0 ? void 0 : objectValue3(record3.failure);
   if (failure && (typeof failure.phase !== "string" || typeof failure.message !== "string" || typeof failure.at !== "string")) {
     throw new Error("SemVerge found an invalid release transaction failure.");
   }
   const normalizedFailure = failure ? { ...typeof failure.key === "string" ? { key: failure.key } : {}, phase: phaseValue(failure.phase, "failure.phase"), message: failure.message, at: failure.at } : void 0;
   return {
     schemaVersion: RELEASE_TRANSACTION_SCHEMA_VERSION,
-    id: record2.id,
-    version: record2.version,
-    sourceCommit: record2.sourceCommit,
-    phase: phaseValue(record2.phase),
-    packageIds: stringArray(record2.packageIds, "packageIds"),
-    tagNames: stringArray(record2.tagNames, "tagNames"),
-    publishingTargets: hasPublishingTargets ? stringArray(record2.publishingTargets, "publishingTargets") : record2.npmEnabled ? ["npm"] : [],
-    ociImages: hasOciImages ? stringArray(record2.ociImages, "ociImages") : [],
-    npmEnabled: record2.npmEnabled,
-    npmProvenance: hasNpmProvenance ? record2.npmProvenance : false,
-    artifactDigests: hasArtifactDigests ? digestMap(record2.artifactDigests) : {},
-    ociDigests: hasOciImages && record2.ociDigests !== void 0 ? ociDigestMap(record2.ociDigests) : {},
-    publishedPackages: stringArray(record2.publishedPackages, "publishedPackages"),
-    publishedOciImages: hasOciImages ? stringArray(record2.publishedOciImages, "publishedOciImages") : [],
-    uploadedAssets: normalizeAssets(assetMap(record2.uploadedAssets)),
-    ready: record2.ready,
-    published: record2.published,
-    events: record2.events.map(eventValue),
+    id: record3.id,
+    version: record3.version,
+    sourceCommit: record3.sourceCommit,
+    phase: phaseValue(record3.phase),
+    packageIds: stringArray(record3.packageIds, "packageIds"),
+    tagNames: stringArray(record3.tagNames, "tagNames"),
+    publishingTargets: hasPublishingTargets ? stringArray(record3.publishingTargets, "publishingTargets") : record3.npmEnabled ? ["npm"] : [],
+    ociImages: hasOciImages ? stringArray(record3.ociImages, "ociImages") : [],
+    npmEnabled: record3.npmEnabled,
+    npmProvenance: hasNpmProvenance ? record3.npmProvenance : false,
+    artifactDigests: hasArtifactDigests ? digestMap(record3.artifactDigests) : {},
+    ociDigests: hasOciImages && record3.ociDigests !== void 0 ? ociDigestMap(record3.ociDigests) : {},
+    publishedPackages: stringArray(record3.publishedPackages, "publishedPackages"),
+    publishedOciImages: hasOciImages ? stringArray(record3.publishedOciImages, "publishedOciImages") : [],
+    uploadedAssets: normalizeAssets(assetMap(record3.uploadedAssets)),
+    ready: record3.ready,
+    published: record3.published,
+    events: record3.events.map(eventValue),
     ...normalizedFailure ? { failure: normalizedFailure } : {},
-    updatedAt: record2.updatedAt
+    updatedAt: record3.updatedAt
   };
 }
 function findTransactionMarker(body) {
@@ -12995,8 +13649,8 @@ function findTransactionMarker(body) {
     const payload = body.slice(payloadStart, delimiter);
     try {
       return { start, end: delimiter + " -->".length, value: JSON.parse(payload) };
-    } catch (error) {
-      lastError = error;
+    } catch (error2) {
+      lastError = error2;
       delimiter = body.indexOf(" -->", delimiter + " -->".length);
     }
   }
@@ -13484,11 +14138,11 @@ async function runWithTimeout(work, timeoutMs, signal) {
   }
   try {
     return await Promise.race(racers);
-  } catch (error) {
-    if (error instanceof AiProviderError) {
-      throw error;
+  } catch (error2) {
+    if (error2 instanceof AiProviderError) {
+      throw error2;
     }
-    const message = error instanceof Error && error.message ? `: ${error.message}` : "";
+    const message = error2 instanceof Error && error2.message ? `: ${error2.message}` : "";
     throw new AiProviderError(`OpenAI request failed${message}.`, "transport");
   } finally {
     if (timeoutHandle !== void 0) {
@@ -13607,8 +14261,8 @@ async function runOptionalAiFeature(config, request, options = {}) {
       return null;
     }
     return await provider.generateJson(request, { signal: options.signal });
-  } catch (error) {
-    const failure = error instanceof AiProviderError ? error : new AiProviderError(error instanceof Error ? error.message : String(error), "transport");
+  } catch (error2) {
+    const failure = error2 instanceof AiProviderError ? error2 : new AiProviderError(error2 instanceof Error ? error2.message : String(error2), "transport");
     if (options.fallback) {
       return await options.fallback(failure);
     }
@@ -13744,7 +14398,7 @@ function releaseNotesRequest(plan, options = {}) {
     }
   };
 }
-function record(value) {
+function record2(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 function sameMembers(actual, expected) {
@@ -13755,7 +14409,7 @@ function unsafeGeneratedText(value) {
 }
 function reconcileReleaseNotes(plan, suggestion) {
   const violations = [];
-  if (!record(suggestion)) {
+  if (!record2(suggestion)) {
     return { status: "rejected", accepted: false, violations: ["AI release-notes output must be an object."] };
   }
   const facts = releaseNotesChangeFacts({ releaseChanges: plan.releaseChanges });
@@ -13774,7 +14428,7 @@ function reconcileReleaseNotes(plan, suggestion) {
   const highlights = Array.isArray(suggestion.highlights) ? suggestion.highlights : [];
   const highlightIds = [];
   for (const item of highlights) {
-    if (!record(item) || typeof item.changeId !== "string" || typeof item.impact !== "string" || typeof item.text !== "string") {
+    if (!record2(item) || typeof item.changeId !== "string" || typeof item.impact !== "string" || typeof item.text !== "string") {
       violations.push("highlight is not a valid structured change entry");
       continue;
     }
@@ -13792,7 +14446,7 @@ function reconcileReleaseNotes(plan, suggestion) {
   const migrationNotes = Array.isArray(suggestion.migrationNotes) ? suggestion.migrationNotes : [];
   const migrationOutputIds = [];
   for (const item of migrationNotes) {
-    if (!record(item) || typeof item.changeId !== "string" || typeof item.text !== "string") {
+    if (!record2(item) || typeof item.changeId !== "string" || typeof item.text !== "string") {
       violations.push("migration note is not a valid structured entry");
       continue;
     }
@@ -13814,9 +14468,9 @@ async function suggestAiReleaseNotes(plan, config, options = {}) {
   let usedFallback = false;
   const requestOptions = providerOptions.fallback ? {
     ...providerOptions,
-    fallback: async (error) => {
+    fallback: async (error2) => {
       usedFallback = true;
-      return providerOptions.fallback(error);
+      return providerOptions.fallback(error2);
     }
   } : providerOptions;
   const result = await runOptionalAiFeature(config, releaseNotesRequest(plan, { tone, verbosity }), requestOptions);
@@ -13871,8 +14525,8 @@ async function buildAiReleaseNotesPreview(plan, config, options = {}) {
       return { status: "unavailable", deterministic, reason: "provider" };
     }
     return { status: "generated", deterministic, suggestion, rendered: renderAiReleaseNotes(suggestion, plan) };
-  } catch (error) {
-    const reason = error instanceof AiProviderError ? error.kind : "transport";
+  } catch (error2) {
+    const reason = error2 instanceof AiProviderError ? error2.kind : "transport";
     return { status: "unavailable", deterministic, reason };
   }
 }
@@ -14304,8 +14958,8 @@ async function monitorReleases(client, config, tagOverride) {
   for (const release of targets) {
     try {
       await runPostReleaseVerification(client, release, config, { delayed: true });
-    } catch (error) {
-      failures.push(`${release.tag_name}: ${error instanceof Error ? error.message : String(error)}`);
+    } catch (error2) {
+      failures.push(`${release.tag_name}: ${error2 instanceof Error ? error2.message : String(error2)}`);
     }
   }
   if (failures.length > 0) {
@@ -14317,7 +14971,8 @@ async function prepareRelease(client, head, config, branch, defaultBranch, reque
   const baseCommit = await client.getCommit(head);
   const repositoryTree = await client.getTree(baseCommit.tree.sha);
   const allPaths = repositoryTree.filter((entry) => entry.type === "blob").map((entry) => entry.path);
-  const manifestPaths = allPaths.filter((path) => path === "package.json" || path.endsWith("/package.json") || path === "pyproject.toml" || path.endsWith("/pyproject.toml") || path === "Cargo.toml" || path.endsWith("/Cargo.toml") || path === "pnpm-workspace.yaml");
+  const configuredVersionPaths = new Set(config.versionFiles.map((item) => item.path));
+  const manifestPaths = allPaths.filter((path) => configuredVersionPaths.has(path) || path === "package.json" || path.endsWith("/package.json") || path === "pyproject.toml" || path.endsWith("/pyproject.toml") || path === "Cargo.toml" || path.endsWith("/Cargo.toml") || path === "pnpm-workspace.yaml");
   const manifestEntries = await Promise.all(manifestPaths.map(async (path) => [path, await fileAtHead(client, path, head)]));
   const manifestFiles = Object.fromEntries(manifestEntries.flatMap(([path, content]) => content === null ? [] : [[path, content]]));
   const discovered = discoverPackages(manifestFiles, allPaths, config);
@@ -14475,8 +15130,8 @@ async function recordOciDigest(progress, image, version, idempotency) {
       progress.ociDigests ??= {};
       progress.ociDigests[image] = digest;
     }
-  } catch (error) {
-    log(`Could not record the OCI digest for ${image}:${version}; release verification will report the digest evidence as unavailable: ${error instanceof Error ? error.message : String(error)}`);
+  } catch (error2) {
+    log(`Could not record the OCI digest for ${image}:${version}; release verification will report the digest evidence as unavailable: ${error2 instanceof Error ? error2.message : String(error2)}`);
   }
   return progress;
 }
@@ -14682,10 +15337,10 @@ async function publishRelease(client, pr, config) {
     try {
       injectTestFailure("package-publish");
       await exec2(publishCommand, { cwd: packageWorkspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
-    } catch (error) {
+    } catch (error2) {
       progress = recordReleaseTransactionEvent(progress, { key: `package:${id}`, kind: "package-published", target: packageItem.name, status: "failed", detail: "Package publication failed; inspect runner logs before retrying." });
       await persistReleaseProgress(client, executions, progress);
-      throw error;
+      throw error2;
     }
     progress.publishedPackages = [.../* @__PURE__ */ new Set([...progress.publishedPackages, id])];
     progress = recordReleaseTransactionEvent(progress, { key: `package:${id}`, kind: "package-published", target: packageItem.name });
@@ -14710,10 +15365,10 @@ async function publishRelease(client, pr, config) {
       try {
         injectTestFailure("oci-publish");
         await exec2(publishCommand, { cwd: workspace, shell: process.env.ComSpec ?? "/bin/sh", maxBuffer: 1024 * 1024 * 20 });
-      } catch (error) {
+      } catch (error2) {
         progress = recordReleaseTransactionEvent(progress, { key: `oci:${image}`, kind: "oci-image-published", target: `${image}:${ociVersion}`, status: "failed", detail: "OCI image publication failed; inspect runner logs before retrying." });
         await persistReleaseProgress(client, executions, progress);
-        throw error;
+        throw error2;
       }
       progress.publishedOciImages = [.../* @__PURE__ */ new Set([...progress.publishedOciImages, image])];
       progress = await recordOciDigest(progress, image, ociVersion, ociConfig.idempotency);
@@ -14740,10 +15395,10 @@ async function publishRelease(client, pr, config) {
       try {
         injectTestFailure("asset-upload");
         await client.uploadReleaseAsset(execution.release, file);
-      } catch (error) {
+      } catch (error2) {
         progress = recordReleaseTransactionEvent(progress, { key: `asset:${execution.tag}:${assetName}`, kind: "asset-uploaded", target: assetName, status: "failed", detail: "Release asset upload failed; inspect runner logs before retrying." });
         await persistReleaseProgress(client, executions, progress);
-        throw error;
+        throw error2;
       }
       uploaded.add(assetName);
       log(`Uploaded release artifact for ${execution.tag}: ${assetName}`);
@@ -14777,14 +15432,14 @@ async function publishRelease(client, pr, config) {
         } else {
           progress = recordReleaseTransactionEvent(progress, { key: `tag:${anchorTag}`, kind: "anchor-tag-detected", target: anchorTag, detail: "Independent release anchor tag already points to the merged release commit." });
         }
-      } catch (error) {
+      } catch (error2) {
         progress = recordReleaseTransactionEvent(progress, { key: `tag:${anchorTag}`, kind: "anchor-tag-created", target: anchorTag, status: "failed", detail: "Independent release anchor tag could not be created or did not point to the merged release commit." });
         try {
           await persistFinalTransactionState(client, executions, progress);
         } catch {
           log(`Could not persist the failed anchor-tag state for ${anchorTag}; inspect the release body and runner logs before retrying.`);
         }
-        throw error;
+        throw error2;
       }
       await persistFinalTransactionState(client, executions, progress);
     }
@@ -14873,8 +15528,8 @@ async function run() {
   await prepareRelease(client, push.after || process.env.GITHUB_SHA || "", config, branch, repositoryInfo.default_branch, requestedChannel);
 }
 if (process.env.NODE_ENV !== "test") {
-  run().catch((error) => {
-    process.stderr.write(`[semverge] ${error instanceof Error ? error.stack ?? error.message : String(error)}
+  run().catch((error2) => {
+    process.stderr.write(`[semverge] ${error2 instanceof Error ? error2.stack ?? error2.message : String(error2)}
 `);
     process.exitCode = 1;
   });

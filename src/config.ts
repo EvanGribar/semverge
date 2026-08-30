@@ -1,7 +1,8 @@
 import { parse as parseYaml } from "yaml";
 import { parseOciImageRepository } from "./registries.js";
 import { DEFAULT_AI_TIMEOUT_MS } from "./types.js";
-import type { AiConfig, AiTone, AiVerbosity, ArtifactConfig, BumpLevel, CommunicationConfig, CustomerQualityConfig, HealthMonitoringConfig, HealthWorkflow, NpmPublishConfig, OciPublishConfig, OutputConfig, ReadinessCommand, ReadinessTask, RegistryPublishConfig, ReleaseChannelPolicy, ReleasePromotion, SemVergeConfig } from "./types.js";
+import type { AiConfig, AiTone, AiVerbosity, ArtifactConfig, BumpLevel, CommunicationConfig, CustomerQualityConfig, HealthMonitoringConfig, HealthWorkflow, NpmPublishConfig, OciPublishConfig, OutputConfig, ReadinessCommand, ReadinessTask, RegistryPublishConfig, ReleaseChannelPolicy, ReleasePromotion, SemVergeConfig, VersionFileConfig } from "./types.js";
+import { validateVersionFileConfig } from "./version-updaters.js";
 
 export type ConfigValidationSeverity = "error" | "warning";
 
@@ -43,6 +44,7 @@ export const DEFAULT_CONFIG: SemVergeConfig = {
     manifest: "release-manifest.json",
     announcement: "RELEASE_ANNOUNCEMENT.md"
   },
+  versionFiles: [],
   communication: {
     customerQuality: {
       mode: "warn",
@@ -279,6 +281,17 @@ export function validateConfigContent(content: string, fileName = ".semverge.yml
   if (outputs) {
     for (const key of ["changelog", "customerNotes", "migrationGuide", "internalSummary", "manifest", "announcement"]) {
       stringField(outputs, key, "outputs", issues);
+    }
+  }
+  if (raw.versionFiles !== undefined) {
+    if (!Array.isArray(raw.versionFiles)) {
+      issues.push({ path: "versionFiles", severity: "error", message: "must be an array of version-file descriptors" });
+    } else {
+      raw.versionFiles.forEach((item, index) => {
+        for (const message of validateVersionFileConfig(item)) {
+          issues.push({ path: `versionFiles[${index}]`, severity: "error", message });
+        }
+      });
     }
   }
   const communication = section(raw, "communication", issues);
@@ -608,6 +621,27 @@ function aiSettings(value: unknown, fallback: AiConfig): AiConfig {
   return result;
 }
 
+function versionFiles(value: unknown): VersionFileConfig[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((item): VersionFileConfig[] => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return [];
+    }
+    const record = item as Record<string, unknown>;
+    if (typeof record.path !== "string" || !record.path.trim() || (record.format !== "json" && record.format !== "yaml" && record.format !== "toml" && record.format !== "text" && record.format !== "xml")) {
+      return [];
+    }
+    const result: VersionFileConfig = { path: record.path.trim().replace(/\\/g, "/").replace(/^\.\//, ""), format: record.format };
+    if (typeof record.property === "string" && record.property.trim()) result.property = record.property.trim();
+    if (typeof record.pattern === "string" && record.pattern) result.pattern = record.pattern;
+    if (typeof record.xpath === "string" && record.xpath.trim()) result.xpath = record.xpath.trim();
+    if (typeof record.package === "string" && record.package.trim()) result.package = record.package.trim();
+    return [result];
+  });
+}
+
 function customerQualitySettings(value: unknown, fallback: CustomerQualityConfig): CustomerQualityConfig {
   const object = value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
   return {
@@ -662,6 +696,7 @@ function mergeConfig(raw: unknown): SemVergeConfig {
   const release = object.release && typeof object.release === "object" ? object.release as Record<string, unknown> : {};
   const readiness = object.readiness && typeof object.readiness === "object" ? object.readiness as Record<string, unknown> : {};
   const outputs = object.outputs && typeof object.outputs === "object" ? object.outputs as Record<string, unknown> : {};
+  const configuredVersionFiles = object.versionFiles;
   const artifacts = object.artifacts && typeof object.artifacts === "object" ? object.artifacts as Record<string, unknown> : {};
   const monorepo = object.monorepo && typeof object.monorepo === "object" ? object.monorepo as Record<string, unknown> : {};
   const dependencyPolicy = monorepo.dependencyPolicy && typeof monorepo.dependencyPolicy === "object" ? monorepo.dependencyPolicy as Record<string, unknown> : {};
@@ -700,6 +735,7 @@ function mergeConfig(raw: unknown): SemVergeConfig {
       manifest: typeof outputs.manifest === "string" && outputs.manifest.trim() ? outputs.manifest.trim() : DEFAULT_CONFIG.outputs.manifest,
       announcement: typeof outputs.announcement === "string" && outputs.announcement.trim() ? outputs.announcement.trim() : DEFAULT_CONFIG.outputs.announcement
     },
+    versionFiles: versionFiles(configuredVersionFiles),
     artifacts: {
       paths: strings(artifacts.paths)
     },
@@ -771,6 +807,7 @@ export function withOverrides(config: SemVergeConfig, overrides: { prerelease?: 
     release: { ...config.release, channels: Object.fromEntries(Object.entries(config.release.channels).map(([name, policy]) => [name, { ...policy }])) },
     readiness: { ...config.readiness, requiredLabels: [...config.readiness.requiredLabels], requiredFiles: [...config.readiness.requiredFiles], commands: [...config.readiness.commands], tasks: [...config.readiness.tasks] },
     outputs: { ...config.outputs },
+    versionFiles: config.versionFiles.map((item) => ({ ...item })),
     artifacts: { ...config.artifacts, paths: [...config.artifacts.paths] },
     monorepo: { ...config.monorepo, packages: [...config.monorepo.packages], dependencyPolicy: { ...config.monorepo.dependencyPolicy } },
     health: { ...config.health, workflows: [...config.health.workflows], expectedArtifacts: [...config.health.expectedArtifacts], requiredLinks: [...config.health.requiredLinks], ...(config.health.monitoring ? { monitoring: { ...config.health.monitoring } } : {}) },

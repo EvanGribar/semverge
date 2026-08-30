@@ -5,6 +5,7 @@ import { buildReleasePlan } from "./release.js";
 import { type PackageDescriptor } from "./packages.js";
 import { highestBump } from "./semver.js";
 import { targetFromDescriptor, updateTargetVersion } from "./version-adapters.js";
+import { updateVersionFile } from "./version-updaters.js";
 import type { BumpLevel, CommunicationQualityReport, PackageReleaseExplanation, PackageReleaseReason, ReadinessReport, ReleaseChange, ReleaseOutput, SemVergeConfig, WorkspaceDependencyField } from "./types.js";
 import type { VersionFileChange } from "./version-files.js";
 
@@ -389,6 +390,47 @@ function updateNodeLocks(files: Record<string, string>, packages: PackageDescrip
   return changes;
 }
 
+function packageForVersionFile(spec: SemVergeConfig["versionFiles"][number], packages: PackageDescriptor[]): PackageDescriptor | undefined {
+  const requested = spec.package?.trim().toLowerCase();
+  if (!requested) {
+    return undefined;
+  }
+  return packages.find((packageItem) => [packageItem.id, packageItem.name, packageItem.directory, packageItem.manifestPath]
+    .some((value) => value.toLowerCase() === requested));
+}
+
+function updateConfiguredVersionFiles(
+  input: BuildWorkspaceReleasePlanInput,
+  packages: PackageDescriptor[],
+  versions: Map<string, string>,
+  hasRelease: boolean,
+  versionChanges: Map<string, VersionFileChange>
+): void {
+  if (!hasRelease) {
+    return;
+  }
+  const versionValues = [...new Set(versions.values())];
+  for (const spec of input.config.versionFiles) {
+    const packageItem = packageForVersionFile(spec, packages);
+    if (spec.package && !packageItem) {
+      throw new Error(`Configured version file ${spec.path} references unknown package ${spec.package}. Use a package id, name, directory, or manifest path.`);
+    }
+    if (input.mode === "independent" && !packageItem && versions.size > 1) {
+      throw new Error(`Configured version file ${spec.path} must set package for an independent release with multiple versions.`);
+    }
+    const version = packageItem ? versions.get(packageItem.manifestPath) : versionValues[0];
+    if (!version) {
+      throw new Error(`No released package version is available for configured version file ${spec.path}.`);
+    }
+    const content = input.files[spec.path];
+    if (content === undefined) {
+      throw new Error(`Configured version file ${spec.path} was not found at the release commit.`);
+    }
+    const change = updateVersionFile(spec, content, version);
+    versionChanges.set(change.path, change);
+  }
+}
+
 function manifestContent(plan: WorkspaceReleasePlan): string {
   return `${JSON.stringify({
     schemaVersion: 2,
@@ -548,6 +590,7 @@ export function buildWorkspaceReleasePlan(input: BuildWorkspaceReleasePlanInput)
   for (const change of updateNodeLocks(input.files, input.packages, versionMap)) {
     versionChangeMap.set(change.path, change);
   }
+  updateConfiguredVersionFiles(input, input.packages, versionMap, hasRelease, versionChangeMap);
   const versionChanges = [...versionChangeMap.values()];
 
   const outputMap = new Map<string, string>();

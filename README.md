@@ -166,6 +166,20 @@ outputs:
   internalSummary: .semverge/internal-release.md
   manifest: release-manifest.json
 
+# Update release versions in files that are not package manifests.
+versionFiles:
+  - path: Dockerfile
+    format: text
+    pattern: "ARG APP_VERSION={{version}}"
+  - path: deploy/metadata.yaml
+    format: yaml
+    property: image.version
+  # In an independent workspace, bind each custom file to its package.
+  # - path: packages/web/pom.xml
+  #   format: xml
+  #   xpath: /project/version
+  #   package: packages/web
+
 communication:
   customerQuality:
     mode: warn # off, warn, or error
@@ -223,6 +237,8 @@ Stable promotion is explicit. Add `ship:stable` to a release-bearing change, or 
 
 `release.channels` extends or overrides those built-in channel policies. Each policy supplies a label and prerelease identifier. An optional `branch` limits preparation to pushes from that branch; `baseBranch` selects the release PR target, `releaseBranch` isolates the release PR head, and `tagPrefix` gives the channel its own tag namespace. The action's `release-channel` input enables explicit scheduled or manually dispatched preparation; workflows still own the scheduler and must check out the configured source branch. See [docs/channels.md](docs/channels.md). Channel policies do not create a hosted scheduler or publish to a registry by themselves.
 
+`versionFiles` adds deterministic updates for Dockerfiles, deployment metadata, Java/Maven XML, Python/TOML metadata, and other repository-owned version locations. JSON, YAML, and TOML use a property selector; text uses a literal pattern with one `{{version}}` placeholder; XML uses a restricted leaf XPath such as `/project/version` or `//version`. Selectors fail closed when the location is missing or ambiguous, and configured text patterns are never evaluated as regular expressions. Paths are repository-relative. An unbound file receives the release version for single/fixed releases; independent releases must set `package` to a package id, name, directory, or manifest path. See [docs/version-updaters.md](docs/version-updaters.md).
+
 Independent workspaces use `monorepo.dependencyPolicy` to decide which internal dependency fields release a dependent package and at what bump level (`none`, `patch`, `minor`, or `major`). `dependencies`, `optionalDependencies`, and `peerDependencies` default to patch propagation; `devDependencies` default to no dependent release. Internal ranges and lockfiles still follow released package versions, while the release manifest records the dependency field that caused each propagated release. Range rewrites support exact, caret, tilde, and corresponding `workspace:` forms; wildcard workspace protocols are preserved, and compound or unsupported ranges fail the release plan with an actionable error instead of being partially rewritten.
 
 The `health` configuration namespace provides immediate post-release verification: configured assets, documentation links, and workflow results visible after the publication transaction or on a `release.published` event. A workflow that has not started or completed is reported as a warning so the check can be rerun after it finishes. `health.monitoring` is a separate opt-in for an explicit scheduled or manually dispatched workflow; it can inspect one `monitor-tag` or recent semantic releases and append an idempotent observation comment and optional check run to the release PR/commit. SemVerge does not create a scheduler, dashboard, or hosted surface.
@@ -235,7 +251,7 @@ Set `publishing.npm.provenance: true` only when the built-in `npm publish` comma
 
 ## Plugin SDK
 
-SemVerge now exports a versioned, explicitly registered lifecycle plugin contract with `analyze`, `plan`, `validate`, `prepare`, `build`, `publish`, `upload`, `announce`, `verify`, and `recover` hooks. Plugins return idempotent effect descriptors that can be owned by the durable transaction engine. See [docs/plugin-sdk.md](docs/plugin-sdk.md). The default action does not auto-load third-party code; configured plugin execution will be added behind an explicit trust boundary.
+SemVerge exports a versioned, explicitly registered lifecycle plugin contract with `analyze`, `plan`, `validate`, `prepare`, `build`, `publish`, `upload`, `announce`, `verify`, and `recover` hooks. Plugins return idempotent effect descriptors that are owned by the durable transaction engine. The action loads only plugins explicitly listed in `.semverge.yml`; loading a plugin is code execution, so review and pin every configured package or local module. See [docs/plugin-sdk.md](docs/plugin-sdk.md).
 
 ## Current scope
 
