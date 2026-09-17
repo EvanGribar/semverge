@@ -13117,7 +13117,7 @@ function updateConfiguredVersionFiles(input2, packages, versions, hasRelease, ve
       }
       throw new Error(`No released package version is available for configured version file ${spec.path}.`);
     }
-    const content = input2.files[spec.path];
+    const content = versionChanges.get(spec.path)?.content ?? input2.files[spec.path];
     if (content === void 0) {
       throw new Error(`Configured version file ${spec.path} was not found at the release commit.`);
     }
@@ -13206,9 +13206,6 @@ function buildWorkspaceReleasePlan(input2) {
       addedDependencyRelease = false;
       const releasedNames2 = new Set([...packagePlans.values()].flatMap(({ package: packageItem }) => [packageItem.id, packageItem.name]));
       for (const packageItem of releaseable) {
-        if (packagePlans.has(packageItem.id)) {
-          continue;
-        }
         const dependencyTriggers = dependencyReleaseTriggers(packageItem, releasedNames2, input2.config);
         if (dependencyTriggers.length === 0) {
           continue;
@@ -13216,8 +13213,10 @@ function buildWorkspaceReleasePlan(input2) {
         const packageChanges = input2.changes.filter((change) => affectsPackage(change, packageItem, input2.config, workspaceDirectories));
         const plan = buildPackagePlan(input2, packageItem, [...packageChanges, workspaceDependencyChange(packageItem, dependencyTriggers)]);
         if (plan.hasRelease) {
+          if (!packagePlans.has(packageItem.id)) {
+            addedDependencyRelease = true;
+          }
           packagePlans.set(packageItem.id, { package: packageItem, plan });
-          addedDependencyRelease = true;
         }
       }
     }
@@ -13995,7 +13994,7 @@ function redactPrivateKeyBlocks(value) {
   return pieces.join("");
 }
 function redactAiText(value, maxLength = MAX_AI_TEXT_LENGTH) {
-  const redacted = redactPrivateKeyBlocks(value).replace(/\b(?:bearer\s+)[A-Za-z0-9._~+/=-]{8,}/gi, "Bearer [REDACTED]").replace(/\b(?:sk|ghp|gho|ghu|ghs|github_pat|xoxb|xoxp)-[A-Za-z0-9_-]{8,}\b/gi, "[REDACTED TOKEN]").replace(/\bAKIA[0-9A-Z]{12,}\b/g, "[REDACTED ACCESS KEY]").replace(/(["']?\b(?:authorization|password|passwd|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret|npm[_-]?token|pypi[_-]?token|github[_-]?token|openai[_-]?api[_-]?key)\b["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\r\n,;}\]]+))/gi, (match) => `${match.slice(0, match.search(/[:=]/))}: [REDACTED]`).replace(/\b(?:OPENAI_API_KEY|GITHUB_TOKEN|NPM_TOKEN|PYPI_TOKEN)\b/gi, "[REDACTED ENVIRONMENT SECRET]");
+  const redacted = redactPrivateKeyBlocks(value).replace(/\b(?:bearer\s+)[A-Za-z0-9._~+/=-]{8,}/gi, "Bearer [REDACTED]").replace(/\b(?:(?:ghp|gho|ghu|ghs|ghr|github_pat)_|(?:sk|xoxb|xoxp)-)[A-Za-z0-9_-]{8,}\b/gi, "[REDACTED TOKEN]").replace(/\bAKIA[0-9A-Z]{12,}\b/g, "[REDACTED ACCESS KEY]").replace(/(["']?\b(?:authorization|password|passwd|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret|npm[_-]?token|pypi[_-]?token|github[_-]?token|openai[_-]?api[_-]?key)\b["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\r\n,;}\]]+))/gi, (match) => `${match.slice(0, match.search(/[:=]/))}: [REDACTED]`).replace(/\b(?:OPENAI_API_KEY|GITHUB_TOKEN|NPM_TOKEN|PYPI_TOKEN)\b/gi, "[REDACTED ENVIRONMENT SECRET]");
   return redacted.trim().slice(0, maxLength);
 }
 function assertContext(context) {
@@ -14322,7 +14321,7 @@ var OpenAiProvider = class {
             request.instructions
           ].join("\n")
         },
-        { role: "user", content: JSON.stringify(request.input) }
+        { role: "user", content: JSON.stringify(request.input, (_key, value2) => typeof value2 === "string" ? redactAiText(value2, value2.length) : value2) }
       ],
       response_format: {
         type: "json_schema",
@@ -14814,7 +14813,7 @@ async function latestReleaseTag(client, config) {
   return selected?.name ?? null;
 }
 async function loadConfig(client, path, ref) {
-  const content = await fileAtHead(client, path, ref);
+  const content = await client.getFile(path, ref);
   return content ? parseConfig(content, path) : parseConfig("");
 }
 function releaseGraphMarkdown(plan) {
@@ -15022,12 +15021,20 @@ async function recordMonitoringCheckRun(client, releaseEvent, targetCommit, conf
   log(`Recorded delayed monitoring check run for ${releaseEvent.tag_name}.`);
 }
 async function runPostReleaseVerification(client, releaseEvent, config, options = {}) {
+  const releaseDetails = await client.getReleaseByTag(releaseEvent.tag_name);
+  const transactionBody = releaseDetails?.body ?? releaseEvent.body;
+  const transaction = parseReleaseTransactionBody(transactionBody);
+  if (transaction && /^[0-9a-f]{7,40}$/i.test(transaction.sourceCommit)) {
+    config = withOverrides(await loadConfig(client, input("config") || ".semverge.yml", transaction.sourceCommit), {
+      prerelease: input("prerelease"),
+      artifactCommand: input("artifact-command")
+    });
+  }
   if (!config.health.enabled) {
     log("Post-release verification is disabled.");
     return;
   }
   injectTestFailure("post-release-verification");
-  const releaseDetails = await client.getReleaseByTag(releaseEvent.tag_name);
   const targetCommit = releaseDetails?.target_commitish || releaseEvent.target_commitish || process.env.GITHUB_SHA || "";
   const workflowRuns = targetCommit ? await client.listWorkflowRuns(targetCommit) : [];
   const workflowObservations = workflowRuns.map((run2) => ({ name: run2.name, status: run2.status, conclusion: run2.conclusion, url: run2.html_url }));
@@ -15048,8 +15055,6 @@ async function runPostReleaseVerification(client, releaseEvent, config, options 
     (0, import_node_fs.appendFileSync)(summaryFile, `${markdown}
 `, "utf8");
   }
-  const transactionBody = releaseDetails?.body ?? releaseEvent.body;
-  const transaction = parseReleaseTransactionBody(transactionBody);
   const releaseId = releaseDetails?.id ?? releaseEvent.id;
   if (transaction && typeof releaseId === "number") {
     let next = transaction;
@@ -15070,11 +15075,14 @@ async function runPostReleaseVerification(client, releaseEvent, config, options 
       };
       next = next.phase === "completed" ? recordReleaseTransactionEvent(next, verification) : advanceReleaseTransaction(next, "verified", verification);
       const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
+      if (config.plugins?.length) {
+        await assertWorkspaceAtCommit(workspace, transaction.sourceCommit);
+      }
       const pluginRegistry = await createPluginRegistryFromConfig(config, workspace);
       const verifyRes = await runTransactionOwnedPluginHook(
         pluginRegistry,
         "verify",
-        { sourceCommit: targetCommit, version: transaction.version, packages: [], changes: [], config },
+        { sourceCommit: transaction.sourceCommit, version: transaction.version, packages: [], changes: [], config },
         next,
         recordReleaseTransactionEvent
       );
@@ -15188,6 +15196,9 @@ async function prepareRelease(client, head, config, branch, defaultBranch, reque
     }
   }
   const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
+  if (effectiveConfig.plugins?.length) {
+    await assertWorkspaceAtCommit(workspace, baseCommit.sha);
+  }
   const registry = await createPluginRegistryFromConfig(effectiveConfig, workspace);
   const plan = buildWorkspaceReleasePlan({
     packages: discovered.packages,
@@ -15405,7 +15416,7 @@ async function publishRelease(client, pr, config) {
   const publishingEnabled = ociConfig.enabled || releasePackages.some((packageItem) => publishConfigForEcosystem(config, packageEcosystem(packageItem)).enabled);
   const artifactCommand = input("artifact-command") || config.artifacts.command;
   const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
-  if (artifactCommand || config.artifacts.paths.length > 0 || publishingEnabled) {
+  if (artifactCommand || config.artifacts.paths.length > 0 || publishingEnabled || config.plugins?.length) {
     await assertWorkspaceAtCommit(workspace, mergeSha);
   }
   if (artifactCommand) {
@@ -15645,7 +15656,7 @@ async function run() {
   const configPath = input("config") || ".semverge.yml";
   const pullRequestMergeSha = "pull_request" in event ? event.pull_request?.merge_commit_sha ?? void 0 : void 0;
   const releaseTarget = "release" in event ? event.release?.target_commitish ?? void 0 : void 0;
-  const ref = pullRequestMergeSha || releaseTarget || process.env.GITHUB_SHA || ("after" in event ? event.after : void 0) || "HEAD";
+  const ref = pullRequestMergeSha || releaseTarget || ("after" in event ? event.after : void 0) || process.env.GITHUB_SHA || "HEAD";
   const config = withOverrides(await loadConfig(client, configPath, ref), {
     prerelease: input("prerelease"),
     artifactCommand: input("artifact-command")
