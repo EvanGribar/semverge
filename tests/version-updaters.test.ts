@@ -108,6 +108,46 @@ versionFiles:
     })).toThrow("must set package");
   });
 
+  it.each([false, true])("preserves manifest and dependency updates across same-file selectors (reversed: %s)", (reversed) => {
+    const config = parseConfig("monorepo:\n  mode: independent\n  includeRoot: false\n");
+    config.versionFiles = ["release.version", "image.version"].map((property) => ({
+      path: "packages/two/package.json",
+      format: "json" as const,
+      property,
+      package: "two"
+    }));
+    if (reversed) config.versionFiles.reverse();
+    const files = {
+      "package.json": JSON.stringify({ name: "root", private: true, workspaces: ["packages/*"] }),
+      "packages/one/package.json": JSON.stringify({ name: "one", version: "1.0.0" }),
+      "packages/two/package.json": JSON.stringify({
+        name: "two",
+        version: "2.0.0",
+        dependencies: { one: "^1.0.0" },
+        release: { version: "2.0.0" },
+        image: { version: "2.0.0" }
+      })
+    };
+    const originalFiles = { ...files };
+    const discovered = discoverPackages(files, Object.keys(files), config);
+    const plan = buildWorkspaceReleasePlan({
+      ...discovered,
+      files,
+      config,
+      changes: [parseChange({ title: "fix: repair one", source: "commit", files: ["packages/one/index.js"] })]
+    });
+    const changes = plan.versionChanges.filter((change) => change.path === "packages/two/package.json");
+    expect(changes).toHaveLength(1);
+    expect(JSON.parse(changes[0]?.content ?? "{}")).toEqual({
+      name: "two",
+      version: "2.0.1",
+      dependencies: { one: "^1.0.1" },
+      release: { version: "2.0.1" },
+      image: { version: "2.0.1" }
+    });
+    expect(files).toEqual(originalFiles);
+  });
+
   it("discovers a repository that uses only configured version files", () => {
     const config = parseConfig(`versionFiles:
   - path: VERSION

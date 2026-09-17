@@ -211,6 +211,27 @@ describe("AI release safety and issue coverage", () => {
     expect(applyMetadataBlock("Existing PR body.", suggestion.metadata)).toContain(block);
   });
 
+  it.each(["ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", "sk-", "xoxb-", "xoxp-"])("redacts %s shapes and rejects them in generated release notes", (prefix) => {
+    const syntheticToken = `${prefix}nonfunctional_fixture_12345678`;
+    expect(redactAiText(`Before ${syntheticToken} after.`)).toBe("Before [REDACTED TOKEN] after.");
+
+    for (const field of ["summary", "highlight", "migration note"] as const) {
+      const suggestion = validReleaseNotesSuggestion();
+      const text = `Synthetic fixture ${syntheticToken}.`;
+      if (field === "summary") suggestion.summary = text;
+      if (field === "highlight") suggestion.highlights[0]!.text = text;
+      if (field === "migration note") suggestion.migrationNotes[0]!.text = text;
+      const result = reconcileReleaseNotes(plan(), suggestion);
+      expect(result.accepted).toBe(false);
+      expect(result.violations).toEqual(expect.arrayContaining([expect.stringContaining("secret-like content")]));
+    }
+  });
+
+  it("preserves ordinary release text and metadata-like text", () => {
+    const text = "GitHub exports improved. type: feature; impact: new; migration: Update clients. src/export.ts";
+    expect(redactAiText(text)).toBe(text);
+  });
+
   it("redacts PEM blocks with a linear scan, including repeated unterminated markers", () => {
     const pem = [
       "before",

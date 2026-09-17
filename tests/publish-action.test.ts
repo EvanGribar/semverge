@@ -198,6 +198,8 @@ export default {
   }
 };
 `);
+    const workspace = prepareGitWorkspace(directory);
+    publishEvent(directory, workspace.mergeSha);
     const outputPath = join(directory, "outputs.txt");
     const config = "release:\n  branch: release/bot\nhealth:\n  enabled: false\nplugins:\n  - module: ./pre-draft-plugin.mjs\n";
     const requests: Array<{ method: string; path: string; body?: Record<string, unknown> }> = [];
@@ -229,12 +231,13 @@ export default {
       return new Response(JSON.stringify({ message: `Unhandled ${init?.method ?? "GET"} ${url.pathname}` }), { status: 500 });
     }));
 
-    const previous = setPublishEnvironment(directory, eventPath, outputPath);
+    const previous = setPublishEnvironment(directory, eventPath, outputPath, workspace.directory, workspace.mergeSha);
     try {
       await run();
     } finally {
       restoreEnvironment(previous);
       rmSync(directory, { recursive: true, force: true });
+      rmSync(workspace.directory, { recursive: true, force: true });
     }
 
     const createRequest = requests.find((request) => request.method === "POST" && request.path.endsWith("/releases"));
@@ -677,6 +680,9 @@ publishing:
     vi.stubGlobal("fetch", vi.fn(async (input: string | URL, init?: RequestInit) => {
       const url = new URL(String(input));
       requests.push({ method: init?.method ?? "GET", path: url.pathname });
+      if (url.pathname.endsWith("/contents/.semverge.yml")) {
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded(config) }), { status: 200 });
+      }
       if (url.pathname.endsWith("/contents/release-manifest.json")) {
         return new Response(JSON.stringify({ type: "file", encoding: "base64", content: encoded(manifest()) }), { status: 200 });
       }

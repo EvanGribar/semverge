@@ -234,7 +234,7 @@ function redactPrivateKeyBlocks(value: string): string {
 export function redactAiText(value: string, maxLength = MAX_AI_TEXT_LENGTH): string {
   const redacted = redactPrivateKeyBlocks(value)
     .replace(/\b(?:bearer\s+)[A-Za-z0-9._~+/=-]{8,}/gi, "Bearer [REDACTED]")
-    .replace(/\b(?:sk|ghp|gho|ghu|ghs|github_pat|xoxb|xoxp)-[A-Za-z0-9_-]{8,}\b/gi, "[REDACTED TOKEN]")
+    .replace(/\b(?:(?:ghp|gho|ghu|ghs|ghr|github_pat)_|(?:sk|xoxb|xoxp)-)[A-Za-z0-9_-]{8,}\b/gi, "[REDACTED TOKEN]")
     .replace(/\bAKIA[0-9A-Z]{12,}\b/g, "[REDACTED ACCESS KEY]")
     .replace(/(["']?\b(?:authorization|password|passwd|secret|token|api[_-]?key|access[_-]?key|client[_-]?secret|npm[_-]?token|pypi[_-]?token|github[_-]?token|openai[_-]?api[_-]?key)\b["']?\s*[:=]\s*(?:"[^"]*"|'[^']*'|[^\r\n,;}\]]+))/gi, (match) => `${match.slice(0, match.search(/[:=]/))}: [REDACTED]`)
     .replace(/\b(?:OPENAI_API_KEY|GITHUB_TOKEN|NPM_TOKEN|PYPI_TOKEN)\b/gi, "[REDACTED ENVIRONMENT SECRET]");
@@ -597,7 +597,7 @@ export class OpenAiProvider implements AiProvider {
             request.instructions
           ].join("\n")
         },
-        { role: "user", content: JSON.stringify(request.input) }
+        { role: "user", content: JSON.stringify(request.input, (_key, value: unknown) => typeof value === "string" ? redactAiText(value, value.length) : value) }
       ],
       response_format: {
         type: "json_schema",

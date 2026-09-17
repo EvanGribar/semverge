@@ -425,7 +425,7 @@ function updateConfiguredVersionFiles(
       }
       throw new Error(`No released package version is available for configured version file ${spec.path}.`);
     }
-    const content = input.files[spec.path];
+    const content = versionChanges.get(spec.path)?.content ?? input.files[spec.path];
     if (content === undefined) {
       throw new Error(`Configured version file ${spec.path} was not found at the release commit.`);
     }
@@ -517,9 +517,6 @@ export function buildWorkspaceReleasePlan(input: BuildWorkspaceReleasePlanInput)
       addedDependencyRelease = false;
       const releasedNames = new Set([...packagePlans.values()].flatMap(({ package: packageItem }) => [packageItem.id, packageItem.name]));
       for (const packageItem of releaseable) {
-        if (packagePlans.has(packageItem.id)) {
-          continue;
-        }
         const dependencyTriggers = dependencyReleaseTriggers(packageItem, releasedNames, input.config);
         if (dependencyTriggers.length === 0) {
           continue;
@@ -527,8 +524,10 @@ export function buildWorkspaceReleasePlan(input: BuildWorkspaceReleasePlanInput)
         const packageChanges = input.changes.filter((change) => affectsPackage(change, packageItem, input.config, workspaceDirectories));
         const plan = buildPackagePlan(input, packageItem, [...packageChanges, workspaceDependencyChange(packageItem, dependencyTriggers)]);
         if (plan.hasRelease) {
+          if (!packagePlans.has(packageItem.id)) {
+            addedDependencyRelease = true;
+          }
           packagePlans.set(packageItem.id, { package: packageItem, plan });
-          addedDependencyRelease = true;
         }
       }
     }

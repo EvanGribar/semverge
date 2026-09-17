@@ -211,7 +211,7 @@ async function latestReleaseTag(client: GitHubClient, config: SemVergeConfig): P
 }
 
 async function loadConfig(client: GitHubClient, path: string, ref: string): Promise<SemVergeConfig> {
-  const content = await fileAtHead(client, path, ref);
+  const content = await client.getFile(path, ref);
   return content ? parseConfig(content, path) : parseConfig("");
 }
 
@@ -432,12 +432,20 @@ async function recordMonitoringCheckRun(client: GitHubClient, releaseEvent: NonN
 }
 
 async function runPostReleaseVerification(client: GitHubClient, releaseEvent: NonNullable<ReleaseEvent["release"]>, config: SemVergeConfig, options: PostReleaseVerificationOptions = {}): Promise<void> {
+  const releaseDetails = await client.getReleaseByTag(releaseEvent.tag_name);
+  const transactionBody = releaseDetails?.body ?? releaseEvent.body;
+  const transaction = parseReleaseTransactionBody(transactionBody);
+  if (transaction && /^[0-9a-f]{7,40}$/i.test(transaction.sourceCommit)) {
+    config = withOverrides(await loadConfig(client, input("config") || ".semverge.yml", transaction.sourceCommit), {
+      prerelease: input("prerelease"),
+      artifactCommand: input("artifact-command")
+    });
+  }
   if (!config.health.enabled) {
     log("Post-release verification is disabled.");
     return;
   }
   injectTestFailure("post-release-verification");
-  const releaseDetails = await client.getReleaseByTag(releaseEvent.tag_name);
   const targetCommit = releaseDetails?.target_commitish || releaseEvent.target_commitish || process.env.GITHUB_SHA || "";
   const workflowRuns = targetCommit ? await client.listWorkflowRuns(targetCommit) : [];
   const workflowObservations = workflowRuns.map((run) => ({ name: run.name, status: run.status, conclusion: run.conclusion, url: run.html_url }));
@@ -457,8 +465,6 @@ async function runPostReleaseVerification(client: GitHubClient, releaseEvent: No
   if (summaryFile) {
     appendFileSync(summaryFile, `${markdown}\n`, "utf8");
   }
-  const transactionBody = releaseDetails?.body ?? releaseEvent.body;
-  const transaction = parseReleaseTransactionBody(transactionBody);
   const releaseId = releaseDetails?.id ?? releaseEvent.id;
   if (transaction && typeof releaseId === "number") {
     let next = transaction;
@@ -479,11 +485,14 @@ async function runPostReleaseVerification(client: GitHubClient, releaseEvent: No
       };
       next = next.phase === "completed" ? recordReleaseTransactionEvent(next, verification) : advanceReleaseTransaction(next, "verified", verification);
       const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
+      if (config.plugins?.length) {
+        await assertWorkspaceAtCommit(workspace, transaction.sourceCommit);
+      }
       const pluginRegistry = await createPluginRegistryFromConfig(config, workspace);
       const verifyRes = await runTransactionOwnedPluginHook(
         pluginRegistry,
         "verify",
-        { sourceCommit: targetCommit, version: transaction.version, packages: [], changes: [], config },
+        { sourceCommit: transaction.sourceCommit, version: transaction.version, packages: [], changes: [], config },
         next,
         recordReleaseTransactionEvent
       );
@@ -600,6 +609,9 @@ async function prepareRelease(client: GitHubClient, head: string, config: SemVer
     }
   }
   const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
+  if (effectiveConfig.plugins?.length) {
+    await assertWorkspaceAtCommit(workspace, baseCommit.sha);
+  }
   const registry = await createPluginRegistryFromConfig(effectiveConfig, workspace);
   const plan = buildWorkspaceReleasePlan({
     packages: discovered.packages,
@@ -877,7 +889,7 @@ async function publishRelease(client: GitHubClient, pr: GitHubPullRequest, confi
   // build must not leave any release-side state behind for the next retry.
   const artifactCommand = input("artifact-command") || config.artifacts.command;
   const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
-  if (artifactCommand || config.artifacts.paths.length > 0 || publishingEnabled) {
+  if (artifactCommand || config.artifacts.paths.length > 0 || publishingEnabled || config.plugins?.length) {
     await assertWorkspaceAtCommit(workspace, mergeSha);
   }
   if (artifactCommand) {
@@ -1145,7 +1157,7 @@ export async function run(): Promise<void> {
   const configPath = input("config") || ".semverge.yml";
   const pullRequestMergeSha = "pull_request" in event ? event.pull_request?.merge_commit_sha ?? undefined : undefined;
   const releaseTarget = "release" in event ? event.release?.target_commitish ?? undefined : undefined;
-  const ref = pullRequestMergeSha || releaseTarget || process.env.GITHUB_SHA || ("after" in event ? event.after : undefined) || "HEAD";
+  const ref = pullRequestMergeSha || releaseTarget || ("after" in event ? event.after : undefined) || process.env.GITHUB_SHA || "HEAD";
   const config = withOverrides(await loadConfig(client, configPath, ref), {
     prerelease: input("prerelease"),
     artifactCommand: input("artifact-command")
