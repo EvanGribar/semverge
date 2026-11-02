@@ -7,8 +7,8 @@ colors:
   surface: "#19191b"
   hover: "#242426"
   text: "#ededee"
-  muted: "#aaabb0"
-  dim: "#898a90"
+  muted: "#b6b6ba"
+  dim: "#a1a1a5"
   line: "#2e2e32"
   accent: "#e7e7e9"
   accent-soft: "#262626"
@@ -26,15 +26,15 @@ colors:
   form-border: "#434343"
 typography:
   display:
-    fontFamily: '"Segoe UI", -apple-system, BlinkMacSystemFont, Arial, sans-serif'
+    fontFamily: 'Manrope, "Segoe UI", sans-serif'
     fontSize: "clamp(34px, 3.9vw, 58px)"
     fontWeight: 500
     lineHeight: 1.15
     letterSpacing: "-0.035em"
   headline:
-    fontFamily: '"Segoe UI", -apple-system, BlinkMacSystemFont, Arial, sans-serif'
-    fontSize: "30px"
-    fontWeight: 600
+    fontFamily: 'Manrope, "Segoe UI", sans-serif'
+    fontSize: "clamp(32px, 3vw, 42px)"
+    fontWeight: 400
     lineHeight: 1.2
     letterSpacing: "-0.035em"
   title:
@@ -43,7 +43,7 @@ typography:
     lineHeight: 1.5
     letterSpacing: "0"
   body:
-    fontFamily: '"Segoe UI", -apple-system, BlinkMacSystemFont, Arial, sans-serif'
+    fontFamily: 'Manrope, "Segoe UI", sans-serif'
     fontSize: "14px"
     fontWeight: 400
     lineHeight: 1.5
@@ -56,7 +56,7 @@ typography:
     fontSize: "12px"
 rounded:
   small: "4px"
-  navigation: "6px"
+  navigation: "0"
   control: "7px"
   container: "8px"
 spacing:
@@ -96,7 +96,7 @@ components:
     padding: "12px 12px"
   navigation-selected:
     backgroundColor: "{colors.nav-selected}"
-    textColor: "{colors.muted}"
+    textColor: "{colors.white}"
   status:
     textColor: "{colors.muted}"
     typography: "{typography.label}"
@@ -153,12 +153,12 @@ The primary brand emphasis is off-white on graphite; semantic hues describe oper
 
 ## Typography
 
-**Display Font / Body Font:** system UI sans, beginning with Segoe UI and falling back through the platform stack in frontmatter. **Code Font:** Consolas with SFMono-Regular and monospace fallbacks. No external font is loaded.
+**Display Font / Body Font:** Manrope, bundled locally under the SIL Open Font License, with Segoe UI as fallback. **Code Font:** Consolas with SFMono-Regular and monospace fallbacks. The workspace makes no external font request.
 
 The voice is precise and quiet. Larger sign-in lettering offers the main expressive moment; operating screens use compact headings and metadata.
 
 - **Display:** sign-in thesis; its fluid size resolves to 36px on mobile.
-- **Headline:** page heading; reduces to 27px at the mobile breakpoint.
+- **Headline:** page heading; resolves to 32px at the mobile breakpoint.
 - **Title:** section heading, with smaller 14px subheadings; ordinary small headings keep neutral tracking.
 - **Body:** global base, with 12–13px operational descriptions and controls. Page descriptions stop at 70ch; longer empty-state help has generous leading.
 - **Label:** metadata floor and table headers. Use at least 11px in this platform world.
@@ -168,7 +168,7 @@ The voice is precise and quiet. Larger sign-in lettering offers the main express
 
 Desktop uses a fixed 224px navigation rail, a 64px context bar and a work area capped at 1700px with 40px padding. At widths up to 1150px the rail becomes 196px and work padding 28px; overview continuation regions stack. At 1600px and above, work padding is 44px vertically and 52px horizontally.
 
-At widths up to 760px, the rail becomes a full-width header with four labeled navigation cells. The context bar becomes 48px, work padding becomes 28px by 20px, and forms and detail regions stack. The service ledger becomes two-column labeled records: service spans the width, while environment, status, release and incidents remain directly visible. Detailed observation tables may scroll inside their own container. Preserve the distinction between a responsive service ledger and a dense history table.
+At widths up to 760px, the rail becomes a full-width header with four labeled navigation cells. The context bar becomes 48px, work padding becomes 28px by 20px, and forms and detail regions stack. The service ledger becomes two-column labeled records: service spans the width, while environment, status, release and incidents remain directly visible. Monitor history becomes labeled records at the mobile breakpoint, so observation details remain visible without horizontal scrolling.
 
 Spacing follows the extracted 4px rhythm with small optical adjustments. Record rows commonly use 16px by 20px padding; form panels use 24px, reduced to 20px on mobile. Desktop sign-in uses a 1.12:1 split and a form capped at 350px; mobile stacks the brand story and form.
 
@@ -192,7 +192,7 @@ Dark fields have a visible neutral stroke, 12px internal padding, persistent lab
 
 ### Navigation
 
-Four operational areas share an authored line-icon set. Desktop links are 44px minimum height with a quiet filled selected background; mobile links stack icon over label in 60px cells. Hover lifts the surface tone and text. Active incidents may carry a small count. Future product areas are not represented as working navigation.
+Four operational areas share an authored line-icon set. Desktop links are 44px minimum height with a filled selected background and a silver selection rule; mobile links stack icon over label in 60px cells with a bottom selection rule. Unselected hover uses an underline, so it cannot be confused with selection. Active incidents may carry a small count. Future product areas are not represented as working navigation.
 
 ### Containers and records
 
@@ -200,7 +200,7 @@ Inline form panels, bordered record lists and the application ledger provide gro
 
 ### Status and history
 
-Small text-labeled status marks use the semantic palette. Monitor histories, release phases and incident timelines preserve timestamps and explicit evidence language. Imported release state is visually distinct from production execution authority.
+Small text-labeled status marks use the semantic palette. Monitor histories show retained response durations; hatched marks indicate intervals exceeding 1.5 times the configured interval without asserting a cause. Chart spacing is not proportional to elapsed time, and underlying observations remain readable as records. Earlier release phases are labeled as inferred from the current phase, not individually recorded events; incident timelines preserve timestamps and explicit evidence language. Imported release state is visually distinct from production execution authority.
 
 ### Icons and convergence artwork
 
@@ -224,4 +224,8 @@ Record and button feedback shares the short ease-out transition described above.
 - **Don't** reintroduce blue as the platform brand accent; the user's direct monochrome reference supersedes it.
 - **Don't** add decorative metrics, invented history or navigation for unimplemented product areas.
 - **Don't** shrink metadata below the platform's 11px floor or hide service state in an offscreen ledger.
-- **Don't** apply this platform specification to the unchanged optional website without a separate scope decision.
+- **Don't** apply this platform specification to the separate optional website without a separate scope decision.
+
+## Identity page
+
+The separate `website/brand.html` marketing identity page translates the user's Sero reference into a three-panel presentation using locally hosted, original generated light and portrait imagery, the existing semverge mark, and live Manrope text. Its visual treatment is a marketing identity exploration, not a pattern for operating screens. Asset provenance is recorded in `docs/brand/README.md`.

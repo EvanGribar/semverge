@@ -230,6 +230,7 @@ export function createPlatform(options: PlatformOptions) {
         "/": ["index.html", "text/html"],
         "/app.js": ["app.js", "text/javascript"],
         "/styles.css": ["styles.css", "text/css"],
+        "/manrope-variable.ttf": ["manrope-variable.ttf", "font/ttf"],
         "/mark.svg": ["mark.svg", "image/svg+xml"],
         "/signal.svg": ["signal.svg", "image/svg+xml"],
       };

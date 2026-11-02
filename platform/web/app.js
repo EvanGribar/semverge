@@ -88,6 +88,10 @@ const date = (value) =>
     hour: "2-digit",
     minute: "2-digit",
   });
+const observationDate = (value) =>
+  new Date(value).toLocaleString(undefined, {
+    month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit",
+  });
 const name = (collection, id) =>
   state[collection].find((item) => item.id === id)?.name ?? "Unknown";
 const context = (item) =>
@@ -518,7 +522,8 @@ function releaseRows(releases, compact = false) {
         ><span class="record-main"
           ><strong>${release.version}</strong
           ><small>${context(release)}</small></span
-        ><span class="record-end"
+        >${compact ? "" : html`<span class="release-row-evidence"><small>Recorded phase</small><strong>${release.phase}</strong><small>Commit ${release.sourceCommit.slice(0, 7)}</small></span>`}
+        <span class="record-end"
           >${badge(releaseStatus(release))}${compact
             ? ""
             : html`<small>${date(release.sourceUpdatedAt)}</small>`}</span
@@ -527,22 +532,22 @@ function releaseRows(releases, compact = false) {
   );
 }
 function incidentRows(incidents) {
-  return incidents.map(
-    (incident) =>
-      html`<a class="record-row" href="#/incidents/${incident.id}"
+  return incidents.map((incident) => {
+    const linkedRelease = state.releases.find((release) => release.id === incident.releaseId);
+    return html`<a class="record-row" href="#/incidents/${incident.id}"
         ><span class="row-symbol incident-symbol">${icon("incidents")}</span
         ><span class="record-main"
           ><strong>${incident.title}</strong
           ><small
-            >${context(incident)} · ${incident.owner ?? "Unassigned"}</small
+            >${context(incident)} · ${incident.owner ?? "Unassigned"}${linkedRelease ? ` · Linked release ${linkedRelease.version}` : ""}</small
           ></span
         ><span class="record-end"
           >${badge(incident.status)}<small
             >${date(incident.createdAt)}</small
           ></span
         >${icon("arrow")}</a
-      >`,
-  );
+      >`;
+  });
 }
 function overview() {
   const monitors = state.monitors.filter(matches),
@@ -571,18 +576,8 @@ function overview() {
         >
       </div>
       ${services.length
-        ? html`<div class="table-wrap">
-            <table class="service-table">
-              <thead>
-                <tr>
-                  <th scope="col">Service</th>
-                  <th scope="col">Environment</th>
-                  <th scope="col">Endpoint status</th>
-                  <th scope="col">Latest release</th>
-                  <th scope="col">Incidents</th>
-                </tr>
-              </thead>
-              <tbody>
+        ? html`<div class="service-ledger">
+
                 ${services.flatMap((service) => {
                   const environmentIds = [
                     ...new Set(
@@ -595,19 +590,19 @@ function overview() {
                     ),
                   ];
                   if (!environmentIds.length)
-                    return html`<tr>
-                      <td data-label="Service">
+                    return html`<article class="service-ledger-row">
+                      <div data-label="Service">
                         <strong>${service.name}</strong>
-                      </td>
-                      <td class="muted" colspan="3" data-label="Context">
+                      </div>
+                      <div class="muted" data-label="Context">
                         ${environment
                           ? "No records in this environment"
                           : "No environment linked yet"}
-                      </td>
-                      <td data-label="Monitoring">
+                      </div>
+                      <div data-label="Monitoring">
                         ${button("Add monitor", "monitor")}
-                      </td>
-                    </tr>`;
+                      </div>
+                    </article>`;
                   return environmentIds.map((environmentId) => {
                     const checks = monitors.filter(
                       (monitor) =>
@@ -624,6 +619,7 @@ function overview() {
                             : states.length
                               ? "up"
                               : "unknown";
+                    const representativeCheck = checks.find((monitor) => monitorStatus(monitor) === status) ?? checks[0];
                     const release = releases.find(
                         (item) =>
                           item.serviceId === service.id &&
@@ -634,27 +630,27 @@ function overview() {
                           item.serviceId === service.id &&
                           item.environmentId === environmentId,
                       );
-                    return html`<tr>
-                      <td data-label="Service">
+                    return html`<article class="service-ledger-row">
+                      <div data-label="Service">
                         <strong>${service.name}</strong
                         ><small
                           >${checks.length}
                           ${checks.length === 1 ? "monitor" : "monitors"}</small
                         >
-                      </td>
-                      <td data-label="Environment">
+                      </div>
+                      <div data-label="Environment">
                         ${name("environments", environmentId)}
-                      </td>
-                      <td data-label="Endpoint status">
-                        ${checks[0]
+                      </div>
+                      <div data-label="Endpoint status">
+                        ${representativeCheck
                           ? html`<a
                               class="plain-link"
-                              href="#/monitoring/${checks[0].id}"
+                              href="#/monitoring/${representativeCheck.id}"
                               >${badge(status)}</a
                             >`
                           : badge("unknown", "No monitor")}
-                      </td>
-                      <td data-label="Latest release">
+                      </div>
+                      <div data-label="Latest release">
                         ${release
                           ? html`<a
                               class="version-link"
@@ -664,8 +660,8 @@ function overview() {
                           : html`<span class="muted"
                               >No release imported</span
                             >`}
-                      </td>
-                      <td data-label="Incidents">
+                      </div>
+                      <div data-label="Incidents">
                         ${active[0]
                           ? html`<a
                               class="incident-link"
@@ -673,12 +669,10 @@ function overview() {
                               >${active.length} active</a
                             >`
                           : html`<span class="muted">None open</span>`}
-                      </td>
-                    </tr>`;
+                      </div>
+                    </article>`;
                   });
                 })}
-              </tbody>
-            </table>
           </div>`
         : html`<div class="group-empty">
             <p>
@@ -715,7 +709,7 @@ function overview() {
         <p>
           ${!monitors.length
             ? "Add an endpoint to collect real checks and build operational history."
-            : `${monitors.length} ${monitors.length === 1 ? "monitor" : "monitors"} · ${statuses.filter((status) => status === "up").length} passing · ${unknown} without a recent check · ${incidents.length} active ${incidents.length === 1 ? "incident" : "incidents"}`}
+            : `${monitors.length} ${monitors.length === 1 ? "monitor" : "monitors"} · ${statuses.filter((status) => status === "up").length} passing · ${unknown} without a recent check · ${statuses.filter((status) => status === "paused").length} paused · ${incidents.length} active ${incidents.length === 1 ? "incident" : "incidents"}`}
         </p>
       </div>
       ${button(
@@ -724,6 +718,12 @@ function overview() {
         { icon: "arrow" },
       )}
     </section>
+    ${incidents.length
+      ? html`<section class="overview-attention" aria-labelledby="attention-heading">
+          <div class="section-heading"><h2 id="attention-heading">Needs attention</h2><a class="text-link" href="#/incidents">All incidents ${icon("arrow")}</a></div>
+          ${incidentRows(incidents.slice(0, 3))}
+        </section>`
+      : ""}
     <div class="section-heading">
       <h2>Applications</h2>
       <div class="section-actions">
@@ -759,7 +759,7 @@ function overview() {
               ${button("Import release", "release")}
             </div>`}
       </section>
-      <section class="record-section">
+      ${!incidents.length ? html`      <section class="record-section">
         <div class="section-heading">
           <h2>Active incidents</h2>
           <a class="text-link" href="#/incidents">View all ${icon("arrow")}</a>
@@ -774,7 +774,7 @@ function overview() {
               </p>
               ${button("Report incident", "incident")}
             </div>`}
-      </section>
+      </section>` : ""}
     </div>`;
 }
 function releasesPage(id) {
@@ -806,6 +806,11 @@ function releasesPage(id) {
           >Imported transaction evidence</span
         >
       </div>
+      <div class="release-evidence" aria-label="Imported transaction flags">
+        <div><span>Readiness</span><strong>${release.ready ? "Recorded ready" : "Not recorded ready"}</strong></div>
+        <div><span>Publication</span><strong>${release.published ? "Recorded published" : "Not recorded published"}</strong></div>
+        <div><span>Failure</span><strong>${release.failed ? "Recorded failure" : "No failure recorded"}</strong></div>
+      </div>
       <div class="detail-grid">
         <section class="detail-main">
           <div class="section-heading">
@@ -822,8 +827,8 @@ function releasesPage(id) {
                       ? "phase-current"
                       : ""}"
                 >
-                  <span>${index < current ? icon("check") : index + 1}</span
-                  >${phase}
+                  <span>${index < current ? "—" : index + 1}</span
+                  >${phase}${index < current ? html`<small>Inferred from current phase</small>` : ""}
                 </li>`,
             )}
           </ol>
@@ -872,6 +877,11 @@ function releasesPage(id) {
             <dt>Imported</dt>
             <dd>${date(release.importedAt)}</dd>
           </dl>
+          ${state.incidents.some((incident) => incident.releaseId === release.id)
+            ? html`<div class="context-note"><h3>Linked investigations</h3>
+                ${incidentRows(state.incidents.filter((incident) => incident.releaseId === release.id))}
+                <p>These links record associations, not verified causes.</p></div>`
+            : ""}
           <div class="context-note">
             <h3>Keep the release engine in control</h3>
             <p>
@@ -929,7 +939,24 @@ function monitoringPage(id) {
         "goto-monitoring",
       );
     const checks = details[id] ?? [],
-      latest = checks[0];
+      latest = checks[0],
+      chronological = [...checks].reverse(),
+      maxLatency = Math.max(1, ...checks.map((check) => check.latencyMs ?? 0)),
+      observationMarks = chronological.flatMap((check, index) => {
+        const previous = chronological[index - 1];
+        const elapsed = previous
+          ? new Date(check.checkedAt).getTime() - new Date(previous.checkedAt).getTime()
+          : 0;
+        // A gap indicates an interval without a retained observation; it does not
+        // assert why checks are missing or invent the number that were missed.
+        const gap = elapsed > monitor.intervalSeconds * 1500;
+        return [
+          ...(gap ? [html`<span class="observation-gap" title="Unobserved interval between retained checks" aria-label="Unobserved interval"></span>`] : []),
+          html`<span class="observation-bar observation-${check.outcome} height-${Math.max(1, Math.ceil(((check.latencyMs ?? 0) / maxLatency) * 20))}"
+            title="${observationDate(check.checkedAt)} · ${check.outcome} · ${check.latencyMs ?? "unknown"} ms · HTTP ${check.statusCode ?? "unavailable"}"
+            aria-label="${observationDate(check.checkedAt)}: ${check.outcome}, ${check.latencyMs ?? "unknown"} milliseconds"></span>`,
+        ];
+      });
     return html`<a class="back-link" href="#/monitoring"
         >${icon("back")}All monitors</a
       >${pageHead(monitor.name, context(monitor))}
@@ -956,28 +983,14 @@ function monitoringPage(id) {
           <span class="muted">${checks.length} retained samples shown</span>
         </div>
         ${checks.length
-          ? html`<div
-                class="check-history"
-                aria-label="Recent check outcomes, oldest to newest"
-              >
-                ${[...checks]
-                  .reverse()
-                  .map(
-                    (check) =>
-                      html`<span
-                        class="check-cell check-${check.outcome}"
-                        title="${date(
-                          check.checkedAt,
-                        )} · ${check.outcome} · HTTP ${check.statusCode ??
-                        "unavailable"}"
-                        aria-label="${date(check.checkedAt)}: ${check.outcome}"
-                      ></span>`,
-                  )}
+          ? html`<div class="observation-chart" role="img" aria-label="Response durations for retained checks, oldest to newest. Hatched marks indicate unobserved intervals.">
+                ${observationMarks}
               </div>
               <div class="history-caption">
-                <span>${date(checks.at(-1).checkedAt)}</span
-                ><span>${date(latest.checkedAt)}</span>
-              </div>`
+                <span>Oldest: ${observationDate(checks.at(-1).checkedAt)} · Latest: ${observationDate(latest.checkedAt)}</span>
+                <span>Scale: 0–${maxLatency} ms</span>
+              </div>
+              <p class="chart-legend">Bar height shows recorded response duration · failure is marked in red · hatching marks gaps over 1.5 times the configured interval · spacing is not proportional to elapsed time</p>`
           : html`<p class="quiet-empty">
               No observations yet. Run a check now or wait for the worker.
             </p>`}
@@ -987,7 +1000,7 @@ function monitoringPage(id) {
         </p>
       </section>
       <div class="table-wrap">
-        <table>
+        <table class="monitor-history">
           <thead>
             <tr>
               <th>Checked at</th>
@@ -1001,11 +1014,11 @@ function monitoringPage(id) {
             ${checks.map(
               (check) =>
                 html`<tr>
-                  <td>${date(check.checkedAt)}</td>
-                  <td>${badge(check.outcome)}</td>
-                  <td class="numeric">${check.statusCode ?? "—"}</td>
-                  <td class="numeric">${check.latencyMs} ms</td>
-                  <td>${check.reason}</td>
+                  <td data-label="Checked at">${observationDate(check.checkedAt)}</td>
+                  <td data-label="Outcome">${badge(check.outcome)}</td>
+                  <td class="numeric" data-label="HTTP">${check.statusCode ?? "—"}</td>
+                  <td class="numeric" data-label="Duration">${check.latencyMs} ms</td>
+                  <td data-label="Observation">${check.reason}</td>
                 </tr>`,
             )}
           </tbody>
@@ -1054,7 +1067,7 @@ function monitoringPage(id) {
               ><span class="monitor-timing"
                 >${check
                   ? html`<strong class="numeric">${check.latencyMs} ms</strong
-                      ><small>${date(check.checkedAt)}</small>`
+                      ><small>${observationDate(check.checkedAt)}</small>`
                   : html`<small>Awaiting first check</small>`}</span
               ><span class="record-end"
                 >${badge(monitorStatus(monitor))}<small

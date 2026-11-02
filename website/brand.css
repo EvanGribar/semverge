@@ -1,0 +1,422 @@
+:root {
+  color-scheme: dark;
+  font-family: "Segoe UI", Arial, sans-serif;
+  background: #050505;
+  color: #f4f4f4;
+  font-synthesis: none;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+a:focus-visible {
+  outline: 2px solid white;
+  outline-offset: 5px;
+}
+.topbar,
+main,
+footer {
+  width: min(1480px, calc(100% - 80px));
+  margin: auto;
+}
+.topbar {
+  height: 88px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid #292929;
+}
+.wordmark {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 23px;
+  letter-spacing: -0.04em;
+}
+.wordmark img {
+  width: 31px;
+  height: 31px;
+}
+nav {
+  display: flex;
+  gap: 32px;
+  color: #bebebe;
+  font-size: 13px;
+}
+nav a:hover,
+footer a:hover {
+  color: #fff;
+}
+.intro {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin: 62px 0 26px;
+  color: #a6a6a6;
+  font-size: 12px;
+}
+.intro p {
+  margin: 0;
+}
+.triptych {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 20px;
+  align-items: center;
+}
+.poster {
+  position: relative;
+  min-width: 0;
+  aspect-ratio: 0.7;
+  overflow: hidden;
+  background: #111;
+  color: #f5f5f5;
+  isolation: isolate;
+}
+.poster h1,
+.poster h2 {
+  position: absolute;
+  z-index: 2;
+  top: 6%;
+  left: 6%;
+  margin: 0;
+  font-size: clamp(30px, 3.6vw, 58px);
+  font-weight: 400;
+  letter-spacing: -0.04em;
+  line-height: 0.98;
+}
+.poster-context h2 {
+  right: 6%;
+  left: auto;
+  text-align: right;
+}
+.light-field {
+  position: absolute;
+  inset: 22% -30% 12%;
+  display: grid;
+  place-items: center;
+}
+.light-field img {
+  width: 165%;
+  height: auto;
+  filter: brightness(1.35);
+  transform: rotate(-19deg);
+}
+.light-right img {
+  transform: scaleX(-1) rotate(-19deg);
+}
+.poster-foot {
+  position: absolute;
+  z-index: 2;
+  inset: auto 6% 5%;
+}
+.poster-foot p {
+  font-size: clamp(10px, 1vw, 14px);
+  line-height: 1.4;
+  margin: 0 0 15px;
+}
+.poster-context .poster-foot {
+  text-align: right;
+}
+.motifs {
+  display: flex;
+  justify-content: space-between;
+}
+.motifs img {
+  width: clamp(17px, 2vw, 27px);
+}
+.poster-identity {
+  background: #0b0b0b;
+}
+.ribbon-field {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+}
+.ribbon-field img {
+  width: 190%;
+  height: 100%;
+  object-fit: cover;
+  transform: translateX(-24%) rotate(-48deg);
+  opacity: 0.7;
+}
+.identity-lockup {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  font-size: clamp(26px, 3vw, 48px);
+  letter-spacing: -0.05em;
+}
+.identity-lockup img {
+  width: clamp(42px, 5vw, 75px);
+}
+.identity-caption {
+  position: absolute;
+  inset: auto 8% 7%;
+  text-align: center;
+  color: #c4c4c4;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.closing {
+  margin: 130px 0;
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 50px;
+  border-top: 1px solid #777;
+  padding-top: 32px;
+}
+.closing h2 {
+  font-size: clamp(32px, 4vw, 58px);
+  line-height: 1.04;
+  letter-spacing: -0.04em;
+  font-weight: 400;
+  margin: 0 0 24px;
+}
+.closing p {
+  max-width: 53ch;
+  color: #b6b6b6;
+  line-height: 1.6;
+}
+.closing a {
+  white-space: nowrap;
+  border-bottom: 1px solid #eee;
+  padding: 0 0 10px;
+}
+.closing a span {
+  margin-left: 30px;
+}
+footer {
+  border-top: 1px solid #333;
+  padding: 24px 0 40px;
+  display: flex;
+  justify-content: space-between;
+  color: #aaa;
+  font-size: 12px;
+}
+@media (max-width: 760px) {
+  .topbar,
+  main,
+  footer {
+    width: calc(100% - 40px);
+  }
+  .topbar {
+    height: 72px;
+  }
+  .intro {
+    margin: 40px 0 20px;
+  }
+  .intro span {
+    display: none;
+  }
+  .triptych {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .poster {
+    aspect-ratio: 0.82;
+  }
+  .poster h1,
+  .poster h2 {
+    font-size: clamp(38px, 10vw, 60px);
+  }
+  .identity-lockup {
+    font-size: 46px;
+  }
+  .identity-lockup img {
+    width: 65px;
+  }
+  .poster-foot p {
+    font-size: 13px;
+  }
+  .motifs img {
+    width: 26px;
+  }
+  .closing {
+    margin: 80px 0;
+    display: block;
+  }
+  .closing a {
+    display: inline-block;
+    margin-top: 20px;
+  }
+  footer {
+    gap: 20px;
+  }
+}
+/* Brand board: photographic light and a taller central portrait. */
+.triptych {
+  min-height: calc(100vh - 88px);
+  width: min(1120px, 100%);
+  margin: 0 auto;
+  gap: 28px;
+}
+.poster {
+  aspect-ratio: 0.87;
+  border-radius: 12px;
+  background: #101010;
+}
+.poster-identity {
+  aspect-ratio: 0.72;
+}
+.poster h1,
+.poster h2 {
+  font-size: clamp(25px, 2.4vw, 37px);
+  line-height: 0.98;
+  letter-spacing: -0.035em;
+}
+.light-field,
+.portrait-field {
+  position: absolute;
+  inset: 0;
+  background-position: center;
+  background-size: cover;
+}
+.light-field {
+  background-image: url("/brand-light.png");
+}
+.light-right {
+  transform: scaleX(-1);
+}
+.portrait-field {
+  background-image: url("/brand-portrait.png");
+}
+.identity-mark {
+  position: absolute;
+  z-index: 2;
+  width: 30px;
+  left: 6%;
+  top: 5%;
+}
+.identity-caption {
+  z-index: 2;
+  bottom: 4%;
+  color: #eee;
+}
+.poster-foot {
+  bottom: 4%;
+}
+.poster-foot p {
+  font-size: 11px;
+}
+.motifs img {
+  width: 20px;
+}
+.closing {
+  margin-top: 90px;
+}
+@media (max-width: 760px) {
+  .triptych {
+    min-height: 0;
+    padding: 60px 0;
+    gap: 16px;
+  }
+  .poster {
+    aspect-ratio: 0.87;
+  }
+  .poster-identity {
+    aspect-ratio: 0.72;
+  }
+  .poster h1,
+  .poster h2 {
+    font-size: clamp(32px, 9vw, 44px);
+  }
+  .motifs img {
+    width: 22px;
+  }
+}
+.poster::after {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  inset: 68% 0 0;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.8));
+  pointer-events: none;
+}
+.poster-foot p,
+.identity-caption {
+  font-size: 12px;
+}
+@font-face {
+  font-family: Manrope;
+  src: url("/manrope-variable.ttf") format("truetype");
+  font-weight: 200 800;
+  font-style: normal;
+  font-display: swap;
+}
+:root {
+  font-family: Manrope, sans-serif;
+}
+.poster h1,
+.poster h2 {
+  font-family: Manrope, sans-serif;
+  font-size: clamp(26px, 2.4vw, 36px);
+  line-height: 1.12;
+  letter-spacing: -0.025em;
+  font-weight: 400;
+  max-width: 88%;
+}
+.poster::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  inset: 0 0 48%;
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.94),
+    rgba(0, 0, 0, 0.75) 58%,
+    transparent
+  );
+  pointer-events: none;
+}
+.poster::after {
+  inset: 62% 0 0;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    rgba(0, 0, 0, 0.9) 58%,
+    #080808
+  );
+}
+.poster-foot p,
+.identity-caption {
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 500;
+}
+.identity-mark {
+  z-index: 2;
+}
+.closing h2 {
+  font-weight: 400;
+  letter-spacing: -0.035em;
+}
+@media (max-width: 760px) {
+  .poster h1,
+  .poster h2 {
+    font-size: clamp(32px, 8vw, 40px);
+  }
+}
+.poster h1,
+.poster h2 {
+  max-width: 90%;
+  font-size: clamp(27px, 2.55vw, 38px);
+  line-height: 1.04;
+}
+@media (max-width: 760px) {
+  .poster h1,
+  .poster h2 {
+    font-size: clamp(30px, 8vw, 40px);
+  }
+}

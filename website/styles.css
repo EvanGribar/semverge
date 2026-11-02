@@ -67,3 +67,5 @@ code { color: var(--accent); }
   .callout { padding: 34px 26px; }
   .site-footer { flex-direction: column; }
 }
+
+@media (max-width: 760px) { nav a.identity-link { display: inline; } }
