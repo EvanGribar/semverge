@@ -1,0 +1,445 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-02T23:32:02.101493+00:00",
+  "title": "Design System: semverge platform",
+  "extensions": {
+    "colorMeta": {
+      "page": {
+        "role": "neutral",
+        "displayName": "Graphite page",
+        "tonalRamp": [
+          "oklch(15% 0.00203 286.19)",
+          "oklch(26.43% 0.00203 286.19)",
+          "oklch(37.86% 0.00203 286.19)",
+          "oklch(49.29% 0.00203 286.19)",
+          "oklch(60.71% 0.00203 286.19)",
+          "oklch(72.14% 0.00203 286.19)",
+          "oklch(83.57% 0.00203 286.19)",
+          "oklch(95% 0.00203 286.19)"
+        ]
+      },
+      "rail": {
+        "role": "neutral",
+        "displayName": "Near-black rail",
+        "tonalRamp": [
+          "oklch(15% 0.00223 286.11)",
+          "oklch(26.43% 0.00223 286.11)",
+          "oklch(37.86% 0.00223 286.11)",
+          "oklch(49.29% 0.00223 286.11)",
+          "oklch(60.71% 0.00223 286.11)",
+          "oklch(72.14% 0.00223 286.11)",
+          "oklch(83.57% 0.00223 286.11)",
+          "oklch(95% 0.00223 286.11)"
+        ]
+      },
+      "surface": {
+        "role": "neutral",
+        "displayName": "Raised graphite",
+        "tonalRamp": [
+          "oklch(15% 0.00388 286.07)",
+          "oklch(26.43% 0.00388 286.07)",
+          "oklch(37.86% 0.00388 286.07)",
+          "oklch(49.29% 0.00388 286.07)",
+          "oklch(60.71% 0.00388 286.07)",
+          "oklch(72.14% 0.00388 286.07)",
+          "oklch(83.57% 0.00388 286.07)",
+          "oklch(95% 0.00388 286.07)"
+        ]
+      },
+      "hover": {
+        "role": "neutral",
+        "displayName": "Hover graphite",
+        "tonalRamp": [
+          "oklch(15% 0.00369 286.14)",
+          "oklch(26.43% 0.00369 286.14)",
+          "oklch(37.86% 0.00369 286.14)",
+          "oklch(49.29% 0.00369 286.14)",
+          "oklch(60.71% 0.00369 286.14)",
+          "oklch(72.14% 0.00369 286.14)",
+          "oklch(83.57% 0.00369 286.14)",
+          "oklch(95% 0.00369 286.14)"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Silver primary",
+        "tonalRamp": [
+          "oklch(15% 0.00133 286.37)",
+          "oklch(26.43% 0.00133 286.37)",
+          "oklch(37.86% 0.00133 286.37)",
+          "oklch(49.29% 0.00133 286.37)",
+          "oklch(60.71% 0.00133 286.37)",
+          "oklch(72.14% 0.00133 286.37)",
+          "oklch(83.57% 0.00133 286.37)",
+          "oklch(95% 0.00133 286.37)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Secondary silver",
+        "tonalRamp": [
+          "oklch(15% 0.00721 277.12)",
+          "oklch(26.43% 0.00721 277.12)",
+          "oklch(37.86% 0.00721 277.12)",
+          "oklch(49.29% 0.00721 277.12)",
+          "oklch(60.71% 0.00721 277.12)",
+          "oklch(72.14% 0.00721 277.12)",
+          "oklch(83.57% 0.00721 277.12)",
+          "oklch(95% 0.00721 277.12)"
+        ]
+      },
+      "dim": {
+        "role": "neutral",
+        "displayName": "Muted silver",
+        "tonalRamp": [
+          "oklch(15% 0.00897 278.55)",
+          "oklch(26.43% 0.00897 278.55)",
+          "oklch(37.86% 0.00897 278.55)",
+          "oklch(49.29% 0.00897 278.55)",
+          "oklch(60.71% 0.00897 278.55)",
+          "oklch(72.14% 0.00897 278.55)",
+          "oklch(83.57% 0.00897 278.55)",
+          "oklch(95% 0.00897 278.55)"
+        ]
+      },
+      "line": {
+        "role": "neutral",
+        "displayName": "Graphite line",
+        "tonalRamp": [
+          "oklch(15% 0.00713 285.97)",
+          "oklch(26.43% 0.00713 285.97)",
+          "oklch(37.86% 0.00713 285.97)",
+          "oklch(49.29% 0.00713 285.97)",
+          "oklch(60.71% 0.00713 285.97)",
+          "oklch(72.14% 0.00713 285.97)",
+          "oklch(83.57% 0.00713 285.97)",
+          "oklch(95% 0.00713 285.97)"
+        ]
+      },
+      "accent": {
+        "role": "primary",
+        "displayName": "Off-white action",
+        "tonalRamp": [
+          "oklch(15% 0.00268 286.35)",
+          "oklch(26.43% 0.00268 286.35)",
+          "oklch(37.86% 0.00268 286.35)",
+          "oklch(49.29% 0.00268 286.35)",
+          "oklch(60.71% 0.00268 286.35)",
+          "oklch(72.14% 0.00268 286.35)",
+          "oklch(83.57% 0.00268 286.35)",
+          "oklch(95% 0.00268 286.35)"
+        ]
+      },
+      "accent-soft": {
+        "role": "neutral",
+        "displayName": "Soft graphite",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26.43% 0.00000 89.88)",
+          "oklch(37.86% 0.00000 89.88)",
+          "oklch(49.29% 0.00000 89.88)",
+          "oklch(60.71% 0.00000 89.88)",
+          "oklch(72.14% 0.00000 89.88)",
+          "oklch(83.57% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "green": {
+        "role": "semantic",
+        "displayName": "Passing mint",
+        "tonalRamp": [
+          "oklch(15% 0.09599 163.64)",
+          "oklch(26.43% 0.09599 163.64)",
+          "oklch(37.86% 0.09599 163.64)",
+          "oklch(49.29% 0.09599 163.64)",
+          "oklch(60.71% 0.09599 163.64)",
+          "oklch(72.14% 0.09599 163.64)",
+          "oklch(83.57% 0.09599 163.64)",
+          "oklch(95% 0.09599 163.64)"
+        ]
+      },
+      "red": {
+        "role": "semantic",
+        "displayName": "Failure rose",
+        "tonalRamp": [
+          "oklch(15% 0.10579 17.57)",
+          "oklch(26.43% 0.10579 17.57)",
+          "oklch(37.86% 0.10579 17.57)",
+          "oklch(49.29% 0.10579 17.57)",
+          "oklch(60.71% 0.10579 17.57)",
+          "oklch(72.14% 0.10579 17.57)",
+          "oklch(83.57% 0.10579 17.57)",
+          "oklch(95% 0.10579 17.57)"
+        ]
+      },
+      "amber": {
+        "role": "semantic",
+        "displayName": "Acknowledged amber",
+        "tonalRamp": [
+          "oklch(15% 0.08555 82.65)",
+          "oklch(26.43% 0.08555 82.65)",
+          "oklch(37.86% 0.08555 82.65)",
+          "oklch(49.29% 0.08555 82.65)",
+          "oklch(60.71% 0.08555 82.65)",
+          "oklch(72.14% 0.08555 82.65)",
+          "oklch(83.57% 0.08555 82.65)",
+          "oklch(95% 0.08555 82.65)"
+        ]
+      },
+      "field": {
+        "role": "neutral",
+        "displayName": "Field",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26.43% 0.00000 89.88)",
+          "oklch(37.86% 0.00000 89.88)",
+          "oklch(49.29% 0.00000 89.88)",
+          "oklch(60.71% 0.00000 89.88)",
+          "oklch(72.14% 0.00000 89.88)",
+          "oklch(83.57% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "field-border": {
+        "role": "neutral",
+        "displayName": "Field border",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26.43% 0.00000 89.88)",
+          "oklch(37.86% 0.00000 89.88)",
+          "oklch(49.29% 0.00000 89.88)",
+          "oklch(60.71% 0.00000 89.88)",
+          "oklch(72.14% 0.00000 89.88)",
+          "oklch(83.57% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "button": {
+        "role": "neutral",
+        "displayName": "Button",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26.43% 0.00000 89.88)",
+          "oklch(37.86% 0.00000 89.88)",
+          "oklch(49.29% 0.00000 89.88)",
+          "oklch(60.71% 0.00000 89.88)",
+          "oklch(72.14% 0.00000 89.88)",
+          "oklch(83.57% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "button-border": {
+        "role": "neutral",
+        "displayName": "Button border",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26.43% 0.00000 89.88)",
+          "oklch(37.86% 0.00000 89.88)",
+          "oklch(49.29% 0.00000 89.88)",
+          "oklch(60.71% 0.00000 89.88)",
+          "oklch(72.14% 0.00000 89.88)",
+          "oklch(83.57% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "button-hover": {
+        "role": "neutral",
+        "displayName": "Button hover",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26.43% 0.00000 89.88)",
+          "oklch(37.86% 0.00000 89.88)",
+          "oklch(49.29% 0.00000 89.88)",
+          "oklch(60.71% 0.00000 89.88)",
+          "oklch(72.14% 0.00000 89.88)",
+          "oklch(83.57% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "white": {
+        "role": "neutral",
+        "displayName": "White",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26.43% 0.00000 89.88)",
+          "oklch(37.86% 0.00000 89.88)",
+          "oklch(49.29% 0.00000 89.88)",
+          "oklch(60.71% 0.00000 89.88)",
+          "oklch(72.14% 0.00000 89.88)",
+          "oklch(83.57% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "nav-selected": {
+        "role": "neutral",
+        "displayName": "Nav selected",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26.43% 0.00000 89.88)",
+          "oklch(37.86% 0.00000 89.88)",
+          "oklch(49.29% 0.00000 89.88)",
+          "oklch(60.71% 0.00000 89.88)",
+          "oklch(72.14% 0.00000 89.88)",
+          "oklch(83.57% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "form-panel": {
+        "role": "neutral",
+        "displayName": "Form panel",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26.43% 0.00000 89.88)",
+          "oklch(37.86% 0.00000 89.88)",
+          "oklch(49.29% 0.00000 89.88)",
+          "oklch(60.71% 0.00000 89.88)",
+          "oklch(72.14% 0.00000 89.88)",
+          "oklch(83.57% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      },
+      "form-border": {
+        "role": "neutral",
+        "displayName": "Form border",
+        "tonalRamp": [
+          "oklch(15% 0.00000 89.88)",
+          "oklch(26.43% 0.00000 89.88)",
+          "oklch(37.86% 0.00000 89.88)",
+          "oklch(49.29% 0.00000 89.88)",
+          "oklch(60.71% 0.00000 89.88)",
+          "oklch(72.14% 0.00000 89.88)",
+          "oklch(83.57% 0.00000 89.88)",
+          "oklch(95% 0.00000 89.88)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Sign-in display",
+        "purpose": "Expressive sign-in thesis; mobile override is documented in DESIGN.md."
+      },
+      "headline": {
+        "displayName": "Page heading",
+        "purpose": "Operational page titles."
+      },
+      "body": {
+        "displayName": "System UI body",
+        "purpose": "Compact readable operating text."
+      },
+      "label": {
+        "displayName": "Metadata",
+        "purpose": "11px floor for operational metadata."
+      }
+    },
+    "shadows": [],
+    "motion": [
+      {
+        "name": "surface-feedback",
+        "value": "160ms cubic-bezier(0.22, 1, 0.36, 1)",
+        "purpose": "Background and border feedback on buttons; background feedback on record rows. Reduced motion disables transitions."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "compact-desktop-max",
+        "value": "1150px"
+      },
+      {
+        "name": "mobile-max",
+        "value": "760px"
+      },
+      {
+        "name": "wide-min",
+        "value": "1600px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Off-white primary action.",
+      "html": "<button class=\"ds-button ds-primary\">New application</button>",
+      "css": ".ds-button{font-family:\"Segoe UI\",-apple-system,BlinkMacSystemFont,Arial,sans-serif;min-height:36px;padding:8px 12px;display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid #3e3e3e;border-radius:var(--radius,7px);background:#1b1b1b;color:var(--text,#ededee);font-size:12px;font-weight:500;line-height:1.4;cursor:pointer;transition:background 160ms cubic-bezier(.22,1,.36,1),border-color 160ms cubic-bezier(.22,1,.36,1)}.ds-button:hover{background:#2a2a2a;border-color:var(--dim,#898a90)}.ds-button:focus-visible{outline:2px solid #b4b4b4;outline-offset:4px}.ds-button:disabled{opacity:.6;cursor:wait}@media(prefers-reduced-motion:reduce){.ds-button{transition:none}}.ds-primary{background:var(--accent,#e7e7e9);border-color:var(--accent,#e7e7e9);color:var(--page,#111112)}.ds-primary:hover{background:#fff;border-color:var(--text,#ededee)}"
+    },
+    {
+      "name": "Secondary button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Quiet secondary action.",
+      "html": "<button class=\"ds-button\">Refresh</button>",
+      "css": ".ds-button{font-family:\"Segoe UI\",-apple-system,BlinkMacSystemFont,Arial,sans-serif;min-height:36px;padding:8px 12px;display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid #3e3e3e;border-radius:var(--radius,7px);background:#1b1b1b;color:var(--text,#ededee);font-size:12px;font-weight:500;line-height:1.4;cursor:pointer;transition:background 160ms cubic-bezier(.22,1,.36,1),border-color 160ms cubic-bezier(.22,1,.36,1)}.ds-button:hover{background:#2a2a2a;border-color:var(--dim,#898a90)}.ds-button:focus-visible{outline:2px solid #b4b4b4;outline-offset:4px}.ds-button:disabled{opacity:.6;cursor:wait}@media(prefers-reduced-motion:reduce){.ds-button{transition:none}}"
+    },
+    {
+      "name": "Labeled field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Persistent label and dark stroked field.",
+      "html": "<label class=\"ds-label\">Operator token<input class=\"ds-input\" type=\"password\" autocomplete=\"current-password\" /></label>",
+      "css": ".ds-label{font-family:\"Segoe UI\",-apple-system,BlinkMacSystemFont,Arial,sans-serif;display:grid;gap:8px;font-size:13px;color:var(--muted,#aaabb0)}.ds-input{font-family:\"Segoe UI\",-apple-system,BlinkMacSystemFont,Arial,sans-serif;min-height:44px;padding:12px;border:1px solid #414141;border-radius:var(--radius,7px);background:#121212;color:var(--text,#ededee);font-size:14px;caret-color:var(--muted,#aaabb0)}.ds-input:focus-visible{outline:2px solid #b4b4b4;outline-offset:4px}"
+    },
+    {
+      "name": "Navigation item",
+      "kind": "nav",
+      "refersTo": "navigation",
+      "description": "Selected operational area with authored line icon.",
+      "html": "<nav><a class=\"ds-nav\" href=\"#overview\" aria-current=\"page\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M3 3h7v7H3zM14 3h7v7h-7zM3 14h7v7H3zM14 14h7v7h-7z\"/></svg>Overview</a></nav>",
+      "css": ".ds-nav{font-family:\"Segoe UI\",-apple-system,BlinkMacSystemFont,Arial,sans-serif;display:flex;align-items:center;gap:12px;min-height:44px;padding:12px;border-radius:6px;color:var(--muted,#aaabb0);font-size:13px;text-decoration:none}.ds-nav[aria-current]{background:#242424}.ds-nav:hover{background:var(--hover,#242426);color:var(--text,#ededee)}.ds-nav:focus-visible{outline:2px solid #b4b4b4;outline-offset:4px}"
+    },
+    {
+      "name": "Operational status",
+      "kind": "custom",
+      "refersTo": "status",
+      "description": "Visible word and semantic symbol, never color alone.",
+      "html": "<span class=\"ds-status\"><span aria-hidden=\"true\"></span>Acknowledged</span>",
+      "css": ".ds-status{font-family:\"Segoe UI\",-apple-system,BlinkMacSystemFont,Arial,sans-serif;display:inline-flex;align-items:center;gap:8px;font-size:11px;color:var(--amber,#dfbf83);white-space:nowrap}.ds-status>span{width:6px;height:6px;border-radius:50%;background:currentColor}"
+    },
+    {
+      "name": "Inline form panel",
+      "kind": "card",
+      "refersTo": "form-panel",
+      "description": "Bordered inline grouping without a shadow.",
+      "html": "<section class=\"ds-panel\"><h2>Add environment</h2><p>Keep service context explicit</p></section>",
+      "css": ".ds-panel{font-family:\"Segoe UI\",-apple-system,BlinkMacSystemFont,Arial,sans-serif;max-width:760px;background:#1a1a1a;border:1px solid #434343;border-radius:8px;padding:24px;color:var(--text,#ededee)}.ds-panel h2{margin:0 0 24px;font-size:16px;font-weight:600}.ds-panel p{margin:0;color:var(--muted,#aaabb0);font-size:14px;line-height:1.5}"
+    },
+    {
+      "name": "Responsive service ledger",
+      "kind": "custom",
+      "refersTo": "service-ledger",
+      "description": "Service state remains visible as labeled fields on small screens.",
+      "html": "<section class=\"ds-ledger\"><h3>Local test application</h3><table><thead><tr><th>Service</th><th>Environment</th><th>Endpoint status</th></tr></thead><tbody><tr><td data-label=\"Service\"><strong>Checkout API (test endpoint)</strong></td><td data-label=\"Environment\">Local verification</td><td data-label=\"Endpoint status\"><span class=\"ds-failing\">Failing</span></td></tr></tbody></table></section>",
+      "css": ".ds-ledger{font-family:\"Segoe UI\",-apple-system,BlinkMacSystemFont,Arial,sans-serif;border:1px solid var(--line,#2e2e32);border-radius:8px;overflow:hidden;color:var(--text,#ededee);background:var(--page,#111112)}.ds-ledger h3{margin:0;padding:16px 20px;background:#171717;font-size:14px;font-weight:600}.ds-ledger table{width:100%;border-collapse:collapse;text-align:left;font-size:12px}.ds-ledger th{padding:12px 20px;background:#141414;color:var(--muted,#aaabb0);font-weight:400;font-size:11px;border-bottom:1px solid var(--line,#2e2e32)}.ds-ledger td{padding:16px 20px}.ds-ledger strong{font-weight:500}.ds-failing{color:var(--red,#f29a9d)}.ds-failing:before{content:\"\";display:inline-block;width:6px;height:6px;margin-right:8px;border-radius:50%;background:currentColor}@media(max-width:760px){.ds-ledger table,.ds-ledger tbody{display:block}.ds-ledger thead{display:none}.ds-ledger tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);padding:8px 16px 16px;gap:16px;border-top:1px solid var(--line,#2e2e32)}.ds-ledger td{display:block;padding:0;overflow-wrap:anywhere}.ds-ledger td:first-child{grid-column:1/-1}.ds-ledger td:before{content:attr(data-label);display:block;color:var(--muted,#aaabb0);font-size:11px;margin-bottom:4px}.ds-ledger td:first-child:before{display:none}}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Operational instruments and change records",
+    "overview": "The platform is calm, exact and accountable. Near-black graphite fields, silver lettering and off-white actions support a dense but readable operating workspace. The direct user-supplied Sero board leads the identity; its monochrome direction supersedes the earlier blue reference. Original convergence ribbons interpret directional light without copying the reference's logo.\n\nThis document captures the implemented `platform/web` world, including sign-in, Overview, Releases, Monitoring and Incidents. It does not redefine the optional root website. The implementation was code-first and reviewed in rendered desktop and 393px mobile captures; there is no approved comp. Surface composition remains in `.impeccable/surface-brief.md`. The approved Unslop polish method is attributed to [Damir Sokolovsky (@heydamir)](https://github.com/heydamir/unslop), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); its example assets are not distributed. semverge remains MIT licensed.",
+    "keyCharacteristics": [
+      "Monochrome graphite and silver identity",
+      "Three neutral text roles with restrained semantic status color",
+      "Persistent service, environment and release context",
+      "Measured line icons and original vector convergence artwork",
+      "Responsive records with directly visible operational state"
+    ],
+    "rules": [
+      {
+        "name": "The Status Has a Word Rule",
+        "body": "Every operational state has a visible text label; hue and a small symbol reinforce it.",
+        "section": "colors"
+      }
+    ],
+    "dos": [
+      "**Do** preserve graphite surfaces, off-white actions and the three neutral text roles.",
+      "**Do** pair every status hue with an explicit word and retain unknown and paused distinctions.",
+      "**Do** keep service, environment and release context readable on mobile.",
+      "**Do** use the authored line icons, original convergence artwork and short reduced-motion-aware feedback."
+    ],
+    "donts": [
+      "**Don't** reintroduce blue as the platform brand accent; the user's direct monochrome reference supersedes it.",
+      "**Don't** add decorative metrics, invented history or navigation for unimplemented product areas.",
+      "**Don't** shrink metadata below the platform's 11px floor or hide service state in an offscreen ledger.",
+      "**Don't** apply this platform specification to the unchanged optional website without a separate scope decision."
+    ]
+  }
+}
