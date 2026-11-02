@@ -114,6 +114,20 @@ pnpm platform:test
 pnpm verify
 ```
 
+For the isolated browser workflow and desktop/mobile captures:
+
+```bash
+python -m pip install -r platform/tests/requirements.txt
+python -m playwright install chromium
+python platform/tests/browser_smoke.py
+```
+
+This starts temporary in-memory test servers on loopback ports 4320 and 4321,
+creates an explicitly named local test application, and collects real observations
+from a controlled HTTP endpoint. The imported release is synthetic test evidence.
+It does not seed or modify your operating database. CI runs the same browser
+workflow on Linux; captures are saved under `.impeccable/review/` and ignored by Git.
+
 The platform tests exercise real HTTP responses, authentication, incident
 transitions, idempotent imports, restart persistence, leases, policy rejection,
 timeouts and redirects. Root release tests remain separate for Node 20 support.

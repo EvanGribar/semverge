@@ -8,6 +8,21 @@ Its release PR is the control center for versioning, customer communication, mig
 
 `detect changes -> choose version -> prepare release -> verify readiness -> communicate -> publish`
 
+## Reliability platform foundation
+
+The separately runnable [web platform](platform/README.md) connects an application,
+service and environment catalog with release transaction evidence, real HTTP
+monitoring history, and incident response. Its first milestone supports one
+authenticated operator workspace on Node 24.13.x and SQLite. Release planning,
+publication and verification continue to use the existing CLI and Action; their
+Node >=20 compatibility and public interfaces remain intact.
+
+Run `pnpm platform:build`, configure the required operator token, and run
+`pnpm platform:start`. See the [setup and operating guide](platform/README.md),
+[architecture](docs/platform-architecture.md), and [roadmap](docs/product-roadmap.md).
+The platform is an early self-hosted foundation; error tracking, paging,
+multi-tenant hosting and automated remediation are later milestones.
+
 ## Quick start
 
 Add one workflow file to a Node.js repository:

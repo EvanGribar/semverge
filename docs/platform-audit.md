@@ -28,6 +28,12 @@ On Windows, Node 24.13.0, pnpm 10.32.1:
 - Typecheck, build and action bundle succeeded; regenerated `dist` had no diff.
 - `pnpm audit --prod` reported no known vulnerabilities at this time. This does not establish absence of vulnerabilities.
 
+GitHub's default-branch Dependabot API also reported nine open **development**
+dependency alerts (two high, six moderate, one low) across Vite, Vitest's mocker
+and source-map-js. Those existing alerts require a separate dependency-upgrade
+and regression pass; the production-only audit does not cover them. No new
+production dependency is introduced by the platform foundation.
+
 `docs/live-provider-proof.md` records historical GHCR publication/recovery runs and
 npm/PyPI authorization failures. Those historical claims were not rerun in this
 audit. No fresh registry publication, deployment or independent adoption is claimed.

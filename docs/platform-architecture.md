@@ -1,7 +1,9 @@
 # Minimal platform architecture
 
-Status: proposed design for the foundation iteration. Implementation and remaining
-gates are documented in the platform guide and verification report as stages land.
+Status: the foundation's API, SQLite store, worker and four-area web experience
+are implemented in staged pull requests. This document distinguishes that
+single-workspace milestone from the proposed hosted expansion. Implementation
+and operating boundaries are in [the platform guide](../platform/README.md).
 
 ## Decision: one repository, two runtime boundaries
 

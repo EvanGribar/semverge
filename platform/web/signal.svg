@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 200" fill="none">
+  <defs>
+    <linearGradient id="silver" x1="0" y1="40" x2="680" y2="150" gradientUnits="userSpaceOnUse"><stop stop-color="#0D0D0E"/><stop offset=".35" stop-color="#55555A"/><stop offset=".57" stop-color="#F0F0F2"/><stop offset=".64" stop-color="#B6B6BA"/><stop offset="1" stop-color="#0D0D0E"/></linearGradient>
+    <linearGradient id="edge" x1="180" y1="80" x2="610" y2="150" gradientUnits="userSpaceOnUse"><stop stop-color="#181819"/><stop offset=".5" stop-color="#E1E1E5"/><stop offset="1" stop-color="#181819"/></linearGradient>
+  </defs>
+  <path d="M0 10C204 10 239 145 395 145H720V151H395C239 151 204 16 0 16Z" fill="url(#silver)" opacity=".5"/>
+  <path d="M0 40C208 40 245 137 395 137H720V144H395C245 144 208 47 0 47Z" fill="url(#silver)" opacity=".7"/>
+  <path d="M0 70C212 70 251 129 395 129H720V137H395C251 137 212 78 0 78Z" fill="url(#silver)"/>
+  <path d="M0 100C216 100 257 121 395 121H720V130H395C257 130 216 109 0 109Z" fill="url(#silver)"/>
+  <path d="M0 130C220 130 263 113 395 113H720V123H395C263 123 220 140 0 140Z" fill="url(#silver)"/>
+  <path d="M0 160C224 160 269 105 395 105H720V116H395C269 116 224 171 0 171Z" fill="url(#silver)" opacity=".8"/>
+  <path d="M0 190C228 190 275 97 395 97H720V109H395C275 109 228 202 0 202Z" fill="url(#silver)" opacity=".6"/>
+  <path d="M160 135C280 135 285 100 395 100H610" stroke="url(#edge)" stroke-width="1"/>
+</svg>

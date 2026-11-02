@@ -231,6 +231,7 @@ export function createPlatform(options: PlatformOptions) {
         "/app.js": ["app.js", "text/javascript"],
         "/styles.css": ["styles.css", "text/css"],
         "/mark.svg": ["mark.svg", "image/svg+xml"],
+        "/signal.svg": ["signal.svg", "image/svg+xml"],
       };
       const asset = assets[path];
       if (!asset) throw new InputError("Route not found.", 404);
