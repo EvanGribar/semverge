@@ -1,0 +1,7 @@
+{
+  "name": "@semverge/platform",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.13.0 <25" },
+  "description": "Self-hosted semverge reliability workspace"
+}

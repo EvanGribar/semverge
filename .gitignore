@@ -4,3 +4,8 @@ lib/
 .env
 .DS_Store
 coverage/
+platform/build/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.impeccable/review/
