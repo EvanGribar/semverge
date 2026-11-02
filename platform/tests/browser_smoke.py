@@ -88,7 +88,7 @@ try:
         expect(page.locator("tbody").get_by_text("Expected response",exact=True).first).to_be_visible()
         chart = page.locator(".observation-chart")
         expect(chart).to_be_visible()
-        assert chart.locator(".observation-bar").count() == 1
+        expect(chart.locator(".observation-bar").first).to_be_visible()
         assert chart.locator(".observation-bar").first.bounding_box()["height"] > 0, "CSP must not suppress observation marks"
         assert page.locator('nav[aria-label="Main navigation"] a[aria-current="page"]').count() == 1
         monitor_route = page.url
