@@ -77,6 +77,22 @@ export function monitorUrl(value: string, allowLocal = false): string {
 export type Resolver = (
   hostname: string,
 ) => Promise<Array<{ address: string; family: number }>>;
+function networkFailureReason(error: unknown): string {
+  if (!error || typeof error !== "object" || !("code" in error))
+    return "Connection or TLS failed";
+  const code = error.code;
+  if (typeof code !== "string") return "Connection or TLS failed";
+  if (code === "ECONNREFUSED") return "Connection refused";
+  if (code === "ECONNRESET") return "Connection reset";
+  if (code === "ENOTFOUND" || code === "EAI_AGAIN")
+    return "DNS lookup failed";
+  if (code === "ETIMEDOUT" || code === "UND_ERR_CONNECT_TIMEOUT")
+    return "Connection timed out";
+  if (code.startsWith("ERR_TLS") || code.startsWith("CERT_") || code.startsWith("UNABLE_TO_"))
+    return "TLS certificate validation failed";
+  if (code.startsWith("ERR_SSL")) return "TLS negotiation failed";
+  return "Connection or TLS failed";
+}
 export async function probe(
   value: string,
   expectedStatus: number,
@@ -161,13 +177,13 @@ export async function probe(
           ? "Redirects are not followed"
           : "Unexpected HTTP status",
     };
-  } catch {
+  } catch (failure) {
     timedOut = controller.signal.aborted;
     return {
       outcome: "down",
       statusCode: null,
       latencyMs: Math.round(performance.now() - start),
-      reason: timedOut ? "Check timed out" : "Connection or TLS failed",
+      reason: timedOut ? "Check timed out" : networkFailureReason(failure),
     };
   } finally {
     clearTimeout(timeout);
