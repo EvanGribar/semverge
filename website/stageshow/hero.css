@@ -28,5 +28,5 @@
 .sv-stage .ss-stage[data-layout='compact'] .sv-context { margin-bottom: 10px; }
 .sv-stage .ss-stage[data-layout='compact'] .sv-meta { margin-top: 8px; }
 .sv-stage .ss-stage[data-layout='compact'] .sv-section { margin-top: 16px; padding-bottom: 8px; }
-.sv-stage .ss-stage[data-layout='compact'] .sv-record { padding: 10px 0; max-width: 300px; }
-.sv-stage .ss-stage[data-layout='compact'] .sv-note { margin-top: 12px; max-width: 300px; }
+.sv-stage .ss-stage[data-layout='compact'] .sv-record { padding: 8px 0; max-width: 300px; }
+.sv-stage .ss-stage[data-layout='compact'] .sv-note { margin-top: 8px; max-width: 300px; }

@@ -1,5 +1,5 @@
-# Optional SemVerge project surface
+# Semverge marketing website
 
-This directory is a dependency-free static explanation of SemVerge. It is optional: the CLI, GitHub Action, tests, and release workflow do not depend on it, and no frontend is required to use SemVerge.
+This directory builds the marketing homepage as static assets for Vercel. It is separate from the CLI, GitHub Action and operations runtime. The Stageshow scene uses React in the browser; its completed poster remains available if JavaScript is disabled.
 
-There is no connected Vercel project or deployment. The checked-in `vercel.json` only keeps this isolated static directory compatible with a future hosting decision. See [the repository Vercel guide](../docs/vercel.md) for the current boundary.
+For local development, run `npm ci` and `npm run dev` from this directory. `npm run build` produces `dist/`. A Vercel project should use `website` as its root directory; `vercel.json` specifies the build command, output directory and response headers. No serverless functions, environment variables or external services are needed by this site. The project has not been linked or deployed by this change; connecting a Git project and choosing a production domain are separate Vercel account operations.
