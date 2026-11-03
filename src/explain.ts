@@ -60,6 +60,6 @@ export function explainReleasePlan(plan: ReleasePlan): string {
     lines.push("- SemVerge does not create a release PR until a release-worthy change is present.");
   }
 
-  lines.push("", "Recovery:", "- If publication is interrupted, run `semverge recover <release-id>` to inspect the durable state and safe next action.");
+  lines.push("", "Recovery:", "- If publication is interrupted, run `node /path/to/semverge/lib/cli.js recover <release-id>` from this repository to inspect the durable state and safe next action. Replace `/path/to/semverge` with the built SemVerge checkout path.");
   return lines.join("\n");
 }

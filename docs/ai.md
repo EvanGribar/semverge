@@ -13,7 +13,7 @@ ai:
   model: your-provider-supported-model
   timeoutMs: 10000
   releaseNotes: true # include a review-only draft in release PRs
-  infer: true        # allow the explicit `semverge infer` command
+  infer: true        # allow explicit use of the local `infer` command
   tone: neutral      # neutral, friendly, or professional
   verbosity: standard # concise, standard, or detailed
 ```
@@ -28,17 +28,17 @@ The request is grounded in immutable release facts: version, previous version, b
 
 ## Metadata inference
 
-`infer` is an explicit advisory command for pull-request metadata that is missing or too sparse to classify confidently:
+`infer` is an explicit advisory command for pull-request metadata that is missing or too sparse to classify confidently. No npm CLI package is currently published. Build a SemVerge source checkout with `pnpm install --frozen-lockfile` and `pnpm build`; replace `/path/to/semverge` below with its location and run the command from the target repository:
 
 ```bash
-OPENAI_API_KEY=... npx semverge infer "feat: add bulk export" \
+OPENAI_API_KEY=... node /path/to/semverge/lib/cli.js infer "feat: add bulk export" \
   --body "Teams can export several projects at once." \
   --labels "ship:feature,area:exports" \
   --files "src/export.ts,tests/export.test.ts" \
   --json
 
 # After review, apply the suggestion to an existing body file:
-npx semverge infer "feat: add bulk export" --write pr-body.md
+node /path/to/semverge/lib/cli.js infer "feat: add bulk export" --write pr-body.md
 ```
 
 PowerShell users can set the credential with `$env:OPENAI_API_KEY = "..."`. The command returns a hidden `semverge` metadata block and does not write files unless `--write <path>` or `--apply <path>` is supplied. Even then, it only updates an existing file under the current working directory. Deterministic metadata, including explicit breaking/type/impact fields, is treated as authoritative; AI cannot override a conflict. File paths are filtered to safe, non-generated paths and file contents/diffs are never sent.

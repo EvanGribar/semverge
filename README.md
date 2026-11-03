@@ -73,18 +73,20 @@ The default repository needs no configuration. SemVerge also understands product
 
 ## Local CLI
 
-The package includes a small deterministic local workflow for setup and troubleshooting:
+No npm CLI package is currently published. The GitHub Action above is the supported consumer installation path. To use the local CLI, build a source checkout with `pnpm install --frozen-lockfile` and `pnpm build`, then run `node lib/cli.js` from the repository you want to inspect or change. If that repository is separate, invoke the built script by its path while keeping the target repository as the current directory.
+
+The CLI includes a small deterministic workflow for setup and troubleshooting:
 
 ```bash
-npx semverge init       # create .semverge.yml without overwriting it
-npx semverge plan "feat: add bulk export"
-npx semverge explain "feat: add bulk export"
-npx semverge infer "feat: add bulk export" --body "Teams can export several projects." --json
-npx semverge migrate changesets  # inspect an existing release tool
-npx semverge doctor     # report local setup, configuration, and hosted-release signals
-npx semverge recover release_01J... --state .semverge/release-state.json
-npx semverge verify v1.2.3       # verify a published release and its recorded evidence
-npx semverge verify v1.2.3 --json # emit a deterministic CI-friendly report
+node lib/cli.js init       # create .semverge.yml without overwriting it
+node lib/cli.js plan "feat: add bulk export"
+node lib/cli.js explain "feat: add bulk export"
+node lib/cli.js infer "feat: add bulk export" --body "Teams can export several projects." --json
+node lib/cli.js migrate changesets  # inspect an existing release tool
+node lib/cli.js doctor     # report local setup, configuration, and hosted-release signals
+node lib/cli.js recover release_01J... --state .semverge/release-state.json
+node lib/cli.js verify v1.2.3       # verify a published release and its recorded evidence
+node lib/cli.js verify v1.2.3 --json # emit a deterministic CI-friendly report
 ```
 
 `init` is safe by default and requires `--force` to replace an existing file. `plan` prints the same release-plan shape used by the action, `explain` turns that plan into a human-readable decision and recovery guide, while `doctor` reports local package-manager, workspace, tag, release-tool, registry, build, workflow-permission, and configuration signals before a hosted run. It never prints auth settings and cannot prove provider-side eligibility. See [docs/doctor.md](docs/doctor.md).
