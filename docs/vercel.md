@@ -1,6 +1,6 @@
 # Optional Vercel-compatible surface
 
-SemVerge is a GitHub Action and local CLI. It does not need a frontend, a Vercel runtime, or a Vercel account to build, test, release, or publish packages. The optional `website/` directory is a dependency-free static explanation of the project; it is not part of the release engine or a required product surface.
+SemVerge's supported consumer installation path is its GitHub Action. The local CLI is built from the source checkout; no npm CLI package is currently published. The release engine does not need a frontend, Vercel runtime, or Vercel account to build, test, release, or publish packages. The optional `website/` directory is a static React marketing site built with Vite; its frontend dependencies are separate from the release engine, and the site is not required by it.
 
 No Vercel project is linked or deployed at this time. The checked-in `website/vercel.json` preserves a clean future compatibility boundary without making hosting part of local development or CI. Do not run a deployment as part of the normal release workflow, and do not commit `.vercel/` project links or tokens.
 

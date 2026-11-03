@@ -131,7 +131,7 @@ function detectedInitTemplate(report: Awaited<ReturnType<typeof inspectRepositor
   }
   if (report.releaseTools.length > 0) {
     lines.push(`# release tools detected: ${report.releaseTools.map((tool) => tool.name).join(", ")}`);
-    lines.push("# Run `semverge migrate <tool>` for a report before removing an existing release workflow.");
+    lines.push("# From a built SemVerge checkout, run `node /path/to/semverge/lib/cli.js migrate <tool>` for a report before removing an existing release workflow.");
   }
   if (report.github.workflowFiles.length === 0) {
     lines.push("# No GitHub workflow was detected; add the workflow from the SemVerge README before enabling publication.");

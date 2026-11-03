@@ -17,7 +17,7 @@ describe("release explanations", () => {
     expect(explanation).toContain("feat: add export: minor release.");
     expect(explanation).toContain("Readiness: blocked.");
     expect(explanation).toContain("Missing labels: ship:ready.");
-    expect(explanation).toContain("semverge recover <release-id>");
+    expect(explanation).toContain("node /path/to/semverge/lib/cli.js recover <release-id>");
   });
 
   it("explains when no release is needed", () => {

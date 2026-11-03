@@ -1,11 +1,15 @@
 # Release verification
 
-SemVerge can verify a published release without changing the repository or provider state:
+The local CLI is built from the SemVerge source checkout; no npm CLI package is
+currently published. Build that checkout with `pnpm install --frozen-lockfile` and
+`pnpm build`, replace `/path/to/semverge` below with its location, and run the
+command from the target repository. It does not change repository or provider
+state:
 
 ```bash
-npx semverge verify v2.4.0
-npx semverge verify https://github.com/acme/project/releases/tag/v2.4.0 --json
-npx semverge verify release_01J... --state .semverge/release-state/release_01J....json
+node /path/to/semverge/lib/cli.js verify v2.4.0
+node /path/to/semverge/lib/cli.js verify https://github.com/acme/project/releases/tag/v2.4.0 --json
+node /path/to/semverge/lib/cli.js verify release_01J... --state .semverge/release-state/release_01J....json
 ```
 
 The command binds the requested version or tag to the durable release transaction and checks the evidence that the transaction recorded:
