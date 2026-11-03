@@ -34,7 +34,7 @@ See the [audit](platform-audit.md), [architecture](platform-architecture.md),
 - Human-readable local `explain` output for version decisions, readiness blockers, merge behavior, and transaction recovery
 - Report-first migration diagnostics for Release Please, Changesets, and semantic-release with explicit opt-in config writing
 - Read-only setup diagnostics for package managers, workspaces, tags, release tools, build hooks, registries, and workflow permissions
-- Optional dependency-free static project surface with versioned Vercel configuration; the release engine has no frontend or hosting dependency
+- Optional static React marketing site with versioned Vercel configuration; the release engine has no frontend or hosting dependency
 - Opt-in npm provenance publication with GitHub Actions OIDC preflight and durable transaction binding; provider eligibility remains external proof
 - Explainable per-package release graphs in release PRs and manifests, including direct changes, dependency propagation, and unreleased packages
 - Explicit independent-workspace dependency policies for runtime, optional, peer, and development links, with dependency-field evidence in the release graph

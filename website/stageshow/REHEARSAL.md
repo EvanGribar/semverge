@@ -1,0 +1,13 @@
+# Rehearsal: incident context
+
+**Gold:** Stageshow `dark-hero`. The scene keeps its dark cropped window and separate compact composition. Its deployment list became a Semverge incident timeline with service context, an observation and an operator-linked release. The data is illustrative and the release association does not establish cause.
+
+**Story:** A failed HTTP observation and open incident are visible on arrival. After a reading pause, the linked release record enters and carries the note below it. The scene plays once and holds the result; it does not loop. Reduced motion shows the completed poster. When JavaScript is unavailable, the page shows a static poster and descriptive alternative text.
+
+**Implementation:** The page bundles the Stageshow `Stage`, `Window`, `Collapse` and `Act` source used by this scene. The adapted source is under this directory; the included MIT license preserves its attribution. The kit source was copied from Stageshow source HEAD inspected as `802057409787133703c56001080169e347305572`. `npm ci && npm run build` in `website/` typechecks the scene and creates the Vercel static output. There is no dependency on the locally installed skill at build time.
+
+**Captured:** The gold still was filmed and visually compared. The built host was filmed in Chromium at desktop and 390px, including the whole 10.5-second scene, a 60ms-step capture of the association, a 390px reduced-motion poster, and a state sheet. The static poster gate reported no issues. The motion films reported no never-intentional framing or crop violations but exited inconclusive because sampling gaps exceeded the tool's timing threshold. They do not prove that every animation frame was smooth. The recorded frames were inspected and the compact note's lower crop was corrected.
+
+**Checks:** The built site was served locally with the Vercel-configured content security policy; the scene loaded without console errors. Browser checks at 1440, 1024, 690, 390 and 195 CSS pixels covered layout selection and overflow, and a JavaScript-disabled 390px page showed the fallback. At 1440, 690 and 390px, the release row changed from closed to open after the scene entered view. Observed layout shift for those runs was below 0.001. The initial Stageshow stills passed the wide and compact gates; the live scene's reduced-motion still passed at 390px.
+
+**Limits:** The in-thread fresh-eye review is not an independent external design review. Sampling gaps leave frame-level smoothness unverified; physical mobile devices and screen readers were not tested. The illustration simplifies the real incident view and is not a live application. No Vercel deployment has been made.

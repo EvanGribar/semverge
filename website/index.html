@@ -1,72 +1,57 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="description" content="SemVerge makes software releases understandable, recoverable, and safe.">
-    <title>SemVerge — Release with certainty</title>
-    <link rel="stylesheet" href="/styles.css">
-  </head>
-  <body>
-    <header class="site-header">
-      <a class="brand" href="/" aria-label="SemVerge home"><span class="brand-mark">S</span> SemVerge</a>
-      <nav aria-label="Primary navigation">
-        <a href="#workflow">Workflow</a>
-        <a href="#proof">Proof</a>
-        <a class="identity-link" href="/brand.html">Identity</a>
-        <a class="nav-cta" href="https://github.com/EvanGribar/semverge">View on GitHub</a>
-      </nav>
-    </header>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Semverge is an open-source release engine with a vision for connected software operations.">
+  <title>semverge — Change, in context</title>
+  <link rel="icon" href="/mark.svg" type="image/svg+xml">
+  <link rel="preload" href="/manrope-variable.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="header wrap">
+    <a class="brand" href="/" aria-label="semverge home"><img src="/mark.svg" alt="" width="32" height="32">semverge</a>
+    <nav aria-label="Main navigation"><a href="#releases">Releases</a><a href="#workspace">Workspace</a><a href="https://github.com/EvanGribar/semverge#quick-start">Documentation</a></nav>
+    <a class="header-link" href="https://github.com/EvanGribar/semverge">GitHub <span aria-hidden="true">↗</span></a>
+  </header>
+  <main id="main">
+    <section class="hero wrap">
+      <div class="hero-copy">
+        <h1>Software doesn’t<br>stop at deploy<span class="period">.</span></h1>
+        <p>Semverge is an open-source release engine. Know what changed, see what follows, and follow its work toward connected software operations.</p>
+        <div class="actions"><a class="button primary" href="https://github.com/EvanGribar/semverge#quick-start">Open the quick start <span aria-hidden="true">↗</span></a><a class="text-link" href="#workspace">See the workspace direction <span aria-hidden="true">↓</span></a></div>
+      </div>
+      <div class="hero-art" aria-hidden="true"><div class="beam beam-one"></div><div class="beam beam-two"></div><div class="beam beam-three"></div><div class="art-caption">Change / Observation / Context</div></div>
+      <div class="hero-bottom"><span>Open source, from the first release</span><a href="#continuity">Follow the evidence <span aria-hidden="true">↓</span></a></div>
+    </section>
 
-    <main>
-      <section class="hero">
-        <p class="eyebrow">Release operations for real repositories</p>
-        <h1>Ship releases with certainty.</h1>
-        <p class="hero-copy">SemVerge turns changes into an explainable release plan, prepares what customers need to know, publishes every configured artifact safely, and leaves a durable recovery path when something fails.</p>
-        <div class="hero-actions">
-          <a class="button button-primary" href="https://github.com/EvanGribar/semverge#quick-start">Start with GitHub Actions</a>
-          <a class="button button-secondary" href="https://github.com/EvanGribar/semverge/blob/main/docs/migration.md">Migrate safely</a>
-        </div>
-        <p class="hero-note">Open source · Node.js and GitHub first · No secrets in the release plan</p>
-      </section>
+    <section class="continuity wrap section" id="continuity">
+      <div class="section-intro"><h2>One change.<br>More of the story.</h2><div><p>A release is a point in time. Understanding the software around it takes context: the service, the observations, and the incident record.</p><p class="note">Illustrative scenario · Workspace in development</p></div></div>
+      <figure class="product-scene">
+        <picture><source media="(max-width: 713px)" srcset="/context-compact.png" width="716" height="680"><img src="/context-wide.png" width="1520" height="880" loading="lazy" alt="Illustrative incident view for the checkout service in production. Two consecutive HTTP checks failed, opening an incident. An operator linked release checkout v2.8.0 for investigation; the link does not establish a cause."></picture>
+        <div id="context-stage" aria-hidden="true"></div>
+        <figcaption>Illustrative workspace view · Release associations provide context, not proof of cause</figcaption>
+      </figure>
+    </section>
 
-      <section id="workflow" class="section">
-        <div class="section-heading">
-          <p class="eyebrow">One understandable workflow</p>
-          <h2>Every release has a story you can inspect.</h2>
-        </div>
-        <ol class="workflow" aria-label="SemVerge release workflow">
-          <li><span>01</span><strong>Plan</strong><p>Read commits, pull requests, labels, and package relationships.</p></li>
-          <li><span>02</span><strong>Explain</strong><p>Show the version decision, readiness blockers, and dependency graph.</p></li>
-          <li><span>03</span><strong>Publish</strong><p>Build first, then record idempotent package, tag, release, and asset effects.</p></li>
-          <li><span>04</span><strong>Verify</strong><p>Check the published release and keep a safe next action for recovery.</p></li>
-        </ol>
-      </section>
+    <section class="release-section" id="releases"><div class="wrap section release-grid">
+      <div><p class="status">Available today <span></span> Open source</p><h2>Release decisions<br>you can inspect.</h2><p class="lead">From the first commit to publication, Semverge makes the release process explicit.</p><a class="text-link" href="https://github.com/EvanGribar/semverge">View the release engine source <span aria-hidden="true">↗</span></a></div>
+      <div class="release-list"><article><h3>Plan from changes</h3><p>Conventional commits, pull requests, labels, and package relationships inform the next version and release plan.</p></article><article><h3>Review before publication</h3><p>Explain version decisions and readiness blockers before a release pull request is merged.</p></article><article><h3>Keep the record</h3><p>Transactions record phases, side effects, failures, and artifact digests so recovery has a place to start.</p></article></div>
+    </div></section>
 
-      <section id="proof" class="section proof-section">
-        <div class="section-heading">
-          <p class="eyebrow">Proof over promises</p>
-          <h2>Designed to earn trust one release at a time.</h2>
-        </div>
-        <div class="cards">
-          <article class="card"><span class="card-number">01</span><h3>Durable transactions</h3><p>Release state records phases, side effects, retries, failures, and SHA-256 digests for configured assets.</p></article>
-          <article class="card"><span class="card-number">02</span><h3>Human-readable decisions</h3><p><code>semverge explain</code>, migration reports, and release graphs make automation reviewable before merge.</p></article>
-          <article class="card"><span class="card-number">03</span><h3>Conservative migration</h3><p>Release Please, Changesets, and semantic-release detection maps only deterministic settings and keeps publication opt-in.</p></article>
-          <article class="card"><span class="card-number">04</span><h3>Honest boundaries</h3><p>Fixtures and hosted checks are documented as evidence; provider credentials, adoption, and live registry proof are never implied.</p></article>
-        </div>
-      </section>
+    <section class="workspace wrap section" id="workspace"><div class="workspace-copy"><p class="status">In development <span></span> Open pull requests</p><h2>The context doesn’t<br>have to end there.</h2><p class="lead">A connected operations workspace is being developed in public. It brings release records, HTTP observations, and incident timelines into a shared service and environment context.</p><a class="text-link" href="https://github.com/EvanGribar/semverge/pull/145">View the workspace pull request <span aria-hidden="true">↗</span></a></div><div class="boundary"><p>Built for a careful investigation</p><ul><li><span>01</span> Observe an endpoint over time</li><li><span>02</span> Record and respond to incidents</li><li><span>03</span> Associate relevant release evidence</li></ul><p class="note">The current foundation is a single operator workspace. Hosted service, notifications, error ingestion, maintenance, and recovery workflows remain future work.</p></div></section>
 
-      <section class="callout">
-        <p class="eyebrow">Built in public</p>
-        <h2>Help make the safest release tool easier to trust.</h2>
-        <p>Read the roadmap, try the local CLI, test a fixture, or open an issue with a release workflow SemVerge should understand next.</p>
-        <a class="button button-primary" href="https://github.com/EvanGribar/semverge/blob/main/docs/product-roadmap.md">Read the roadmap</a>
-      </section>
-    </main>
+    <section class="developer wrap section" id="start"><div><h2>Start with the<br>release engine.</h2><p class="lead">Use the GitHub Action in a Node.js repository, or build the local CLI from source. No npm CLI package is published.</p><a class="text-link" href="https://github.com/EvanGribar/semverge/blob/main/docs/public-consumer.md#read-only-external-consumer-workflow">Open the Action setup guide <span aria-hidden="true">↗</span></a></div><div class="code-panel"><div class="code-head"><span>GitHub Actions</span><span>Workflow step</span></div><pre><code>- uses: EvanGribar/semverge@v0</code></pre><p>Use this step in a configured workflow with the required permissions and checkout. <a href="https://github.com/EvanGribar/semverge/blob/main/docs/public-consumer.md#read-only-external-consumer-workflow">See the complete read-only workflow</a>.</p><div class="code-head"><span>Local CLI</span><span>From a clone</span></div><pre><code>git clone https://github.com/EvanGribar/semverge.git
+cd semverge
+pnpm install --frozen-lockfile
+pnpm build
+node lib/cli.js plan "feat: add bulk export"</code></pre><p>The CLI runs locally after the repository is built; the example prints a release plan.</p></div></section>
 
-    <footer class="site-footer">
-      <span>SemVerge is open source.</span>
-      <span><a href="https://github.com/EvanGribar/semverge/blob/main/LICENSE">MIT License</a> · <a href="https://github.com/EvanGribar/semverge/blob/main/SECURITY.md">Security</a> · <a href="https://github.com/EvanGribar/semverge/blob/main/CODE_OF_CONDUCT.md">Code of Conduct</a></span>
-    </footer>
-  </body>
+    <section class="closing wrap"><div><h2>Make the next change<br>one you can understand.</h2><p>Inspect the source, try the release engine, and follow the work as it develops.</p><div class="actions"><a class="button primary" href="https://github.com/EvanGribar/semverge#quick-start">Open the quick start <span aria-hidden="true">↗</span></a><a class="text-link" href="https://github.com/EvanGribar/semverge">View the repository <span aria-hidden="true">↗</span></a></div></div><img src="/mark.svg" alt="" width="180" height="180"></section>
+  </main>
+  <script type="module" src="/stageshow/main.tsx"></script>
+  <footer class="footer wrap"><a class="brand" href="/"><img src="/mark.svg" alt="" width="24" height="24">semverge</a><p>Open source software for change, in context</p><div><a href="https://github.com/EvanGribar/semverge/blob/main/LICENSE">MIT License</a><a href="https://github.com/EvanGribar/semverge/blob/main/SECURITY.md">Security</a><a href="https://github.com/EvanGribar/semverge">GitHub</a></div></footer>
+</body>
 </html>
