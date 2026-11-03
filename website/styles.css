@@ -7,4 +7,5 @@
 @media(max-width:360px){.wrap{width:calc(100% - 32px)}.header{gap:8px}.header-link span{display:none}.hero h1{font-size:clamp(28px,11vw,44px)}h2{font-size:clamp(28px,10vw,38px)}.actions{gap:12px}.hero-art{right:-16px}.footer div{gap:12px}}
 .product-scene{width:min(940px,100%);margin:0 0 0 auto}.product-scene img{display:block;width:100%;height:auto}.product-scene figcaption{margin:16px 0 0;color:var(--muted);font-size:13px;line-height:1.5}
 .code-head{display:flex;justify-content:space-between;gap:16px;padding:20px 28px;border-bottom:1px solid #363636;color:#c5c5c2;font-size:13px}
+.code-panel p a{text-decoration:underline;text-underline-offset:3px}
 @media(max-width:650px){.code-head{padding:16px}}
