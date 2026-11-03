@@ -5,6 +5,7 @@ Screenshots contain explicitly named local test data and real local HTTP checks.
 import json
 import os
 from pathlib import Path
+import re
 import secrets
 import subprocess
 import time
@@ -51,6 +52,12 @@ try:
         page.get_by_label("Operator token").fill(TOKEN)
         page.get_by_role("button",name="Sign in",exact=True).click()
         expect(page.get_by_role("heading",name="Overview",exact=True)).to_be_visible()
+        overview_link = page.get_by_role("navigation",name="Main navigation").get_by_role("link",name="Overview",exact=True)
+        overview_link.focus()
+        expect(overview_link).to_be_focused()
+        page.wait_for_timeout(11000)
+        expect(overview_link).to_be_focused()
+        passed("Timed state refresh preserves keyboard focus")
         page.evaluate("document.fonts.ready")
         assert page.evaluate('document.fonts.check("400 14px Manrope")'), "The local interface font must load under CSP"
         expect(page.get_by_role("heading",name="Start with an application")).to_be_visible()
@@ -83,6 +90,13 @@ try:
         page.get_by_label("Endpoint URL").fill("http://127.0.0.1:4321/health")
         page.get_by_role("button",name="Create monitor",exact=True).click()
         expect(page.get_by_role("heading",name="Local HTTP health check",exact=True)).to_be_visible()
+        page.route("**/api/monitors/*/checks", lambda route: route.abort())
+        page.get_by_role("button",name="Run check",exact=True).click()
+        expect(page.get_by_role("alert")).to_contain_text("Could not reach the Semverge server. Check that it is running, then try again.")
+        page.unroute("**/api/monitors/*/checks")
+        page.get_by_role("button",name="Refresh",exact=True).click()
+        expect(page.locator("#notice")).to_be_hidden()
+        passed("Transient server errors explain recovery and clear after a successful request")
         page.get_by_role("button",name="Run check",exact=True).click()
         expect(page.get_by_text("Check recorded",exact=True)).to_be_visible()
         expect(page.locator("tbody").get_by_text("Expected response",exact=True).first).to_be_visible()
@@ -98,6 +112,8 @@ try:
             expect(page.get_by_role("button",name="Run check",exact=True)).to_be_enabled()
             page.wait_for_timeout(200)
         expect(page.get_by_role("heading",name="Connected incidents",exact=True)).to_be_visible()
+        heading_order = page.locator("h2").all_text_contents()
+        assert heading_order.index("Connected incidents") < heading_order.index("Recent observations")
         passed("Actual failing HTTP checks create a connected incident")
         # Import a clearly identified synthetic transaction. The endpoint history above is real.
         state = page.evaluate("""async()=>await(await fetch('/api/state')).json()""")
@@ -116,10 +132,12 @@ try:
         page.locator("form[data-form=release]").get_by_role("button",name="Import release",exact=True).click()
         expect(page.get_by_role("heading",name="0.1.0-test.1",exact=True)).to_be_visible()
         expect(page.get_by_text("artifacts built",exact=True)).to_be_visible()
-        assert page.get_by_text("Inferred from current phase", exact=True).count() == 3
+        expect(page.get_by_text("Earlier phase markers are inferred from the recorded phase; event details below are imported as-is.", exact=True)).to_be_visible()
+        assert page.get_by_text("Earlier phase markers are inferred from the recorded phase; event details below are imported as-is.", exact=True).count() == 1
         capture("release-desktop.png")
         page.set_viewport_size({"width":393,"height":852})
         capture("release-mobile.png")
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth"), "Release detail mobile overflows"
         page.set_viewport_size({"width":1440,"height":1000})
         passed("Browser imports a transaction and renders actual parsed phase and events")
         page.get_by_role("navigation",name="Main navigation").get_by_role("link",name="Releases",exact=True).click()
@@ -164,14 +182,34 @@ try:
         expect(page.get_by_text("Monitor returned expected HTTP 200.",exact=True)).to_be_visible()
         passed("Passing HTTP result automatically resolves the monitor incident with evidence")
         page.goto(monitor_route); page.wait_for_load_state("networkidle")
+        for _ in range(7):
+            page.get_by_role("button",name="Run check",exact=True).click()
+            expect(page.get_by_role("button",name="Run check",exact=True)).to_be_enabled()
+        expect(page.get_by_text(re.compile(r"Showing 10 of \d+ retained observations"),exact=True)).to_be_visible()
+        expand_history = page.get_by_role("button",name=re.compile(r"Show all \d+ observations"))
+        expected_history_count = int(expand_history.inner_text().split()[2])
+        expand_history.click()
+        assert page.locator(".monitor-history tbody tr").count() == expected_history_count
+        page.get_by_role("button",name="Show latest 10",exact=True).click()
+        assert page.locator(".monitor-history tbody tr").count() == 10
+        passed("Monitor history keeps the latest ten checks scannable and exposes older observations on demand")
         page.get_by_role("button", name="Pause monitor", exact=True).click()
         expect(page.get_by_role("button", name="Resume monitor", exact=True)).to_be_visible()
         page.get_by_role("button", name="Resume monitor", exact=True).click()
         expect(page.get_by_role("button", name="Pause monitor", exact=True)).to_be_visible()
         passed("Monitor can be paused and resumed from its detail")
         page.get_by_role("navigation",name="Main navigation").get_by_role("link",name="Incidents",exact=False).click()
+        expect(page.get_by_role("heading",name="Incidents",exact=True)).to_be_visible()
         page.get_by_role("button",name="Resolved",exact=True).click()
+        resolved_row = page.get_by_role("link",name="Local HTTP health check is failing",exact=False)
+        expect(resolved_row).to_be_visible()
+        expect(resolved_row.locator(".record-end small")).to_have_attribute("aria-label",re.compile(r"^Resolved at "))
+        page.get_by_role("button",name="Active",exact=True).click()
+        expect(page.get_by_role("heading",name="No active incidents",exact=True)).to_be_visible()
+        page.get_by_role("button",name="View 1 resolved incident",exact=True).click()
+        expect(page.get_by_role("button",name="Resolved",exact=True)).to_have_attribute("aria-pressed", "true")
         expect(page.get_by_role("link",name="Local HTTP health check is failing",exact=False)).to_be_visible()
+        passed("Empty active-incident state points to resolved history")
         page.get_by_role("button",name="Active",exact=True).click()
         page.get_by_role("button",name="Report incident",exact=True).first.click()
         page.get_by_label("Incident title",exact=True).fill("Manual investigation test")
