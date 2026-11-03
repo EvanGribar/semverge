@@ -71,6 +71,7 @@ let state = null,
   incidentFilter = "active",
   busy = false,
   details = {},
+  expandedHistories = new Set(),
   lastRefreshed = null,
   error = "";
 const route = () => {
@@ -132,12 +133,18 @@ const button = (label, action, options = {}) =>
   >
     ${options.icon ? icon(options.icon) : ""}${label}
   </button>`;
-const empty = (title, copy, label, action, glyph = "service") =>
+const empty = (title, copy, label, action, glyph = "service", actionId = "") =>
   html`<div class="empty">
     ${icon(glyph)}
     <h3>${title}</h3>
     <p>${copy}</p>
-    ${label ? button(label, action, { primary: true, icon: "plus" }) : ""}
+    ${label
+      ? button(label, action, {
+          primary: true,
+          icon: action === "incident-filter" ? "" : "plus",
+          ...(actionId ? { id: actionId } : {}),
+        })
+      : ""}
   </div>`;
 const options = (items, selected = "") =>
   items.map(
@@ -162,11 +169,20 @@ const select = (label, key, items) =>
   );
 
 async function api(path, body, method = body === undefined ? "GET" : "POST") {
-  const response = await fetch(`/api/${path}`, {
-    method,
-    headers: { "content-type": "application/json" },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
+  let response;
+  try {
+    response = await fetch(`/api/${path}`, {
+      method,
+      headers: { "content-type": "application/json" },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+  } catch (failure) {
+    if (failure instanceof TypeError)
+      throw new Error(
+        "Could not reach the Semverge server. Check that it is running, then try again.",
+      );
+    throw failure;
+  }
   const data = await response.json();
   if (!response.ok) {
     if (response.status === 401) authenticated = false;
@@ -187,21 +203,33 @@ function notify(message, failure = false) {
       notice.hidden = true;
     }, 5000);
 }
+function clearFailureNotice() {
+  if (!notice.classList.contains("notice-error")) return;
+  clearTimeout(notify.timer);
+  notice.textContent = "";
+  notice.classList.remove("notice-error");
+  notice.hidden = true;
+  notice.setAttribute("role", "status");
+}
 async function load(quiet = false) {
+  const interactionAtStart = lastInteractionAt;
   try {
     state = await api("state");
     authenticated = true;
     lastRefreshed = Date.now();
     error = "";
+    clearFailureNotice();
     const { page, id } = route();
     if (id && page === "monitoring")
       details[id] = await api(`monitors/${id}/checks`);
     if (id && page === "incidents")
       details[id] = await api(`incidents/${id}/timeline`);
-    render();
+    if (!quiet || interactionAtStart === lastInteractionAt)
+      render({ preserveFocus: true });
   } catch (failure) {
     error = failure.status === 401 ? "" : failure.message;
-    render();
+    if (!quiet || interactionAtStart === lastInteractionAt)
+      render({ preserveFocus: true });
     if (quiet && authenticated) notify(error, true);
   }
 }
@@ -534,6 +562,18 @@ function releaseRows(releases, compact = false) {
 function incidentRows(incidents) {
   return incidents.map((incident) => {
     const linkedRelease = state.releases.find((release) => release.id === incident.releaseId);
+    const incidentTime =
+      incident.status === "resolved" && incident.resolvedAt
+        ? incident.resolvedAt
+        : incident.createdAt;
+    const incidentTimeLabel =
+      incident.status === "resolved" && incident.resolvedAt
+        ? "Resolved at"
+        : "Opened at";
+    const incidentTimeText =
+      incident.status === "resolved" && incident.resolvedAt
+        ? date(incidentTime)
+        : `Opened ${date(incidentTime)}`;
     return html`<a class="record-row" href="#/incidents/${incident.id}"
         ><span class="row-symbol incident-symbol">${icon("incidents")}</span
         ><span class="record-main"
@@ -543,7 +583,8 @@ function incidentRows(incidents) {
           ></span
         ><span class="record-end"
           >${badge(incident.status)}<small
-            >${date(incident.createdAt)}</small
+            aria-label="${incidentTimeLabel} ${date(incidentTime)}"
+            >${incidentTimeText}</small
           ></span
         >${icon("arrow")}</a
       >`;
@@ -817,6 +858,9 @@ function releasesPage(id) {
             <h2>Recorded progress</h2>
             <span class="muted">${release.phase}</span>
           </div>
+          <p class="form-help phase-inference">
+            Earlier phase markers are inferred from the recorded phase; event details below are imported as-is.
+          </p>
           <ol class="phase-list">
             ${phases.map(
               (phase, index) =>
@@ -827,8 +871,7 @@ function releasesPage(id) {
                       ? "phase-current"
                       : ""}"
                 >
-                  <span>${index < current ? "—" : index + 1}</span
-                  >${phase}${index < current ? html`<small>Inferred from current phase</small>` : ""}
+                  <span>${index < current ? "—" : index + 1}</span>${phase}
                 </li>`,
             )}
           </ol>
@@ -939,6 +982,8 @@ function monitoringPage(id) {
         "goto-monitoring",
       );
     const checks = details[id] ?? [],
+      historyExpanded = expandedHistories.has(id),
+      visibleChecks = historyExpanded ? checks : checks.slice(0, 10),
       latest = checks[0],
       chronological = [...checks].reverse(),
       maxLatency = Math.max(1, ...checks.map((check) => check.latencyMs ?? 0)),
@@ -977,10 +1022,18 @@ function monitoringPage(id) {
           ${monitor.expectedStatus}</span
         >
       </div>
+      ${state.incidents.some((incident) => incident.monitorId === id)
+        ? html`<section class="record-section">
+            <div class="section-heading"><h2>Connected incidents</h2></div>
+            ${incidentRows(
+              state.incidents.filter((incident) => incident.monitorId === id),
+            )}
+          </section>`
+        : ""}
       <section class="observation-panel">
         <div class="section-heading">
           <h2>Recent observations</h2>
-          <span class="muted">${checks.length} retained samples shown</span>
+          <span class="muted">Showing ${visibleChecks.length} of ${checks.length} retained observations</span>
         </div>
         ${checks.length
           ? html`<div class="observation-chart" role="img" aria-label="Response durations for retained checks, oldest to newest. Hatched marks indicate unobserved intervals.">
@@ -999,6 +1052,16 @@ function monitoringPage(id) {
           checks are not backfilled; response bodies are not stored.
         </p>
       </section>
+      ${checks.length > 10
+        ? html`<div class="history-controls">
+            <span class="form-help">${historyExpanded ? "All retained observations are visible." : "Showing the 10 most recent observations."}</span>
+            ${button(
+              historyExpanded ? "Show latest 10" : `Show all ${checks.length} observations`,
+              "toggle-history",
+              { id },
+            )}
+          </div>`
+        : ""}
       <div class="table-wrap">
         <table class="monitor-history">
           <thead>
@@ -1011,7 +1074,7 @@ function monitoringPage(id) {
             </tr>
           </thead>
           <tbody>
-            ${checks.map(
+            ${visibleChecks.map(
               (check) =>
                 html`<tr>
                   <td data-label="Checked at">${observationDate(check.checkedAt)}</td>
@@ -1024,14 +1087,7 @@ function monitoringPage(id) {
           </tbody>
         </table>
       </div>
-      ${state.incidents.some((incident) => incident.monitorId === id)
-        ? html`<section class="record-section">
-            <div class="section-heading"><h2>Connected incidents</h2></div>
-            ${incidentRows(
-              state.incidents.filter((incident) => incident.monitorId === id),
-            )}
-          </section>`
-        : ""}`;
+      `;
   }
   const monitors = state.monitors
     .filter(matches)
@@ -1279,6 +1335,23 @@ function incidentsPage(id) {
         .toLowerCase()
         .includes(query.toLowerCase()),
     );
+  const matchingResolvedCount = state.incidents
+    .filter(matches)
+    .filter((item) => item.status === "resolved")
+    .filter((item) =>
+      `${item.title} ${context(item)}`
+        .toLowerCase()
+        .includes(query.toLowerCase()),
+    ).length;
+  const emptyTitle =
+    incidentFilter === "active"
+      ? "No active incidents"
+      : incidentFilter === "resolved"
+        ? "No resolved incidents"
+        : "No incidents to show";
+  const showResolvedAction =
+    incidentFilter === "active" && matchingResolvedCount > 0;
+  const resolvedSummary = `${matchingResolvedCount} resolved ${matchingResolvedCount === 1 ? "incident matches" : "incidents match"} the current filters.`;
   return html`${pageHead(
       "Incidents",
       "From the first signal to a recorded resolution.",
@@ -1304,16 +1377,71 @@ function incidentsPage(id) {
     ${incidents.length
       ? html`<div class="record-list">${incidentRows(incidents)}</div>`
       : empty(
-          incidentFilter === "resolved"
-            ? "No resolved incidents yet"
-            : "No incidents to show",
-          "Repeated monitor failures open incidents automatically. You can also report a problem and keep the investigation in one timeline.",
-          "Report incident",
-          "incident",
+          emptyTitle,
+          showResolvedAction
+            ? resolvedSummary
+            : incidentFilter === "active"
+              ? "Repeated monitor failures open incidents automatically. You can also report a problem and keep the investigation in one timeline."
+              : "No incidents match this search. You can report a problem and keep the investigation in one timeline.",
+          showResolvedAction
+            ? `View ${matchingResolvedCount} resolved ${matchingResolvedCount === 1 ? "incident" : "incidents"}`
+            : "Report incident",
+          showResolvedAction ? "incident-filter" : "incident",
           "incidents",
+          showResolvedAction ? "resolved" : "",
         )}`;
 }
-function render() {
+function focusedControl() {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement) || !root.contains(active)) return null;
+  return {
+    id: active.id,
+    action: active.dataset.action ?? "",
+    actionId: active.dataset.id ?? "",
+    href: active.getAttribute("href") ?? "",
+    name: active.getAttribute("name") ?? "",
+    label: active.getAttribute("aria-label") ?? "",
+    text: active.textContent.trim(),
+    tagName: active.tagName,
+    selectionStart: "selectionStart" in active ? active.selectionStart : null,
+    selectionEnd: "selectionEnd" in active ? active.selectionEnd : null,
+  };
+}
+function restoreFocusedControl(snapshot) {
+  if (!snapshot) return;
+  const target = [...root.querySelectorAll("a,button,input,select,textarea,[tabindex]")].find(
+    (control) =>
+      (snapshot.id && control.id === snapshot.id) ||
+      (snapshot.action &&
+        control.dataset.action === snapshot.action &&
+        (control.dataset.id ?? "") === snapshot.actionId) ||
+      (snapshot.href &&
+        control.tagName === snapshot.tagName &&
+        control.getAttribute("href") === snapshot.href &&
+        control.textContent.trim() === snapshot.text) ||
+      (snapshot.name &&
+        control.tagName === snapshot.tagName &&
+        control.getAttribute("name") === snapshot.name) ||
+      (snapshot.label &&
+        control.getAttribute("aria-label") === snapshot.label) ||
+      (!snapshot.id &&
+        !snapshot.action &&
+        !snapshot.href &&
+        !snapshot.name &&
+        !snapshot.label &&
+        control.tagName === snapshot.tagName &&
+        control.textContent.trim() === snapshot.text),
+  );
+  if (!target) return;
+  target.focus({ preventScroll: true });
+  if (snapshot.selectionStart !== null && "setSelectionRange" in target) {
+    try {
+      target.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd);
+    } catch {}
+  }
+}
+function render({ preserveFocus = false } = {}) {
+  const focused = preserveFocus ? focusedControl() : null;
   if (!authenticated || !state) root.innerHTML = login().html;
   else {
     const { page, id } = route();
@@ -1327,6 +1455,7 @@ function render() {
             : incidentsPage(id),
     ).html;
   }
+  restoreFocusedControl(focused);
   document.title = `${authenticated ? pages[route().page] : "Sign in"} · semverge`;
 }
 
@@ -1361,7 +1490,13 @@ root.addEventListener("click", async (event) => {
   }
   if (action === "incident-filter") {
     incidentFilter = id;
-    render();
+    render({ preserveFocus: true });
+    return;
+  }
+  if (action === "toggle-history") {
+    if (expandedHistories.has(id)) expandedHistories.delete(id);
+    else expandedHistories.add(id);
+    render({ preserveFocus: true });
     return;
   }
   try {
@@ -1487,7 +1622,7 @@ root.addEventListener("submit", async (event) => {
 root.addEventListener("change", async (event) => {
   if (event.target.id === "environment-scope") {
     environment = event.target.value;
-    render();
+    render({ preserveFocus: true });
   }
   if (event.target.name === "releaseFile") {
     const file = event.target.files[0];
@@ -1510,7 +1645,7 @@ root.addEventListener("input", (event) => {
   if (event.target.id !== "search") return;
   const position = event.target.selectionStart;
   query = event.target.value;
-  render();
+  render({ preserveFocus: true });
   const search = document.querySelector("#search");
   search.focus();
   try {
@@ -1522,11 +1657,18 @@ window.addEventListener("hashchange", () => {
   query = "";
   void load().then(() => document.querySelector("main h1")?.focus());
 });
+let lastInteractionAt = 0;
+const recordInteraction = () => {
+  lastInteractionAt = Date.now();
+};
+document.addEventListener("pointerdown", recordInteraction, true);
+document.addEventListener("keydown", recordInteraction, true);
 setInterval(() => {
   if (
     authenticated &&
     !busy &&
     !form &&
+    Date.now() - lastInteractionAt > 1500 &&
     !document.activeElement?.matches("input,textarea,select")
   )
     void load(true);

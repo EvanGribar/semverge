@@ -1835,9 +1835,10 @@ td strong {
   .sidebar nav a[aria-current="page"] { border-bottom-color: var(--text); }
   .page-heading h1 { font-size: 32px; }
   .observation-summary { padding: 20px 0; }
-  .phase-list { overflow-x: auto; }
-  .phase-list li { min-width: 80px; }
+  .phase-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; overflow: visible; }
+  .phase-list li { min-width: 0; margin-bottom: 0; }
   .observation-chart { height: 120px; gap: 2px; }
+  .history-controls { align-items: flex-start; flex-direction: column; }
 }
 
 .observation-bar.height-1 { height: 5%; }
@@ -1881,6 +1882,9 @@ td strong {
 @font-face { font-family: Manrope; src: url('/manrope-variable.ttf') format('truetype'); font-style: normal; font-weight: 200 800; font-display: swap; }
 :root { font-family: Manrope, "Segoe UI", sans-serif; }
 .history-caption { flex-wrap: wrap; gap: 8px 16px; }
+.phase-inference { margin: -20px 0 8px; }
+.history-controls { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: -18px 0 20px; }
+.history-controls .form-help { margin: 0; }
 /* Incident entries read as a dated investigation, not as undifferentiated rows. */
 .incident-timeline li { display: grid; grid-template-columns: 150px 10px minmax(0, 1fr); column-gap: 16px; align-items: start; }
 .incident-timeline time { grid-column: 1; grid-row: 1; white-space: normal; }
