@@ -20,4 +20,3 @@ export default function SemvergeContext() {
 function Side() {
   return <div className="sv-side"><div className="sv-wordmark">semverge</div><div>Overview</div><div>Releases</div><div>Monitoring</div><div className="sv-selected">Incidents</div><div className="sv-side-context">Service<br /><strong>checkout</strong><br />production</div></div>
 }
-
