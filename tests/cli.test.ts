@@ -112,7 +112,7 @@ describe("SemVerge CLI", () => {
       expect(config).toContain("# package manager: pnpm");
       expect(config).toContain("packages/*");
       expect(config).toContain("# release tools detected: release-please");
-      expect(config).toContain("semverge migrate <tool>");
+      expect(config).toContain("node /path/to/semverge/lib/cli.js migrate <tool>");
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
