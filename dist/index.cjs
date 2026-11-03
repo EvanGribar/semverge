@@ -14894,7 +14894,7 @@ function releaseOperatorChecklist(plan, config) {
     `- [${publicationTargets.length > 0 ? " " : "x"}] Confirm workflow permissions and credentials for ${publicationTargets.length > 0 ? publicationTargets.join(", ") : "the GitHub release only"}.`,
     "- [ ] Merge this pull request only after the version graph, customer notes, and recovery path are understood.",
     "",
-    "If a side effect is interrupted, use `semverge recover <release-id>`; the transaction marker is retained in the release body."
+    "If a side effect is interrupted, run `node /path/to/semverge/lib/cli.js recover <release-id>` from this repository; replace `/path/to/semverge` with the built checkout path. The transaction marker is retained in the release body."
   ];
 }
 function releasePrBody(plan, config, aiReleaseNotes = []) {
