@@ -29,13 +29,10 @@
 
     <section class="continuity wrap section" id="continuity">
       <div class="section-intro"><h2>One change.<br>More of the story.</h2><div><p>A release is a point in time. Understanding the software around it takes context: the service, the observations, and the incident record.</p><p class="note">Illustrative scenario · Workspace in development</p></div></div>
-      <div class="evidence" aria-label="Illustrative evidence trail">
-        <div class="evidence-head"><span>Context trail</span><span>checkout / production</span></div>
-        <div class="evidence-row"><div class="rail"><span></span></div><div><small>Release record</small><strong>checkout v2.8.0</strong><p>Release transaction imported</p></div><time>10:02</time></div>
-        <div class="evidence-row"><div class="rail"><span></span></div><div><small>Health observation</small><strong>HTTP check failed</strong><p>Two consecutive checks failed</p></div><time>10:16</time></div>
-        <div class="evidence-row"><div class="rail"><span></span></div><div><small>Incident</small><strong>Checkout endpoint unavailable</strong><p>Release linked by an operator for investigation</p></div><time>10:16</time></div>
-        <div class="evidence-foot">A linked release is context, not a proven cause</div>
-      </div>
+      <figure class="product-scene">
+        <picture><source media="(max-width: 650px)" srcset="/context-compact.png" width="716" height="680"><img src="/context-wide.png" width="1520" height="880" loading="lazy" alt="Illustrative incident view for the checkout service in production. Two consecutive HTTP checks failed, opening an incident. An operator linked release checkout v2.8.0 for investigation; the link does not establish a cause."></picture>
+        <figcaption>Illustrative workspace view · Release associations provide context, not proof of cause</figcaption>
+      </figure>
     </section>
 
     <section class="release-section" id="releases"><div class="wrap section release-grid">
