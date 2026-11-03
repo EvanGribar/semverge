@@ -466,5 +466,26 @@ describe("bounded monitor execution", () => {
       (await probe(`${base}/slow`, 200, { allowLocal: true, timeoutMs: 30 }))
         .reason,
     ).toContain("timed out");
+    const refused = createServer();
+    const refusedPort = await listen(refused);
+    await close(refused);
+    expect(
+      await probe(`http://127.0.0.1:${refusedPort}/health`, 200, {
+        allowLocal: true,
+      }),
+    ).toMatchObject({
+      outcome: "down",
+      statusCode: null,
+      reason: "Connection refused",
+    });
+    expect(
+      (
+        await probe("https://dns-failure.example", 200, {
+          resolve: async () => {
+            throw Object.assign(new Error("not exposed"), { code: "ENOTFOUND" });
+          },
+        })
+      ).reason,
+    ).toBe("DNS lookup failed");
   });
 });
