@@ -2,7 +2,7 @@
 
 SemVerge's supported consumer installation path is its public GitHub Action.
 The local CLI is available from a built source checkout; no npm CLI package is
-published. A repository that is not owned by EvanGribar can consume the action
+currently published. A repository that is not owned by EvanGribar can consume the action
 without access to this repository's secrets or release branches.
 
 ## Stable action references

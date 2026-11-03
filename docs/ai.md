@@ -13,7 +13,7 @@ ai:
   model: your-provider-supported-model
   timeoutMs: 10000
   releaseNotes: true # include a review-only draft in release PRs
-  infer: true        # allow the explicit `semverge infer` command
+  infer: true        # allow explicit use of the local `infer` command
   tone: neutral      # neutral, friendly, or professional
   verbosity: standard # concise, standard, or detailed
 ```
