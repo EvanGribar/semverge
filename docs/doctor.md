@@ -1,9 +1,9 @@
 # Setup diagnostics
 
-`semverge doctor` is a read-only setup report for the repository where it runs:
+The source-checkout CLI's `doctor` command is a read-only setup report for the repository where it runs. There is **no published npm CLI package**. First build SemVerge (`pnpm install --frozen-lockfile && pnpm build` in its clone), then from the repository you want to inspect run:
 
-```bash
-npx semverge doctor
+```sh
+node /absolute/path/to/semverge/lib/cli.js doctor
 ```
 
 It reports local evidence for:

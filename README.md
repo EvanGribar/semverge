@@ -2,7 +2,7 @@
 
 **Release automation for Node.js repositories on GitHub.**
 
-SemVerge is a GitHub Action and local CLI for planning and publishing releases. It reads changes, selects semantic versions, prepares a release pull request, checks configured readiness requirements, and generates release notes. Publishing happens through explicitly permissioned workflows.
+SemVerge is a GitHub Action for planning and publishing releases, with a CLI available to developers building from source. It reads changes, selects semantic versions, prepares a release pull request, checks configured readiness requirements, and generates release notes. Publishing happens through explicitly permissioned workflows.
 
 The initial use case is Node.js projects using GitHub and npm or pnpm. Other package managers, registries, monorepos, and release channels have additional configuration and provider-dependent verification.
 
@@ -70,16 +70,20 @@ The default repository needs no configuration. SemVerge also understands product
 | `ship:stable` | Explicitly promote the current prerelease to stable |
 
 
-## Local commands
+## Local CLI (source checkout only)
+
+**The CLI is not published to npm.** The supported installation for consumers is the GitHub Action above. For local CLI development, clone and build the source:
 
 ```sh
-npx semverge init
-npx semverge plan "fix: retry failed requests"
-npx semverge explain "fix: retry failed requests"
-npx semverge doctor
+git clone https://github.com/EvanGribar/semverge.git
+cd semverge
+pnpm install --frozen-lockfile
+pnpm build
+node lib/cli.js --help
+node lib/cli.js doctor
 ```
 
-The local CLI also offers migration inspection, transaction recovery, and evidence verification. See the [full reference](docs/REFERENCE.md).
+To inspect a different repository, run `node /absolute/path/to/semverge/lib/cli.js doctor` from that repository's working directory. Do not use `npx semverge` until an npm CLI package is actually published and verified. The source CLI also supports planning, migrations, recovery, and evidence verification; see the [reference](docs/REFERENCE.md).
 
 ## What you can configure
 
