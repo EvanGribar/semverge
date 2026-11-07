@@ -4,6 +4,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { channelBranchAllowed, channelFromBranch, run } from "../src/action.js";
 import { parseConfig } from "../src/config.js";
+import { GitHubClient } from "../src/github.js";
+import * as pluginSdk from "../src/plugin-sdk.js";
+import * as workspaceIntegrity from "../src/workspace-integrity.js";
+import { createReleaseTransaction, releaseTransactionBody } from "../src/transaction.js";
 
 function encoded(content: string): string {
   return Buffer.from(content, "utf8").toString("base64");
@@ -12,6 +16,8 @@ function encoded(content: string): string {
 describe("GitHub Action orchestration", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
   });
 
   it("enforces optional channel branch scoping", () => {
@@ -284,5 +290,107 @@ describe("GitHub Action orchestration", () => {
 
     expect(requests.some((request) => request.method === "POST" && request.path.endsWith("/git/trees"))).toBe(false);
     expect(requests.some((request) => request.method === "POST" && request.path.endsWith("/pulls"))).toBe(false);
+  });
+
+  it("blocks preparation plugins at a mismatched checkout before imports or release writes", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "semverge-prepare-guard-"));
+    const eventPath = join(directory, "event.json");
+    const sourceSha = "b".repeat(40);
+    const resolvedSha = "c".repeat(40);
+    writeFileSync(eventPath, JSON.stringify({ ref: "refs/heads/main", after: sourceSha }));
+    writeFileSync(join(directory, ".semverge.yml"), "plugins: []\n");
+    const createRegistry = vi.spyOn(pluginSdk, "createPluginRegistryFromConfig");
+    const checkWorkspace = workspaceIntegrity.assertWorkspaceAtCommit;
+    const checkout = vi.spyOn(workspaceIntegrity, "assertWorkspaceAtCommit")
+      .mockImplementation((workspace, sha) => checkWorkspace(workspace, sha, async () => "a".repeat(40)));
+    const getFile = vi.spyOn(GitHubClient.prototype, "getFile").mockImplementation(async (path) => {
+      if (path === ".semverge.yml") return "plugins:\n  - module: ./sentinel-plugin.mjs\n";
+      if (path === "package.json") return JSON.stringify({ name: "demo", version: "0.1.0" });
+      return null;
+    });
+    vi.spyOn(GitHubClient.prototype, "repositoryInfo").mockResolvedValue({ full_name: "demo/repo", name: "repo", owner: { login: "demo" }, default_branch: "main", html_url: "https://github.com/demo/repo" });
+    vi.spyOn(GitHubClient.prototype, "commitPullRequests").mockResolvedValue([]);
+    vi.spyOn(GitHubClient.prototype, "getCommit").mockResolvedValue({ sha: resolvedSha, tree: { sha: "tree-sha" } });
+    vi.spyOn(GitHubClient.prototype, "getTree").mockResolvedValue([{ path: "package.json", type: "blob", sha: "package-sha" }]);
+    vi.spyOn(GitHubClient.prototype, "listTags").mockResolvedValue([]);
+    vi.spyOn(GitHubClient.prototype, "listCommits").mockResolvedValue([]);
+    const createTree = vi.spyOn(GitHubClient.prototype, "createTree");
+    const createPr = vi.spyOn(GitHubClient.prototype, "createPullRequest");
+    const fetch = vi.fn(() => { throw new Error("Unexpected network request"); });
+    vi.stubGlobal("fetch", fetch);
+    for (const [key, value] of Object.entries({ GITHUB_REPOSITORY: "demo/repo", GITHUB_EVENT_NAME: "push", GITHUB_SHA: "a".repeat(40), GITHUB_EVENT_PATH: eventPath, GITHUB_WORKSPACE: directory, GITHUB_OUTPUT: join(directory, "outputs.txt"), INPUT_CONFIG: ".semverge.yml" })) {
+      vi.stubEnv(key, value);
+    }
+    try {
+      await expect(run()).rejects.toThrow(`requires GITHUB_WORKSPACE at release merge commit ${resolvedSha}, but found ${"a".repeat(40)}`);
+      expect(getFile).toHaveBeenCalledWith(".semverge.yml", sourceSha);
+      expect(checkout).toHaveBeenCalledWith(directory, resolvedSha);
+      expect(createRegistry).not.toHaveBeenCalled();
+      expect(createTree).not.toHaveBeenCalled();
+      expect(createPr).not.toHaveBeenCalled();
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses to load configured plugins when the workspace checkout does not match the release commit", async () => {
+    const createRegistry = vi.spyOn(pluginSdk, "createPluginRegistryFromConfig");
+    const checkWorkspace = workspaceIntegrity.assertWorkspaceAtCommit;
+    const assertWorkspaceAtCommit = vi.spyOn(workspaceIntegrity, "assertWorkspaceAtCommit")
+      .mockImplementation((workspace, sha) => checkWorkspace(workspace, sha, async () => "a".repeat(40)));
+    const mergeSha = "b4d0c0ffee0123456789abcdef0123456789abcd";
+    const directory = mkdtempSync(join(tmpdir(), "semverge-plugin-guard-"));
+    const eventPath = join(directory, "event.json");
+    const outputPath = join(directory, "outputs.txt");
+    writeFileSync(eventPath, JSON.stringify({ action: "closed", pull_request: {
+      number: 7,
+      title: "chore(release): v0.2.0",
+      body: releaseTransactionBody("notes", createReleaseTransaction({ version: "0.2.0", sourceCommit: mergeSha, packageIds: ["demo"], tagNames: ["v0.2.0"], npmEnabled: false })),
+      html_url: "https://github.com/demo/repo/pull/7",
+      state: "closed",
+      merged: true,
+      merged_at: "2026-08-04T00:00:00Z",
+      merge_commit_sha: mergeSha,
+      head: { ref: "semverge/release", sha: "release-sha", repo: { full_name: "demo/repo" } },
+      base: { ref: "main", sha: "main-sha" },
+      labels: []
+    } }));
+    const config = "health:\n  enabled: false\nplugins:\n  - module: ./sentinel-plugin.mjs\n";
+    vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/contents/.semverge.yml")) {
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: Buffer.from(config, "utf8").toString("base64") }), { status: 200 });
+      }
+      if (url.pathname.endsWith("/contents/release-manifest.json")) {
+        return new Response(JSON.stringify({ type: "file", encoding: "base64", content: Buffer.from(JSON.stringify({ schemaVersion: 2, mode: "single", version: "0.2.0", channel: "stable", readiness: { passed: true }, packages: [{ id: "demo", name: "demo", directory: "", version: "0.2.0" }] }), "utf8").toString("base64") }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ message: `Unexpected ${url.pathname}` }), { status: 500 });
+    }));
+    const previous = new Map<string, string | undefined>();
+    for (const [key, value] of Object.entries({
+      GITHUB_API_URL: "https://api.github.test",
+      GITHUB_REPOSITORY: "demo/repo",
+      GITHUB_EVENT_NAME: "pull_request",
+      GITHUB_SHA: mergeSha,
+      GITHUB_EVENT_PATH: eventPath,
+      GITHUB_OUTPUT: outputPath,
+      GITHUB_WORKSPACE: directory,
+      INPUT_GITHUB_TOKEN: "test-token",
+      INPUT_CONFIG: ".semverge.yml"
+    })) {
+      previous.set(key, process.env[key]);
+      process.env[key] = value;
+    }
+    try {
+      await expect(run()).rejects.toThrow(/release merge commit/);
+    } finally {
+      for (const [key, value] of previous) {
+        if (value === undefined) delete process.env[key]; else process.env[key] = value;
+      }
+      rmSync(directory, { recursive: true, force: true });
+    }
+    expect(createRegistry).not.toHaveBeenCalled();
+    expect(assertWorkspaceAtCommit).toHaveBeenCalledWith(directory, mergeSha);
   });
 });

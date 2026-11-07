@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseChange } from "../src/changes.js";
-import { DEFAULT_CONFIG } from "../src/config.js";
+import { DEFAULT_CONFIG, parseConfig } from "../src/config.js";
 import { discoverPackages } from "../src/packages.js";
 import { buildWorkspaceReleasePlan } from "../src/workspace-release.js";
 import { readTargetName, readTargetVersion, updateTargetVersion } from "../src/version-adapters.js";
@@ -304,6 +304,93 @@ describe("package discovery and workspace releases", () => {
     expect(plan.packages.find((item) => item.package.name === "@demo/peer")?.plan.releaseChanges.find((change) => change.dependencyUpdate)?.forcedBump).toBe("major");
     expect(plan.unchangedPackages.map((item) => item.name)).toEqual(["demo", "@demo/dev"]);
     expect(plan.manifest).toContain('"peerDependencies"');
+  });
+
+  it("applies the highest policy bump when a dependent already has direct changes", () => {
+    const files = {
+      "package.json": JSON.stringify({ name: "root", version: "1.0.0", private: true, workspaces: ["packages/*"] }),
+      "packages/one/package.json": JSON.stringify({ name: "one", version: "1.0.0" }),
+      "packages/two/package.json": JSON.stringify({ name: "two", version: "1.0.0", peerDependencies: { one: "^1.0.0" } })
+    };
+    const config = parseConfig("monorepo:\n  mode: independent\n  includeRoot: false\n  dependencyPolicy:\n    peerDependencies: major\n");
+    const discovered = discoverPackages(files, Object.keys(files), config);
+    const build = (changes: Parameters<typeof buildWorkspaceReleasePlan>[0]["changes"]) => buildWorkspaceReleasePlan({
+      packages: discovered.packages,
+      mode: discovered.mode,
+      files,
+      config,
+      changes
+    });
+
+    const one = parseChange({ title: "fix(one): repair one", source: "commit", files: ["packages/one/index.js"] });
+    const two = parseChange({ title: "fix(two): polish two", source: "commit", files: ["packages/two/index.js"] });
+    for (const order of [[one, two], [two, one]] as const) {
+      const plan = build(order);
+      expect(plan.packages.find((item) => item.package.name === "two")?.plan.version).toBe("2.0.0");
+    }
+    const lateTriggerPlan = build([one]);
+    expect(lateTriggerPlan.packages.find((item) => item.package.name === "two")?.plan.version).toBe("2.0.0");
+  });
+
+  it.each([
+    ["patch", "1.0.1"],
+    ["minor", "1.1.0"],
+    ["major", "2.0.0"]
+  ] as const)("reconciles late transitive %s triggers and cycles independently of package order", (policy, version) => {
+    const files = {
+      "package.json": JSON.stringify({ name: "root", private: true, workspaces: ["packages/*"] }),
+      "packages/one/package.json": JSON.stringify({ name: "one", version: "1.0.0" }),
+      "packages/two/package.json": JSON.stringify({ name: "two", version: "1.0.0", dependencies: { one: "^1.0.0" }, peerDependencies: { three: "^1.0.0" } }),
+      "packages/three/package.json": JSON.stringify({ name: "three", version: "1.0.0", dependencies: { two: "^1.0.0" } })
+    };
+    const config = parseConfig(`monorepo:\n  mode: independent\n  includeRoot: false\n  dependencyPolicy:\n    peerDependencies: ${policy}\n`);
+    const discovered = discoverPackages(files, Object.keys(files), config);
+    const results = [];
+    for (const packages of [discovered.packages, [...discovered.packages].reverse()]) {
+      const input = { packages, mode: discovered.mode, files, config, date: "2026-08-04" };
+      const plan = buildWorkspaceReleasePlan({
+        ...input,
+        changes: [parseChange({ title: "fix(one): repair one", source: "commit", files: ["packages/one/index.js"] })]
+      });
+      const one = plan.packages.find((item) => item.package.name === "one");
+      const two = plan.packages.find((item) => item.package.name === "two");
+      const three = plan.packages.find((item) => item.package.name === "three");
+      expect(plan.packages).toHaveLength(3);
+      expect(one?.plan.releaseChanges.filter((change) => change.dependencyUpdate)).toEqual([]);
+      expect(two?.plan.version).toBe(version);
+      expect(two?.plan.bump).toBe(policy);
+      expect(two?.plan.releaseChanges.filter((change) => change.dependencyUpdate)).toEqual([
+        expect.objectContaining({
+          forcedBump: policy,
+          description: "Refresh workspace dependency metadata after one (dependencies), three (peerDependencies) release."
+        })
+      ]);
+      expect(two?.explanation).toEqual({
+        reasons: ["dependency-update"],
+        directChanges: [],
+        dependencies: ["one", "three"],
+        dependencyTypes: { one: ["dependencies"], three: ["peerDependencies"] }
+      });
+      expect(three?.plan.version).toBe("1.0.1");
+      expect(three?.explanation.dependencies).toEqual(["two"]);
+      expect(JSON.parse(plan.manifest).packages).toContainEqual(expect.objectContaining({
+        name: "two",
+        version,
+        bump: policy,
+        dependencies: ["one", "three"],
+        dependencyTypes: { one: ["dependencies"], three: ["peerDependencies"] }
+      }));
+      results.push(plan.packages.map(({ package: packageItem, plan: packagePlan, explanation }) => ({
+        name: packageItem.name,
+        version: packagePlan.version,
+        changes: packagePlan.releaseChanges,
+        explanation
+      })).sort((left, right) => left.name.localeCompare(right.name)));
+      const idle = buildWorkspaceReleasePlan({ ...input, changes: [] });
+      expect(idle.hasRelease).toBe(false);
+      expect(idle.packages).toEqual([]);
+    }
+    expect(results[0]).toEqual(results[1]);
   });
 
   it("explains transitive independent dependency propagation", () => {

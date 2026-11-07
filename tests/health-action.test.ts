@@ -3,13 +3,67 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { run } from "../src/action.js";
+import { GitHubClient } from "../src/github.js";
+import * as pluginSdk from "../src/plugin-sdk.js";
+import * as workspaceIntegrity from "../src/workspace-integrity.js";
+import { createReleaseTransaction, releaseTransactionBody } from "../src/transaction.js";
 
 function encoded(content: string): string {
   return Buffer.from(content, "utf8").toString("base64");
 }
 
 describe("published release post-release verification action", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+
+  it.each([true, false])("uses transaction-pinned verification config before plugin imports (plugins: %s)", async (pluginsEnabled) => {
+    const directory = mkdtempSync(join(tmpdir(), "semverge-verify-guard-"));
+    const eventPath = join(directory, "event.json");
+    const sourceSha = "b".repeat(40);
+    const transaction = createReleaseTransaction({ version: "1.0.0", sourceCommit: sourceSha, packageIds: ["demo"], tagNames: ["v1.0.0"], npmEnabled: false });
+    transaction.phase = "published";
+    transaction.published = true;
+    transaction.ready = true;
+    const release = { id: 1, tag_name: "v1.0.0", target_commitish: "main", body: releaseTransactionBody("notes", transaction), html_url: "https://github.com/demo/repo/releases/tag/v1.0.0", upload_url: "https://uploads.github.com/assets{?name,label}", assets: [] };
+    writeFileSync(eventPath, JSON.stringify({ action: "published", release: { ...release, body: "event body without transaction" } }));
+    const pinnedConfig = `health:\n  enabled: true\n${pluginsEnabled ? "plugins:\n  - module: ./sentinel-plugin.mjs\n" : "plugins: []\n"}`;
+    const getFile = vi.spyOn(GitHubClient.prototype, "getFile").mockImplementation(async (path, ref) => {
+      expect(path).toBe(".semverge.yml");
+      return ref === sourceSha ? pinnedConfig : "health:\n  enabled: false\nplugins: []\n";
+    });
+    vi.spyOn(GitHubClient.prototype, "getReleaseByTag").mockResolvedValue(release);
+    vi.spyOn(GitHubClient.prototype, "listWorkflowRuns").mockResolvedValue([]);
+    const updateRelease = vi.spyOn(GitHubClient.prototype, "updateRelease").mockResolvedValue(release);
+    const createRegistry = vi.spyOn(pluginSdk, "createPluginRegistryFromConfig");
+    const checkWorkspace = workspaceIntegrity.assertWorkspaceAtCommit;
+    const checkout = vi.spyOn(workspaceIntegrity, "assertWorkspaceAtCommit")
+      .mockImplementation((workspace, sha) => checkWorkspace(workspace, sha, async () => "a".repeat(40)));
+    const fetch = vi.fn(() => { throw new Error("Unexpected network request"); });
+    vi.stubGlobal("fetch", fetch);
+    for (const [key, value] of Object.entries({ GITHUB_REPOSITORY: "demo/repo", GITHUB_EVENT_NAME: "release", GITHUB_SHA: "a".repeat(40), GITHUB_EVENT_PATH: eventPath, GITHUB_WORKSPACE: directory, GITHUB_OUTPUT: join(directory, "outputs.txt"), INPUT_CONFIG: ".semverge.yml" })) {
+      vi.stubEnv(key, value);
+    }
+    try {
+      if (pluginsEnabled) {
+        await expect(run()).rejects.toThrow(`requires GITHUB_WORKSPACE at release merge commit ${sourceSha}, but found ${"a".repeat(40)}`);
+        expect(checkout).toHaveBeenCalledWith(directory, sourceSha);
+        expect(createRegistry).not.toHaveBeenCalled();
+        expect(updateRelease).not.toHaveBeenCalled();
+      } else {
+        await run();
+        expect(checkout).not.toHaveBeenCalled();
+        expect(createRegistry).toHaveBeenCalledWith(expect.objectContaining({ plugins: [] }), directory);
+        expect(updateRelease).toHaveBeenCalledOnce();
+      }
+      expect(getFile).toHaveBeenCalledWith(".semverge.yml", sourceSha);
+      expect(fetch).not.toHaveBeenCalled();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
 
   it("checks expected assets and configured publishing workflows", async () => {
     const directory = mkdtempSync(join(tmpdir(), "semverge-health-"));

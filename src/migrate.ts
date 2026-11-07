@@ -321,7 +321,7 @@ export async function inspectMigration(cwd: string, tool: MigrationTool): Promis
   warnings.push("Publication is disabled in the generated configuration until registry credentials, trusted publishing, and retry behavior are reviewed.");
   const nextSteps = [
     "Review the generated configuration and compare it with the existing release workflow.",
-    "Run `semverge explain` and the action in dry-run mode before removing the existing release tool.",
+    "Run `node /path/to/semverge/lib/cli.js explain` from this repository and the action in dry-run mode before removing the existing release tool. Replace `/path/to/semverge` with the built checkout path.",
     "Enable publication only after the registry and idempotency policy are confirmed."
   ];
   return {
