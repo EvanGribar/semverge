@@ -1,13 +1,13 @@
 # SemVerge Live Provider Publishing & Recovery Proof
 
-This document provides durable evidence and walkthroughs proving SemVerge's live publication, registry idempotency checks, failure interruption handling, and transactional recovery guarantees across production container and package registries.
+This document records historical attempts at publishing and recovery verification across provider registries. Some linked proof repositories and run artifacts are no longer accessible through the connected GitHub account as of November 2026. Treat the claims below as a historical execution record, **not independently verified live proof**, until the linked logs can be accessed or the tests are rerun. In particular, npm and PyPI were not successfully verified in the recorded attempts.
 
 ---
 
-## 1. GHCR (GitHub Packages OCI Registry) Proof
+## 1. GHCR (GitHub Packages OCI Registry) — historical record
 
 ### Overview
-Proves that SemVerge successfully logs in, builds, tags, and pushes OCI container images to `ghcr.io` under registry-based idempotency checks. It demonstrates that if a failure occurs immediately after the image is accepted by the registry but before the GitHub release transaction completes, a subsequent rerun detects the existing image version in GHCR, skips duplicate image pushes, resumes transaction state, and finalizes the release draft cleanly.
+The original run notes report that SemVerge logged in, built, tagged, and pushed OCI container images to `ghcr.io` under registry-based idempotency checks. Those notes describe a recovery exercise in which a failure occurred immediately after the image is accepted by the registry but before the GitHub release transaction completes, a subsequent rerun was reported to detect the existing image version in GHCR, skip duplicate image pushes, resume transaction state, and finalize the release draft.
 
 ### Proof Artifacts & Run History
 - **Repository**: [`EvanGribar/semverge-proof-ghcr`](https://github.com/EvanGribar/semverge-proof-ghcr)

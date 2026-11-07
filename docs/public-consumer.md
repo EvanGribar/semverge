@@ -79,8 +79,7 @@ permissions:
 ```
 
 If artifacts, package publication, or OCI publication is enabled, follow the
-checkout and provider-specific permission requirements in the main
-[`README.md`](../README.md). Keep provider credentials in the consumer
+checkout and provider-specific permission requirements in the [advanced reference](REFERENCE.md). Keep provider credentials in the consumer
 repository's secrets, never in a pull request from a fork.
 
 ## Fork and pull-request behavior
