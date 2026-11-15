@@ -38,3 +38,17 @@ jobs:
       - name: Check generated action bundle
         if: matrix.os == 'ubuntu-latest' && matrix.node == 20
         run: git diff --exit-code -- dist/index.cjs dist/index.cjs.map
+
+  required-ci:
+    name: required-ci
+    if: ${{ always() }}
+    needs: [lint, verify]
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Require all CI jobs to succeed
+        env:
+          CI_RESULTS: ${{ toJSON(needs) }}
+        run: |
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<< "$CI_RESULTS"
+          jq -e 'length > 0 and all(.[]; .result == "success")' <<< "$CI_RESULTS"
