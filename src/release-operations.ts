@@ -127,7 +127,7 @@ export async function analyzeLocalRepository(cwd: string, configPath: string) {
     }
   }
 
-  return { repository: await inspectRepository(cwd), issues, configSource: configContent === undefined ? "defaults" as const : "file" as const };
+  return { repository: await inspectRepository(await realpath(cwd)), issues, configSource: configContent === undefined ? "defaults" as const : "file" as const };
 }
 
 export function parseLocalTransaction(content: string): ReleaseTransaction {
