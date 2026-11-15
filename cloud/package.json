@@ -1,0 +1,37 @@
+{
+  "name": "semverge-cloud",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "snapshot": "node scripts/snapshot.mjs",
+    "dev": "npm run snapshot && next dev",
+    "build": "npm run snapshot && next build",
+    "start": "next start",
+    "test": "node --test tests/*.test.mjs",
+    "test:mcp": "node --test scripts/mcp-smoke.mjs",
+    "test:browser": "node --test scripts/browser-smoke.mjs",
+    "db:migrate": "node scripts/migrate.mjs",
+    "db:seed-pilot": "node scripts/seed-pilot.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0",
+    "@ui-sdk/core": "0.1.0-beta.1",
+    "@ui-sdk/react": "0.1.0-beta.1",
+    "mcp-handler": "2.4.0",
+    "next": "16.4.6",
+    "pg": "8.23.1",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-markdown": "^10.1.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.16",
+    "@electric-sql/pglite-socket": "0.2.19",
+    "@types/node": "^24",
+    "@types/pg": "8.23.1",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "typescript": "^6"
+  }
+}

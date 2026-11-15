@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "semverge": {
+      "type": "http",
+      "url": "http://127.0.0.1:3000/api/mcp",
+      "bearer_token_env_var": "SEMVERGE_MCP_TOKEN"
+    }
+  }
+}

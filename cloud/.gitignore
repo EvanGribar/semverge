@@ -1,0 +1,6 @@
+.next/
+next-env.d.ts
+app/public-release.json
+app/stageshow-kit/
+.env*
+!.env.example

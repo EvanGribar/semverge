@@ -8,6 +8,12 @@ The initial use case is Node.js projects using GitHub and npm or pnpm. Other pac
 
 Coding agents can use the same deterministic engine as the CLI through the [local MCP server](docs/agent-first.md). It can analyze a checkout, preview a version, report local blockers, and inspect recorded release transactions.
 
+## Local and hosted product
+
+SemVerge connects release readiness with what a release means to the people using the product. The experimental Cloud app presents published versions, technical changes, customer impact, and changelog history. Assistants can read Cloud's repository evidence through its MCP endpoint and the SemVerge plugin.
+
+The release Action remains open source and is the supported GitHub installation path. Cloud's public demo reads SemVerge's public release data. Pilot team workspaces require a configured GitHub App and database. The separate experimental reliability workspace runs locally, monitors HTTP services, and lets an operator associate imported release evidence with an incident for investigation. See [Cloud setup](cloud/README.md), the [local reliability workspace](platform/README.md), and the [MCP plugin](plugins/semverge/README.md).
+
 ## Get started
 
 Add one workflow file to a Node.js repository:

@@ -2,7 +2,15 @@
 
 ## Positioning
 
-SemVerge is release automation that understands whether a release is ready and what customers need to know. Its release PR is the control center for versioning, communication, migration requirements, and readiness; it is not a launch-management workspace.
+Semverge is evolving into an open-source software reliability and operations
+platform. Its release engine remains the shipping authority; a separate web
+application will connect services, environments, releases, observations and
+incidents. The long-term product spans releases, monitoring, errors, incidents,
+maintenance and recovery. The list below describes existing release capabilities,
+not completion of that larger platform.
+
+See the [audit](platform-audit.md), [architecture](platform-architecture.md),
+[competitive analysis](competitive-analysis.md) and [open-source strategy](open-source-strategy.md).
 
 ## Delivered foundation
 
@@ -26,7 +34,7 @@ SemVerge is release automation that understands whether a release is ready and w
 - Human-readable local `explain` output for version decisions, readiness blockers, merge behavior, and transaction recovery
 - Report-first migration diagnostics for Release Please, Changesets, and semantic-release with explicit opt-in config writing
 - Read-only setup diagnostics for package managers, workspaces, tags, release tools, build hooks, registries, and workflow permissions
-- Optional dependency-free static project surface with versioned Vercel configuration; the release engine has no frontend or hosting dependency
+- Optional static React marketing site with versioned Vercel configuration; the release engine has no frontend or hosting dependency
 - Opt-in npm provenance publication with GitHub Actions OIDC preflight and durable transaction binding; provider eligibility remains external proof
 - Explainable per-package release graphs in release PRs and manifests, including direct changes, dependency propagation, and unreleased packages
 - Explicit independent-workspace dependency policies for runtime, optional, peer, and development links, with dependency-field evidence in the release graph
@@ -41,10 +49,16 @@ SemVerge is release automation that understands whether a release is ready and w
 - Opt-in, provider-neutral AI release-note drafts with immutable-fact reconciliation, bounded/redacted context, and deterministic fallback behavior
 - Explicit advisory pull-request metadata inference with safe file-path context and conflict rejection
 
-## Follow-on slices
+## Milestones and exit gates
 
-1. Scheduled and coordinated channel policies for release candidates, nightly builds, and canary behavior.
-2. More artifact transports and registry-specific publishing adapters.
-3. Richer release history signals without growing into an analytics dashboard.
+| Stage | Scope | Exit gate |
+| --- | --- | --- |
+| Foundation (this iteration) | Single-workspace web app; application/service/environment catalog; release transaction imports; real scheduled HTTP checks/history; connected incident lifecycle | Tested failure-to-recovery workflow, restart persistence, auth/egress tests, rendered desktop/mobile review; existing release suite and bundle preserved |
+| Initial product | GitHub ingestion with scoped credentials and verified signatures, notifications, deployment records, operational backup/upgrade tooling, accessible onboarding | Independent self-host installations complete a real workflow; duplicate/out-of-order delivery and notification retry tests; documented operator limits |
+| Expansion | Exception capture/grouping and release correlation; maintenance findings; permissioned recovery plans; additional collectors | Payload privacy/retention, source-map integrity, isolation and verified-resolution tests; evidence of recurring user need |
+| Mature platform | Commercial hosting, multi-workspace isolation, scalable retention, regional checks, administration and support | Isolation audit, restore exercises, queue/outbox reliability, measured unit economics and operational ownership |
 
-Advanced behavior should remain opt-in. A standard repository should continue to need only one workflow file.
+No milestone implies the next is delivered. Error tracking, automated remediation,
+on-call paging and a production hosted service are outside this iteration. Keep
+advanced release behavior opt-in; a standard release-only repository continues
+to need only one workflow file.

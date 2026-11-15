@@ -166,8 +166,7 @@ SemVerge's release engine uses explicit PR metadata, labels, and conventional co
 If you are developing this repository using an AI coding assistant (like Antigravity), copy and paste the prompt below to immediately boot the agent with full context, rules, and commands:
 
 ```text
-Initialize your development session for the SemVerge repository. 
-Read the repository guidelines in `.agents/rules/semverge.md` and load the workflows skill in `.agents/skills/semverge-workflows/SKILL.md` before making any changes. 
+Initialize your development session for the SemVerge repository.
+Read the repository guidelines in `.agents/rules/semverge.md` and load the workflows skill in `.agents/skills/semverge-workflows/SKILL.md` before making any changes.
 Verify your setup by running the test suite: `npm run test`.
 ```
-
