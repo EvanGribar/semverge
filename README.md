@@ -8,9 +8,9 @@ The initial use case is Node.js projects using GitHub and npm or pnpm. Other pac
 
 ## Local and hosted product
 
-SemVerge connects release readiness with what a release means to the people using the product. The local workspace brings service health and incidents next to release evidence. The Cloud app presents published versions, technical changes, customer impact, and changelog history in one release workspace. The same repository data is available to assistants through a read-only MCP endpoint and SemVerge plugin.
+SemVerge connects release readiness with what a release means to the people using the product. The experimental Cloud app presents published versions, technical changes, customer impact, and changelog history. Assistants can read Cloud's repository evidence through its MCP endpoint and the SemVerge plugin.
 
-The release Action remains open source and is the supported GitHub installation path. Cloud is a separate Next.js app designed for Vercel; its public demo reads SemVerge's public release data, while team workspaces require a configured GitHub App and database. See [Cloud setup](cloud/README.md), the [local reliability workspace](platform/README.md), and the [MCP plugin](plugins/semverge/README.md).
+The release Action remains open source and is the supported GitHub installation path. Cloud's public demo reads SemVerge's public release data. Pilot team workspaces require a configured GitHub App and database. The separate experimental reliability workspace runs locally, monitors HTTP services, and lets an operator associate imported release evidence with an incident for investigation. See [Cloud setup](cloud/README.md), the [local reliability workspace](platform/README.md), and the [MCP plugin](plugins/semverge/README.md).
 
 ## Get started
 

@@ -13,6 +13,13 @@ import type { Queue } from './github-queue';
 import type { RepositoryOverview } from './repository-overview';
 
 const maxPlanSize = 5_000_000;
+const verificationLabels = {
+  passed: 'Recorded checks passed',
+  degraded: 'Recorded checks had warnings',
+  failed: 'Recorded checks failed',
+  disabled: 'Recorded checks were disabled',
+  unavailable: 'Recorded check result unavailable',
+};
 
 function ReleaseDetails({ release, source }: { release: Release; source: ReleaseSource }) {
   return (
@@ -35,6 +42,12 @@ function ReleaseDetails({ release, source }: { release: Release; source: Release
           {release.url && <a href={release.url}>View GitHub release</a>}
         </div>
       </header>
+      {release.verification && (
+        <p>
+          {verificationLabels[release.verification.status]} · GitHub release record
+          {release.verification.recordedAt && <> · <time dateTime={release.verification.recordedAt}>{release.verification.recordedAt.slice(0, 10)}</time></>}
+        </p>
+      )}
       {release.blockers.length > 0 && (
         <section className="blockers">
           <h3>Readiness blockers</h3>

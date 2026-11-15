@@ -1,6 +1,6 @@
-import { parseReleaseTransactionBody, type ReleaseTransaction } from '../../src/transaction';
 import { publishedTechnicalNotes } from './github-changelog';
 import type { ReleaseSource } from './release-data';
+import { readReleaseRecord } from './release-verification';
 
 import type { GitHubRepository } from './github-repository';
 const releaseCount = 20;
@@ -22,15 +22,6 @@ function isPublishedRelease(value: unknown): value is GitHubRelease {
     (typeof release.body === 'string' || release.body === null);
 }
 
-function transactionFor(release: GitHubRelease): ReleaseTransaction | null {
-  try {
-    const transaction = parseReleaseTransactionBody(release.body);
-    return transaction?.tagNames.includes(release.tag_name) && transaction.published ? transaction : null;
-  } catch {
-    return null;
-  }
-}
-
 export async function githubReleases(repository: GitHubRepository, example?: ReleaseSource, includeTechnical = true): Promise<ReleaseSource> {
   try {
     const releaseUrl = (tag: string) => `https://github.com/${repository.name}/releases/tag/${encodeURIComponent(tag)}`;
@@ -41,11 +32,7 @@ export async function githubReleases(repository: GitHubRepository, example?: Rel
     const latest = releases[0];
     if (!latest) throw new Error('No published releases returned');
 
-    const transaction = transactionFor(latest);
-    const verification = transaction?.events.findLast((event) => event.kind === 'post-release-verification' && event.target === latest.tag_name);
-    const readiness = verification?.status === 'completed' && !transaction?.failure ? 'Verified'
-      : verification?.status === 'failed' || transaction?.failure?.phase === 'verified' ? 'Verification failed'
-      : 'Published';
+    const { transaction, verification } = readReleaseRecord(latest.body, latest.tag_name);
     const technical = transaction && includeTechnical ? await publishedTechnicalNotes(repository, latest.tag_name, transaction) : undefined;
     const current = example?.releases.find((release) => `v${release.version}` === latest.tag_name);
     const earlier = releases.find((release) => release.prerelease === latest.prerelease && release.tag_name !== latest.tag_name);
@@ -63,7 +50,8 @@ export async function githubReleases(repository: GitHubRepository, example?: Rel
         version: latest.tag_name.replace(/^v(?=\d)/, ''),
         previousVersion: technical?.previousVersion ?? current?.previousVersion ?? earlier?.tag_name.replace(/^v(?=\d)/, ''),
         channel: latest.prerelease ? 'prerelease' : 'stable',
-        readiness,
+        readiness: 'Published',
+        verification,
         blockers: [],
         url: releaseUrl(latest.tag_name),
         customerNotes: (latest.body ?? '').replace(/<!-- semverge-progress [\s\S]*? -->/g, '').split(/^### SemVerge transaction$/m)[0].trim(),

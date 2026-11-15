@@ -5,7 +5,8 @@ export type Release = {
   version: string;
   previousVersion?: string;
   channel: string;
-  readiness: 'Passed' | 'Blocked' | 'No release' | 'Published' | 'Verified' | 'Verification failed';
+  readiness: 'Passed' | 'Blocked' | 'No release' | 'Published';
+  verification?: RecordedVerification;
   url?: string;
   blockers: string[];
   customerNotes: string;
@@ -126,4 +127,6 @@ export function publicRelease(snapshot: {
   }));
   return { name: 'EvanGribar / semverge', kind: 'Public example', releases };
 }
+
+import type { RecordedVerification } from './release-verification';
 

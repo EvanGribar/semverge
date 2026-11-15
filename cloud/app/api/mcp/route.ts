@@ -78,7 +78,9 @@ function createScopedHandler(scope: Scope) {
         repository: repo.name,
         sourceUrl: release?.url ?? `https://github.com/${repo.name}/releases`,
         unavailable: !release,
-        release: release && { version: release.version, channel: release.channel, outcome: release.readiness },
+        release: release && {
+          version: release.version, channel: release.channel, outcome: release.readiness, verification: release.verification,
+        },
       };
     }));
   }, { serverInfo: { name: 'semverge-cloud', version: '0.1.0' } });

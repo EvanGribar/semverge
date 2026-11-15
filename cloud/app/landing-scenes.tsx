@@ -31,7 +31,7 @@ export function QueueScene() {
   const [replay, setReplay] = useState(0);
   return (
     <div className="queue-stage">
-      <div role="img" aria-label="Example release queue. Billing API version 1.8.0 is blocked by a missing migration guide. The previous release, 1.7.0, is verified.">
+      <div role="img" aria-label="Example release queue. Billing API version 1.8.0 is blocked by a missing migration guide. The previous release, 1.7.0, was published.">
         <Stage key={replay} width={690} height={500} compact={{ below: 560, width: 358, height: 338 }}
           palette="mono" fidelity="realistic" className="landing-stage" play="once"
           cursor={{ at: 'queue-name', idle: 2200 }} initial={queueStart} poster={queuePoster} script={queueStory}>
@@ -44,7 +44,7 @@ export function QueueScene() {
                 <div className="demo-release-row" data-target="open-release" data-cursor="pointer">
                   <span>v1.8.0</span><span className="demo-status">Blocked</span>
                 </div>
-                <div className="demo-past-row"><span>v1.7.0</span><span>Verified</span></div>
+                <div className="demo-past-row"><span>v1.7.0</span><span>Published</span></div>
                 <Collapse open={scene.open} reveal="drop">
                   <div className="demo-evidence" data-target="missing-file" data-cursor="pointer">
                     <strong>Migration guide missing</strong>

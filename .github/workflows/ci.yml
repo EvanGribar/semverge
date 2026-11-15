@@ -9,6 +9,24 @@ permissions:
   contents: read
 
 jobs:
+  cloud:
+    name: Cloud build, tests, and MCP protocol
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloud
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24.13.0
+          cache: npm
+          cache-dependency-path: cloud/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - run: npm run test:mcp
+
   browser:
     name: platform browser workflow
     runs-on: ubuntu-latest
