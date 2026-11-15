@@ -1,13 +1,9 @@
 # Setup diagnostics
 
-The local CLI is built from the SemVerge source checkout; no npm CLI package is
-currently published. Build the checkout with `pnpm install --frozen-lockfile` and
-`pnpm build`, then run the built script from the repository to inspect. In
-these examples, replace `/path/to/semverge` with the location of that checkout
-and keep the target repository as the current directory:
+The source-checkout CLI's `doctor` command is a read-only setup report for the repository where it runs. There is **no published npm CLI package**. First build SemVerge (`pnpm install --frozen-lockfile && pnpm build` in its clone), then from the repository you want to inspect run:
 
-```bash
-node /path/to/semverge/lib/cli.js doctor
+```sh
+node /absolute/path/to/semverge/lib/cli.js doctor
 ```
 
 It reports local evidence for:

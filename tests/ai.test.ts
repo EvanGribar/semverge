@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { OPENAI_API_KEY_ENV, OPENAI_CHAT_COMPLETIONS_ENDPOINT, createAiProvider, type FetchLike } from "../src/ai.js";
+import { OPENAI_API_KEY_ENV, OPENAI_CHAT_COMPLETIONS_ENDPOINT, OpenAiProvider, createAiProvider, type AiInputEnvelope, type FetchLike } from "../src/ai.js";
 import { parseChange } from "../src/changes.js";
 import { parseConfig } from "../src/config.js";
 import { releaseCommunicationRequest, suggestReleaseCommunication } from "../src/release-assistance.js";
@@ -90,6 +90,70 @@ describe("optional BYOK AI provider layer", () => {
     });
     expect(String(init?.body)).not.toContain("test-secret");
     expect(String(init?.body)).not.toContain("OPENAI_API_KEY");
+  });
+
+  it.each(["ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_", "sk-", "xoxb-", "xoxp-"])("redacts %s values at the direct provider serialization boundary without changing input or structure", async (prefix) => {
+    const syntheticToken = `${prefix}nonfunctional_fixture_12345678`;
+    const longBody = `${"Normal release context. ".repeat(200)}\n`;
+    const envelope = (text: string): AiInputEnvelope => ({
+      schemaVersion: 1,
+      feature: text,
+      release: {
+        version: text,
+        previousVersion: text,
+        bump: "minor",
+        channel: text,
+        promotion: false,
+        migrationRequired: true,
+        changes: [
+          {
+            id: text,
+            kind: "feature",
+            title: text,
+            summary: text,
+            breaking: false,
+            customerFacing: true,
+            impact: "new",
+            migrationRequired: true,
+            migration: text
+          },
+          { id: "pr:12", kind: "fix", title: "Fix exports", summary: "Handle empty exports", breaking: false }
+        ]
+      },
+      context: {
+        categories: ["pull-request-title", text],
+        title: text,
+        body: `${longBody}${text}\nFinal context remains intact.`,
+        labels: ["ship:feature", text],
+        files: ["src/export.ts", `src/${text}.ts`],
+        conventional: { kind: "feature", scope: text, description: text, breaking: false },
+        explicitMetadata: {
+          type: "feature",
+          headline: text,
+          detail: "Normal detail with \"quotes\" and a newline.\nMore detail.",
+          audience: ["developers", text],
+          breaking: false,
+          skip: false,
+          internal: true
+        }
+      }
+    });
+    const request = { ...releaseCommunicationRequest(releasePlan()), feature: syntheticToken, input: envelope(syntheticToken) };
+    const original = structuredClone(request);
+    const fetchImpl = successfulFetch(JSON.stringify({ summary: "Safe summary", highlights: [], migrationNotes: [] }));
+    const provider = new OpenAiProvider({ apiKey: "nonfunctional-test-key", model: config.model, fetchImpl });
+
+    await expect(provider.generateJson(request)).resolves.toEqual({ summary: "Safe summary", highlights: [], migrationNotes: [] });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const body = String(fetchImpl.mock.calls[0]?.[1]?.body);
+    expect(body).not.toContain(syntheticToken);
+    const captured = JSON.parse(body) as Record<string, any>;
+    expect(JSON.parse(captured.messages[1].content)).toEqual(envelope("[REDACTED TOKEN]"));
+    expect(captured.messages[1].content.length).toBeGreaterThan(4_000);
+    expect(captured.model).toBe(config.model);
+    expect(captured.response_format.json_schema).toEqual({ ...request.schema, strict: true });
+    expect(request).toEqual(original);
   });
 
   it("falls back at the feature boundary for missing credentials", async () => {

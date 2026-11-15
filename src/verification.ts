@@ -1,7 +1,7 @@
 import { execFile as execFileCallback } from "node:child_process";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { basename, resolve, sep } from "node:path";
+import { readFile, realpath } from "node:fs/promises";
+import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { npmProvenanceCheck, npmVersionExists, type NpmProvenanceCheck, type NpmViewRunner } from "./npm.js";
 import { ociImageVersionDigest, ociImageVersionExists, registryVersionExists, type RegistryVersionFetcher } from "./registries.js";
@@ -214,19 +214,29 @@ function hashBytes(bytes: Uint8Array): string {
 function localPath(cwd: string, path: string): string | null {
   const root = resolve(cwd);
   const absolute = resolve(root, path);
-  const relative = absolute.slice(root.length);
-  if (relative && relative !== sep && !relative.startsWith(sep)) {
+  const relativePath = relative(root, absolute);
+  if (relativePath === ".." || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) {
     return null;
   }
   return absolute;
 }
 
-async function localFileBytes(cwd: string, path: string): Promise<{ status: "found" | "missing" | "unavailable"; bytes?: Uint8Array }> {
+async function canonicalLocalPath(cwd: string, path: string): Promise<string | null> {
   const absolute = localPath(cwd, path);
   if (!absolute) {
-    return { status: "unavailable" };
+    return null;
   }
+  const root = await realpath(resolve(cwd));
+  const canonical = await realpath(absolute);
+  return localPath(root, canonical);
+}
+
+async function localFileBytes(cwd: string, path: string): Promise<{ status: "found" | "missing" | "unavailable"; bytes?: Uint8Array }> {
   try {
+    const absolute = await canonicalLocalPath(cwd, path);
+    if (!absolute) {
+      return { status: "unavailable" };
+    }
     return { status: "found", bytes: await readFile(absolute) };
   } catch (error) {
     const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
@@ -487,8 +497,13 @@ async function checkPackageTarget(
       continue;
     }
     try {
+      const workspaceForProvider = target === "npm" ? await canonicalLocalPath(input.cwd, packageItem.directory ?? "") : packageWorkspace;
+      if (!workspaceForProvider) {
+        items.push(evidence(`${target} ${label}`, "unavailable", "The release manifest points outside the verification workspace."));
+        continue;
+      }
       const exists = target === "npm"
-        ? await npmVersionExists(name, version, packageWorkspace, input.npmRunner)
+        ? await npmVersionExists(name, version, workspaceForProvider, input.npmRunner)
         : await registryVersionExists(target, name, version, input.registryFetcher);
       items.push(exists
         ? evidence(`${target} ${label}`, "verified", `The ${target} registry contains the recorded package version.`)
@@ -533,7 +548,12 @@ async function checkNpmProvenance(
     }
     let result: NpmProvenanceCheck;
     try {
-      result = await npmProvenanceCheck(name, version, packageWorkspace, input.npmRunner);
+      const workspaceForProvider = await canonicalLocalPath(input.cwd, packageItem.directory ?? "");
+      if (!workspaceForProvider) {
+        items.push(evidence(`npm provenance ${label}`, "unavailable", "The release manifest points outside the verification workspace."));
+        continue;
+      }
+      result = await npmProvenanceCheck(name, version, workspaceForProvider, input.npmRunner);
     } catch (error) {
       result = { status: "unavailable", detail: providerError(error) };
     }
