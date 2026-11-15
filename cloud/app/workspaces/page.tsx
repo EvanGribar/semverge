@@ -1,7 +1,7 @@
 import { cookies } from 'next/headers';
 import { browserAuthConfig, isToken, sessionCookie, tokenDigest } from '../browser-auth';
 import { configuredWorkspacesForSession } from '../workspace-store';
-import { connectedRepository, loadQueue, loadReleaseHistory } from '../workspace-data';
+import { connectedRepository, loadCommitEvidence, loadQueue, loadReleaseHistory } from '../workspace-data';
 import { repositorySummary, type RepositoryOverview } from '../repository-overview';
 import { Workspace } from '../workspace';
 
@@ -95,6 +95,6 @@ export default async function WorkspacesPage({ searchParams }: { searchParams: P
     return <Workspace navigation={navigation} notice={notice} />;
   }
 
-  const [published, queue] = await Promise.all([loadReleaseHistory(reader), loadQueue(reader)]);
-  return <Workspace navigation={navigation} example={published} queue={queue} />;
+  const [published, queue, evidence] = await Promise.all([loadReleaseHistory(reader), loadQueue(reader), loadCommitEvidence(repo)]);
+  return <Workspace navigation={navigation} example={published} queue={queue} evidence={evidence} />;
 }

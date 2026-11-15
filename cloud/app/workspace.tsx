@@ -96,11 +96,12 @@ function Choices({ label, items }: { label: string; items: NavigationItem[] }) {
   ) : null;
 }
 
-export function Workspace({ example, queue, navigation, notice, overview }: {
+export function Workspace({ example, queue, navigation, notice, overview, evidence }: {
   example?: ReleaseSource;
   queue?: Queue;
   navigation?: Navigation;
   notice?: string;
+  evidence?: import('./commit-evidence').EvidenceResult;
   overview?: { items: RepositoryOverview[]; previous?: string; next?: string };
 }) {
   const [opened, setOpened] = useState<{ source: ReleaseSource; attempt: number }>();
@@ -153,6 +154,14 @@ export function Workspace({ example, queue, navigation, notice, overview }: {
           </form>
         )}
         {notice && <p role="status">{notice}</p>}
+        {evidence && <section className="queue" aria-labelledby="commit-evidence-title">
+          <h2 id="commit-evidence-title">Release branch CI evidence</h2>
+          {evidence.status === 'unavailable' ? <p>Unavailable. {evidence.reason}</p> : <>
+            <p><strong>{evidence.evidence.result === 'passed' ? 'Passed' : 'Failed'}</strong> · {evidence.evidence.branch} · <code>{evidence.evidence.commit}</code></p>
+            <p>{evidence.evidence.explanation}</p>
+            <a href={evidence.evidence.provenance.url}>GitHub Actions run · {evidence.evidence.evaluatedAt}</a>
+          </>}
+        </section>}
         {overview && <section className="queue" aria-labelledby="overview-title">
           <h2 id="overview-title">Repository readiness</h2>
           <div className="repository-overview">
