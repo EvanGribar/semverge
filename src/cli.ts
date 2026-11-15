@@ -1,27 +1,22 @@
 #!/usr/bin/env node
 
-import { access, readFile, writeFile } from "node:fs/promises";
+import { access, realpath, stat, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join, relative, resolve, sep } from "node:path";
+import { analyzeLocalRepository, checkLocalReadiness, inspectLocalRelease, localPlan, summarizeLocalPlan, parseLocalTransaction, readOptional, type LocalPlan } from "./release-operations.js";
 import { buildReleasePlan } from "./release.js";
 import { suggestReleaseCommunication } from "./release-assistance.js";
 import { applyMetadataBlock, metadataInferenceRequest, renderMetadataBlock, suggestReleaseMetadata } from "./metadata-inference.js";
-import { parseChange } from "./changes.js";
-import { parseConfig, validateConfig, validateConfigContent, type ConfigValidationIssue } from "./config.js";
+import { parseConfig, type ConfigValidationIssue } from "./config.js";
 import { explainReleasePlan } from "./explain.js";
 import { inspectRepository, repositoryDoctorMarkdown } from "./doctor.js";
 import { GitHubClient } from "./github.js";
 import { inspectMigration, isMigrationTool, migrationReportMarkdown, MIGRATION_TOOLS, writeMigrationConfig } from "./migrate.js";
-import { parseVersion } from "./semver.js";
 import { parseReleaseTransaction, parseReleaseTransactionBody, recordReleaseTransactionEvent, releaseTransactionSummaryMarkdown, updateReleaseTransactionBody, type ReleaseTransaction } from "./transaction.js";
 import { createPluginRegistryFromConfig, runTransactionOwnedPluginHook } from "./plugin-sdk.js";
-import { readPackageVersion } from "./version-files.js";
-import { discoverPackages } from "./packages.js";
-import { buildWorkspaceReleasePlan, type WorkspaceReleasePlan } from "./workspace-release.js";
-import { readVersionFile, validateVersionFileConfig } from "./version-updaters.js";
 import { verifyRelease, verificationReportJson, verificationReportMarkdown } from "./verification.js";
-import type { ReleasePlan, SemVergeConfig } from "./types.js";
+import type { ReleasePlan } from "./types.js";
 
 export const DEFAULT_CONFIG_TEMPLATE = `# SemVerge configuration. Remove this file to use zero-configuration defaults.
 release:
@@ -68,6 +63,9 @@ function usage(): string {
     "  infer [title]        Suggest advisory PR metadata without changing release state",
     "  migrate <tool>       Inspect a Release Please, Changesets, or semantic-release setup",
     "  doctor               Validate repository files and SemVerge configuration",
+    "  readiness <title>    Evaluate local release policy and identify unavailable evidence",
+    "  inspect <release-id> Inspect a recorded local release transaction",
+    "  mcp [--checkout <path>] Serve read-only release tools over stdio",
     "  recover <release-id> Inspect durable release state and print the safe next action",
     "  verify <release>      Verify a release transaction and its external publication evidence",
     "",
@@ -79,7 +77,8 @@ function usage(): string {
     "  --files <csv>        Include safe file paths (never file contents) for infer",
     "  --write <path>       Apply a trusted infer suggestion to an existing body file",
     "  --apply <path>       Alias for --write",
-    "  --json               Print a deterministic machine-readable verification report",
+    "  --json               Print a machine-readable doctor or verification report",
+    "  --summary            Print the release plan summary used by MCP",
     "  --write              Write a migration-generated .semverge.yml (migrate only)",
     "  --detect             Let init include detected workspace and release-tool guidance",
     "  --force              Allow init to replace an existing configuration file",
@@ -103,18 +102,6 @@ async function exists(path: string): Promise<boolean> {
     return true;
   } catch {
     return false;
-  }
-}
-
-async function readOptional(path: string): Promise<string | undefined> {
-  try {
-    return await readFile(path, "utf8");
-  } catch (error) {
-    const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
-    if (code === "ENOENT") {
-      return undefined;
-    }
-    throw error;
   }
 }
 
@@ -151,8 +138,6 @@ async function init(cwd: string, force: boolean, detect: boolean, io: CliIo): Pr
   return 0;
 }
 
-type LocalPlan = ReleasePlan | WorkspaceReleasePlan;
-
 function primaryLocalPlan(plan: LocalPlan): ReleasePlan {
   if ("bump" in plan) {
     return plan;
@@ -160,41 +145,9 @@ function primaryLocalPlan(plan: LocalPlan): ReleasePlan {
   return plan.packages[0]?.plan ?? buildReleasePlan({ currentVersion: plan.version, changes: plan.changes });
 }
 
-async function localPlan(cwd: string, configPath: string, title: string): Promise<LocalPlan> {
-  const configContent = await readOptional(join(cwd, configPath)) ?? "";
-  const config = parseConfig(configContent, configPath);
-  const packageJson = await readOptional(join(cwd, "package.json"));
-  const changes = [parseChange({ title: title || "fix: generated local preview", source: "commit" })];
-  if (packageJson !== undefined || config.versionFiles.length === 0) {
-    const packageContent = packageJson ?? await readFile(join(cwd, "package.json"), "utf8");
-    return buildReleasePlan({
-      currentVersion: readPackageVersion(packageContent),
-      config,
-      changes
-    });
-  }
-
-  const files: Record<string, string> = {};
-  for (const spec of config.versionFiles) {
-    const content = await readOptional(localVersionFilePath(cwd, spec));
-    if (content === undefined) {
-      throw new Error(`Configured version file ${spec.path} was not found in ${cwd}.`);
-    }
-    files[spec.path] = content;
-    readVersionFile(spec, content);
-  }
-  const discovered = discoverPackages(files, Object.keys(files), config);
-  return buildWorkspaceReleasePlan({
-    packages: discovered.packages,
-    mode: discovered.mode,
-    files,
-    config,
-    changes
-  });
-}
-
-async function plan(cwd: string, configPath: string, title: string, io: CliIo): Promise<number> {
-  io.stdout(JSON.stringify(await localPlan(cwd, configPath, title), null, 2));
+async function plan(cwd: string, configPath: string, title: string, io: CliIo, summary = false): Promise<number> {
+  const result = await localPlan(cwd, configPath, title);
+  io.stdout(JSON.stringify(summary ? summarizeLocalPlan(result) : result, null, 2));
   return 0;
 }
 
@@ -309,19 +262,6 @@ async function infer(
   }
 }
 
-function localVersionFilePath(cwd: string, spec: SemVergeConfig["versionFiles"][number]): string {
-  const validation = validateVersionFileConfig(spec);
-  if (validation.length > 0) {
-    throw new Error(`Invalid version file ${spec.path}: ${validation.join("; ")}`);
-  }
-  const absolute = resolve(cwd, spec.path);
-  const outside = relative(cwd, absolute);
-  if (outside === ".." || outside.startsWith(`..${sep}`) || outside.includes(`..${sep}`)) {
-    throw new Error(`Version file ${spec.path} must stay inside the working directory.`);
-  }
-  return absolute;
-}
-
 async function explain(cwd: string, configPath: string, title: string, io: CliIo): Promise<number> {
   io.stdout(explainReleasePlan(primaryLocalPlan(await localPlan(cwd, configPath, title))));
   return 0;
@@ -342,58 +282,9 @@ async function migrate(cwd: string, toolName: string, write: boolean, force: boo
 }
 
 async function doctor(cwd: string, configPath: string, io: CliIo): Promise<number> {
-  const issues: ConfigValidationIssue[] = [];
-  const packagePath = join(cwd, "package.json");
-  const packageJson = await readOptional(packagePath);
-  const configContent = await readOptional(join(cwd, configPath));
-  let config: SemVergeConfig | undefined;
-  if (configContent === undefined) {
-    io.stdout(`INFO ${configPath}: not found; using zero-configuration defaults.`);
-  } else {
-    const contentIssues = validateConfigContent(configContent, configPath);
-    issues.push(...contentIssues);
-    if (!contentIssues.some((issue) => issue.severity === "error")) {
-      config = parseConfig(configContent, configPath);
-      issues.push(...validateConfig(config));
-    }
-  }
-
-  if (packageJson === undefined && config?.versionFiles.length) {
-    for (const spec of config.versionFiles) {
-      let content: string | undefined;
-      try {
-        content = await readOptional(localVersionFilePath(cwd, spec));
-      } catch (error) {
-        issues.push({ path: spec.path, severity: "error", message: error instanceof Error ? error.message : String(error) });
-        continue;
-      }
-      if (content === undefined) {
-        issues.push({ path: `versionFiles.${spec.path}`, severity: "error", message: "configured version file was not found" });
-        continue;
-      }
-      try {
-        const version = readVersionFile(spec, content);
-        if (!parseVersion(version)) {
-          issues.push({ path: `${spec.path}.version`, severity: "error", message: `is not valid semantic versioning: ${version}` });
-        }
-      } catch (error) {
-        issues.push({ path: spec.path, severity: "error", message: error instanceof Error ? error.message : String(error) });
-      }
-    }
-  } else if (packageJson === undefined) {
-    issues.push({ path: "package.json", severity: "error", message: "file is required unless versionFiles defines a generic repository target" });
-  } else {
-    try {
-      const version = readPackageVersion(packageJson);
-      if (!parseVersion(version)) {
-        issues.push({ path: "package.json.version", severity: "error", message: `is not valid semantic versioning: ${version}` });
-      }
-    } catch (error) {
-      issues.push({ path: "package.json", severity: "error", message: error instanceof Error ? error.message : String(error) });
-    }
-  }
-
-  io.stdout(repositoryDoctorMarkdown(await inspectRepository(cwd)));
+  const { repository, issues, configSource } = await analyzeLocalRepository(cwd, configPath);
+  if (configSource === "defaults") io.stdout(`INFO ${configPath}: not found; using zero-configuration defaults.`);
+  io.stdout(repositoryDoctorMarkdown(repository));
   reportIssues(issues, io);
   if (issues.some((issue) => issue.severity === "error")) {
     return 1;
@@ -482,19 +373,6 @@ async function recover(cwd: string, id: string, statePath: string | undefined, i
   return 0;
 }
 
-function parseLocalTransaction(content: string): ReleaseTransaction {
-  let transaction: ReleaseTransaction | null = null;
-  try {
-    transaction = parseReleaseTransaction(JSON.parse(content) as unknown);
-  } catch {
-    transaction = parseReleaseTransactionBody(content);
-  }
-  if (!transaction) {
-    throw new Error("The local state does not contain a valid SemVerge release transaction marker.");
-  }
-  return transaction;
-}
-
 async function verify(cwd: string, target: string, statePath: string | undefined, configPath: string, json: boolean, io: CliIo): Promise<number> {
   if (!target || target.startsWith("-")) {
     io.stderr("verify requires a release version, tag, transaction id, or GitHub release URL.");
@@ -528,12 +406,29 @@ async function verify(cwd: string, target: string, statePath: string | undefined
 }
 
 export async function runCli(argv = process.argv.slice(2), cwd = process.cwd(), io: CliIo = defaultIo): Promise<number> {
-  const commandNames = new Set(["init", "plan", "explain", "assist", "infer", "migrate", "doctor", "recover", "verify", "help"]);
+  const commandNames = new Set(["init", "plan", "explain", "assist", "infer", "migrate", "doctor", "readiness", "inspect", "mcp", "recover", "verify", "help"]);
   const command = argv[0] && commandNames.has(argv[0]) ? argv[0] : "plan";
   const commandArgs = command === "plan" && argv[0] !== "plan" ? argv : argv.slice(1);
   if (command === "help" || command === "--help" || argv.includes("--help")) {
     io.stdout(usage());
     return 0;
+  }
+  if (command === "mcp") {
+    const checkout = option(commandArgs, "--checkout");
+    if (checkout.rest.length || (commandArgs.length && !checkout.value)) {
+      io.stderr("Usage: semverge mcp [--checkout <path>]");
+      return 1;
+    }
+    try {
+      const root = await realpath(resolve(cwd, checkout.value ?? "."));
+      if (!(await stat(root)).isDirectory()) throw new Error("MCP checkout must be a directory.");
+      const { startLocalMcp } = await import("./mcp.js");
+      startLocalMcp(root);
+      return 0;
+    } catch (error) {
+      io.stderr(error instanceof Error ? error.message : String(error));
+      return 1;
+    }
   }
   const configOption = option(commandArgs, "--config");
   const configPath = configOption.value || ".semverge.yml";
@@ -548,12 +443,31 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd(), 
   const write = commandArgs.includes("--write");
   const apply = commandArgs.includes("--apply");
   const json = commandArgs.includes("--json");
-  const remaining = writeOption.rest.filter((arg) => arg !== "--force" && arg !== "--write" && arg !== "--json");
+  const summary = command === "plan" && commandArgs.includes("--summary");
+  const remaining = writeOption.rest.filter((arg) => arg !== "--force" && arg !== "--write" && arg !== "--json" && !(summary && arg === "--summary"));
   const inferWriteTarget = applyOption.value ?? (write ? writeOption.value : undefined);
 
   try {
     if (command === "init") {
       return await init(cwd, force, detect, io);
+    }
+    if (command === "doctor" && json) {
+      const report = await analyzeLocalRepository(cwd, configPath);
+      io.stdout(JSON.stringify(report, null, 2));
+      return report.issues.some((issue) => issue.severity === "error") ? 1 : 0;
+    }
+    if (command === "readiness") {
+      const title = remaining.join(" ").trim();
+      if (!title) throw new Error("readiness requires an explicit change title.");
+      const report = await checkLocalReadiness(cwd, configPath, title);
+      io.stdout(JSON.stringify(report, null, 2));
+      return report.status === "blocked" ? 1 : report.status === "unverified" ? 2 : 0;
+    }
+    if (command === "inspect") {
+      if (remaining.length !== 1) throw new Error("inspect requires one local transaction ID.");
+      const report = await inspectLocalRelease(cwd, remaining[0]!);
+      io.stdout(JSON.stringify(report, null, 2));
+      return report.status === "recorded" ? 0 : 2;
     }
     if (command === "doctor") {
       return await doctor(cwd, configPath, io);
@@ -565,7 +479,7 @@ export async function runCli(argv = process.argv.slice(2), cwd = process.cwd(), 
       return await verify(cwd, remaining[0] ?? "", stateOption.value, configPath, json, io);
     }
     if (command === "plan") {
-      return await plan(cwd, configPath, remaining.join(" "), io);
+      return await plan(cwd, configPath, remaining.join(" "), io, summary);
     }
     if (command === "explain") {
       return await explain(cwd, configPath, remaining.join(" "), io);

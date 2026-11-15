@@ -6,6 +6,8 @@ SemVerge is a GitHub Action for planning and publishing releases, with a CLI ava
 
 The initial use case is Node.js projects using GitHub and npm or pnpm. Other package managers, registries, monorepos, and release channels have additional configuration and provider-dependent verification.
 
+Coding agents can use the same deterministic engine as the CLI through the [local MCP server](docs/agent-first.md). It can analyze a checkout, preview a version, report local blockers, and inspect recorded release transactions.
+
 ## Get started
 
 Add one workflow file to a Node.js repository:
