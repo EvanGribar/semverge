@@ -8,7 +8,8 @@ const config: NextConfig = {
       source: '/workspaces/:path*',
       headers: [
         { key: 'Cache-Control', value: 'private, no-store' },
-        { key: 'Referrer-Policy', value: 'no-referrer' },
+        // Workspace forms need their Origin header for the server's same-origin check.
+        { key: 'Referrer-Policy', value: 'same-origin' },
         { key: 'X-Robots-Tag', value: 'noindex' },
       ],
     }];
