@@ -1,0 +1,18 @@
+{
+  "name": "semverge",
+  "version": "0.1.0",
+  "description": "Read SemVerge release readiness, blockers, and verification evidence.",
+  "license": "MIT",
+  "repository": "https://github.com/EvanGribar/semverge",
+  "author": { "name": "Evan Gribar" },
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "SemVerge",
+    "shortDescription": "Release readiness and history",
+    "longDescription": "Brief the next release, explain readiness blockers, and check the most recent verification result with links to GitHub.",
+    "developerName": "Evan Gribar",
+    "category": "Developer Tools",
+    "defaultPrompt": ["Brief me on the next release", "Explain what is blocking the next release"]
+  }
+}

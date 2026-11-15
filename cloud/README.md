@@ -1,0 +1,67 @@
+# SemVerge Cloud
+
+Preview release readiness, customer impact, technical changes, and changelogs in one workspace. The workspace reads the most recent 20 published releases from EvanGribar/semverge through the public GitHub API. It refreshes every five minutes and falls back to SemVerge's checked-in public release files when GitHub is unavailable. The verification badge uses the release's SemVerge transaction record. Technical changes link to the version-specific changelog from the same commit when the default release manifest records a changelog path. Open a local CLI plan to see the same views for a proposed release. The browser reads the file locally and keeps it in memory until the tab closes or reloads.
+
+From the repository root:
+
+```sh
+npm ci --prefix cloud
+npm run dev --prefix cloud
+```
+
+Open http://localhost:3000 for the landing page or http://localhost:3000/releases for the public release workspace. To import a plan from a project with SemVerge installed:
+
+```sh
+semverge plan "feat: add bulk invoice export" > release-plan.json
+```
+
+The CLI command previews the supplied change and reports readiness from the evidence available to the CLI. The workspace displays that report and the generated notes. The public example shows checked-in changelog history.
+
+## Vercel preview
+
+Set the Vercel project root directory to `cloud` with Next.js as the framework. Enable **Include source files outside of the Root Directory** so the build can read the public release files, the Stageshow kit, and the local Manrope font in the parent directory. The app uses `npm run build`, which prepares the public snapshot before building the Next.js application. The dashboard needs no environment variables.
+
+## Read-only MCP pilot
+
+The Streamable HTTP endpoint at `/api/mcp` uses the dashboard's data loaders:
+
+| Tool | Evidence returned |
+| --- | --- |
+| `release_status` | Open release plans, recorded readiness and the corresponding release PR URLs |
+| `release_blockers` | Blockers for each open plan, with explicit unavailable status when a manifest cannot be read |
+| `latest_release_outcome` | The latest published release and its recorded verification outcome |
+
+For the pilot, configure `SEMVERGE_MCP_TOKEN_SHA256` on the server with the hex SHA-256 digest of a randomly generated 32-byte token encoded as unpadded base64url. Configure the client to send the original token as `Authorization: Bearer <token>`. Store the original token in the client's secret store. The server denies requests until the digest is configured. Use HTTPS outside localhost. A protected Vercel preview also requires access through Vercel Deployment Protection.
+
+This pilot credential grants read access to the public SemVerge repository data. Team-scoped OAuth and GitHub App access will be required before exposing private workspace repositories.
+
+## Workspace-scoped MCP credentials
+
+Run `npm run db:migrate --prefix cloud` with `SEMVERGE_MIGRATION_DATABASE_URL` set to the direct connection for a fresh Cloud database. The runner applies all pending migrations and verifies checksums on reruns. Use the pooled connection for the web app. See the numbered migrations in `db/` for the schema. Provision a workspace row, a repository binding for each selected GitHub App repository, and an expiring MCP credential row. A binding stores the GitHub numeric repository and installation IDs, the owner/repository name, and the release branch. Store the token digest as a 32-byte `bytea` value. Set `revoked_at` to revoke access.
+
+Set these server-side environment variables:
+
+- `SEMVERGE_DATABASE_URL` for the Postgres connection.
+- `SEMVERGE_GITHUB_APP_ID` and `SEMVERGE_GITHUB_APP_PRIVATE_KEY` for the App registration. The PEM needs real line breaks.
+- Grant the installation read access to **Contents** and **Pull requests** and select the intended repositories in GitHub.
+
+A workspace token works only with repositories bound to its workspace. If several repositories are connected, tools return the available repository names when called without a selection. Pass `repository` as `owner/name` to read one repository. The public pilot token continues to grant access only to the SemVerge demo. The public dashboard continues to use public sources while browser sign-in and repository onboarding are being built.
+
+## Browser workspace sign-in
+
+Apply `db/002-browser-access.sql` after the workspace migration. Add approved GitHub numeric user IDs to `semverge_workspace_members` for their workspaces. Removing a membership takes effect on the next request.
+
+Configure `SEMVERGE_ORIGIN` to the exact dashboard origin, without a trailing slash, and set `SEMVERGE_GITHUB_CLIENT_ID` and `SEMVERGE_GITHUB_CLIENT_SECRET` from the same GitHub App. Register the dashboard's `/api/auth/github/callback` URL in the App settings. Browser sessions expire after eight hours. The OAuth access token is used once to identify the account and stays out of the database. Repository access uses the separately scoped installation token.
+
+Open `/workspaces` to sign in. All repositories shows open plans, blockers, and the latest publication outcome for connected repositories, six at a time. Select a repository for its full notes and version history. This path requires HTTPS on hosted environments.
+
+## Connect a GitHub repository
+
+Apply `db/003-repository-connections.sql`. Approve the installation ID for the intended workspace in `semverge_workspace_installations` and set `can_connect_repositories` for the workspace members responsible for onboarding. Existing bindings receive installation approval during the migration. Removing an installation approval disconnects its repositories from that workspace.
+
+A workspace admin can enter the repository and release branch in Cloud. GitHub reauthorizes the user, and SemVerge verifies that the same user administers the repository and that the App has a matching approved installation. The public dashboard never consumes these connections.
+## Provision the first workspace
+
+With the migrations applied, set the direct connection in `SEMVERGE_MIGRATION_DATABASE_URL`. Set `SEMVERGE_PILOT_WORKSPACE_ID` to a UUID chosen for the pilot, `SEMVERGE_PILOT_WORKSPACE_NAME` to its display name, and `SEMVERGE_PILOT_GITHUB_USER_ID` and `SEMVERGE_PILOT_INSTALLATION_ID` to the approved GitHub numeric IDs. Set `SEMVERGE_PILOT_MCP_TOKEN_SHA256` to the hex digest of the client token.
+
+Run `npm run db:seed-pilot --prefix cloud`. This creates the workspace, grants its first member repository connection access, approves the installation, and records a seven-day MCP credential. Repeating it with the same inputs preserves expiration and existing grants. Sign in and use **Connect repository** to add the selected test repo.
