@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.15.0] - 2026-11-16
+
+### Features
+
+- [add configurable version file updaters](https://github.com/EvanGribar/semverge/pull/124) (#124)
+- [improve migration and init guidance](https://github.com/EvanGribar/semverge/pull/126) (#126)
+- [support generic version-file repositories](https://github.com/EvanGribar/semverge/pull/128) (#128)
+
+### Bug Fixes
+
+- [block prototype pollution in version selectors](https://github.com/EvanGribar/semverge/pull/129) (#129)
+- [avoid computed prototype assignments](https://github.com/EvanGribar/semverge/pull/130) (#130)
+- [harden release execution and reconcile workspace updates](https://github.com/EvanGribar/semverge/pull/136) (#136)
+
+### Internal Changes
+
+- [expand conformance matrix and release PR guidance](https://github.com/EvanGribar/semverge/pull/127) (#127)
+- [Simplify SemVerge README and distinguish verification from claims](https://github.com/EvanGribar/semverge/pull/147) (#147)
+- [Fix CLI installation claims in SemVerge public docs](https://github.com/EvanGribar/semverge/pull/148) (#148)
+- [Update YAML to 2.9.1 without breaking pnpm lockfile](https://github.com/EvanGribar/semverge/pull/149) (#149)
+- [Share release operations between the CLI and local MCP](https://github.com/EvanGribar/semverge/pull/151) (#151)
+- [Build Semverge Cloud, MCP, and reliability workspace](https://github.com/EvanGribar/semverge/pull/150) (#150)
+- [Bind Cloud release evidence to the verified commit](https://github.com/EvanGribar/semverge/pull/152) (#152)
+- [Record verified GitHub-to-Vercel deployment provenance](https://github.com/EvanGribar/semverge/pull/153) (#153)
+
 ## [0.14.0] - 2026-08-29
 
 ### Features
