@@ -12,12 +12,12 @@ test('applies pending workspace migrations once and rejects changes to applied h
       : db.exec(statement).then((results) => results.at(-1)),
   };
   assert.deepEqual(await migrate(client), [
-    '001-workspaces.sql', '002-browser-access.sql', '003-repository-connections.sql',
+    '001-workspaces.sql', '002-browser-access.sql', '003-repository-connections.sql', '004-release-authorizations.sql',
   ]);
   assert.deepEqual(await migrate(client), []);
   const schema = await db.query("SELECT to_regclass('semverge_workspace_installations') AS installations");
   assert.equal(schema.rows[0].installations, 'semverge_workspace_installations');
   await db.query("UPDATE semverge_schema_migrations SET sha256 = 'changed' WHERE name = '001-workspaces.sql'");
   await assert.rejects(migrate(client), /Applied migration 001-workspaces.sql does not match/);
-  assert.equal((await db.query('SELECT count(*)::int AS total FROM semverge_schema_migrations')).rows[0].total, 3);
+  assert.equal((await db.query('SELECT count(*)::int AS total FROM semverge_schema_migrations')).rows[0].total, 4);
 });

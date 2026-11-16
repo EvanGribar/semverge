@@ -5,7 +5,7 @@ export const evidenceWorkflow = '.github/workflows/semverge-evidence.yml';
 const workflowBlob = 'd4f2f1a35fc7eacae6728c9b6dead4f1a2f2a9d3';
 const checks = ['Verify release engine', 'Validate release configuration'] as const;
 export const commitSha = /^[a-f0-9]{40}$/;
-const ttl = 7 * 24 * 60 * 60 * 1000;
+export const commitEvidenceMaxAgeMs = 7 * 24 * 60 * 60 * 1000;
 
 type CommitEvidence = {
   schemaVersion: 1;
@@ -20,9 +20,10 @@ type CommitEvidence = {
 };
 
 export type EvidenceResult = { status: 'recorded'; evidence: CommitEvidence } |
-  { status: 'unavailable'; reason: string };
+  { status: 'unavailable'; reason: string; code?: 'candidate-changed' | 'evidence-stale' };
 
-const unavailable = (reason: string): EvidenceResult => ({ status: 'unavailable', reason });
+const unavailable = (reason: string, code?: 'candidate-changed' | 'evidence-stale'): EvidenceResult =>
+  code ? { status: 'unavailable', reason, code } : { status: 'unavailable', reason };
 const positiveInteger = (value: unknown): value is number =>
   typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 
@@ -42,7 +43,7 @@ export async function currentCommitEvidence(repo: GitHubRepository, requested?: 
         !positiveInteger(id) || identity?.full_name?.toLowerCase() !== repo.name.toLowerCase()) {
       return unavailable('Repository or release branch identity could not be verified.');
     }
-    if (requested !== undefined && requested !== commit) return unavailable('Requested commit is not the current release branch head.');
+    if (requested !== undefined && requested !== commit) return unavailable('Requested commit is not the current release branch head.', 'candidate-changed');
 
     const query = new URLSearchParams({ branch, head_sha: commit, per_page: '1' });
     const [listing, workflow, config] = await Promise.all([
@@ -72,7 +73,8 @@ export async function currentCommitEvidence(repo: GitHubRepository, requested?: 
     }
     const evaluatedAt = run.updated_at;
     const time = typeof evaluatedAt === 'string' ? Date.parse(evaluatedAt) : NaN;
-    if (!Number.isFinite(time) || time > now || now - time > ttl) return unavailable('Workflow evidence is stale or has an invalid timestamp.');
+    if (!Number.isFinite(time) || time > now) return unavailable('Workflow evidence has an invalid timestamp.');
+    if (now - time > commitEvidenceMaxAgeMs) return unavailable('Workflow evidence is stale.', 'evidence-stale');
 
     const { jobs } = await read(`actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=2`) as {
       jobs?: Array<{ name?: string; run_id?: number; head_sha?: string; conclusion?: string; status?: string;
@@ -93,6 +95,9 @@ export async function currentCommitEvidence(repo: GitHubRepository, requested?: 
       { name?: string; commit?: { sha?: string } },
       { id?: number; head_sha?: string; run_attempt?: number; status?: string; updated_at?: string; conclusion?: string },
     ];
+    if (latest?.name === branch && typeof latest.commit?.sha === 'string' && commitSha.test(latest.commit.sha) && latest.commit.sha !== commit) {
+      return unavailable('Release branch changed during evidence retrieval.', 'candidate-changed');
+    }
     if (latest?.name !== branch || latest.commit?.sha !== commit || latestRun?.id !== run.id || latestRun.head_sha !== commit ||
         latestRun.run_attempt !== run.run_attempt || latestRun.status !== 'completed' ||
         latestRun.conclusion !== run.conclusion || latestRun.updated_at !== evaluatedAt) {
