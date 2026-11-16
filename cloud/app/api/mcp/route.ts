@@ -1,7 +1,8 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { createMcpHandler } from 'mcp-handler';
 import { z } from 'zod';
-import { connectedRepository, loadQueue, loadReleaseHistory } from '../../workspace-data';
+import { connectedRepository, loadCommitEvidence, loadQueue, loadReleaseHistory } from '../../workspace-data';
+import { commitSha } from '../../commit-evidence';
 import { publicRepository, type GitHubRepository, type RepositoryBinding } from '../../github-repository';
 import { configuredWorkspaceForToken } from '../../workspace-store';
 
@@ -23,7 +24,7 @@ function result(data: Record<string, unknown>, isError = false) {
   };
 }
 
-async function readRepository(scope: Scope, requested: string | undefined, read: (repo: GitHubRepository) => Promise<Record<string, unknown>>) {
+async function readRepository(scope: Scope, requested: string | undefined, read: (repo: GitHubRepository, binding?: RepositoryBinding) => Promise<Record<string, unknown>>) {
   const selected = requested
     ? scope.repositories.find((item) => item.name.toLowerCase() === requested.toLowerCase())
     : scope.repositories.length === 1 ? scope.repositories[0] : undefined;
@@ -38,7 +39,7 @@ async function readRepository(scope: Scope, requested: string | undefined, read:
     const reader = selected.binding
       ? await connectedRepository(selected.binding, AbortSignal.timeout(5000))
       : publicRepository;
-    return result({ workspace: scope.name, ...(await read(reader)) });
+    return result({ workspace: scope.name, ...(await read(reader, selected.binding)) });
   } catch {
     return result({ repository: selected.name, unavailable: true, message: 'GitHub repository evidence is unavailable.' }, true);
   }
@@ -48,12 +49,12 @@ function createScopedHandler(scope: Scope) {
   return createMcpHandler((server) => {
     server.registerTool('release_status', {
       ...metadata,
-      description: 'Read open SemVerge release plans, recorded readiness, and PR evidence. Supply owner/repository when the workspace has multiple repositories.',
-    }, async ({ repository }) => readRepository(scope, repository, async (repo) => ({
-      repository: repo.name,
-      sourceUrl: `https://github.com/${repo.name}/pulls`,
-      ...await loadQueue(repo),
-    })));
+      inputSchema: metadata.inputSchema.extend({ commit: z.string().regex(commitSha).optional() }),
+      description: 'Read release plans and CI evidence for the configured release branch head. Supply a commit SHA to require an exact head match. PR plan metadata is separate from CI evidence.',
+    }, async ({ repository, commit }) => readRepository(scope, repository, async (repo, binding) => {
+      const [queue, commitEvidence] = await Promise.all([loadQueue(repo), loadCommitEvidence(binding, commit)]);
+      return { repository: repo.name, sourceUrl: `https://github.com/${repo.name}/pulls`, ...queue, commitEvidence };
+    }));
 
     server.registerTool('release_blockers', {
       ...metadata,

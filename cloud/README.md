@@ -70,6 +70,8 @@ Run `npm run db:seed-pilot --prefix cloud`. This creates the workspace, grants i
 
 ## Hosted acceptance
 
+For the optional GitHub Actions result on a repository's release branch, see the [commit-bound evidence contract](../docs/commit-evidence.md) and its separate Actions read permission.
+
 Use a preview with a dedicated database and a GitHub App installed on a private fixture repository. Give that repository a published release and an open SemVerge release PR with recognizable fixture values. Use a stable HTTPS preview origin for the callback, and record the deployment URL and revision tested.
 
 1. Open `/workspaces`, complete GitHub sign-in as the approved fixture repository admin, and connect the private repository.

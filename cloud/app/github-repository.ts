@@ -16,7 +16,7 @@ export type RepositoryBinding = {
 export type GitHubRepository = {
   name: string;
   releaseBranch: string;
-  read(path: string, signal: AbortSignal): Promise<unknown>;
+  read(path: string, signal: AbortSignal, fresh?: boolean): Promise<unknown>;
 };
 
 function repositoryReader(name: string, releaseBranch: string, token?: string): GitHubRepository {
@@ -27,7 +27,7 @@ function repositoryReader(name: string, releaseBranch: string, token?: string): 
   return {
     name,
     releaseBranch,
-    async read(path, signal) {
+    async read(path, signal, fresh) {
       const url = path === './' ? new URL(root.pathname.slice(0, -1), root) : new URL(path, root);
       if (url.origin !== root.origin || !(url.pathname.startsWith(root.pathname) || url.pathname === root.pathname.slice(0, -1))) {
         throw new Error('GitHub request escaped its repository scope.');
@@ -36,7 +36,7 @@ function repositoryReader(name: string, releaseBranch: string, token?: string): 
         headers: token ? { ...headers, Authorization: `Bearer ${token}` } : headers,
         redirect: 'error',
         signal,
-        ...(token ? { cache: 'no-store' } : { next: { revalidate: 300 } }),
+        ...(token || fresh ? { cache: 'no-store' } : { next: { revalidate: 300 } }),
       });
       if (!response.ok) throw new Error(`GitHub returned ${response.status}.`);
       return response.json();
@@ -83,7 +83,7 @@ export async function repositoryCandidate(name: string, releaseBranch: string, u
 export async function installationRepository(binding: RepositoryBinding, credentials: {
   appId: string;
   privateKey: string;
-}, signal: AbortSignal): Promise<GitHubRepository> {
+}, signal: AbortSignal, actions = false): Promise<GitHubRepository> {
   const { name, repositoryId, installationId, releaseBranch } = binding;
   if (!Number.isSafeInteger(repositoryId) || repositoryId < 1 ||
       !Number.isSafeInteger(installationId) || installationId < 1 ||
@@ -99,7 +99,7 @@ export async function installationRepository(binding: RepositoryBinding, credent
     headers: { ...headers, 'Content-Type': 'application/json', Authorization: `Bearer ${jwt}` },
     body: JSON.stringify({
       repository_ids: [repositoryId],
-      permissions: { contents: 'read', pull_requests: 'read' },
+      permissions: actions ? { contents: 'read', actions: 'read' } : { contents: 'read', pull_requests: 'read' },
     }),
     signal,
   });
