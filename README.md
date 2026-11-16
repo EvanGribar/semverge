@@ -14,6 +14,8 @@ SemVerge connects release readiness with what a release means to the people usin
 
 The release Action remains open source and is the supported GitHub installation path. Cloud's public demo reads SemVerge's public release data. Pilot team workspaces require a configured GitHub App and database. The separate experimental reliability workspace runs locally, monitors HTTP services, and lets an operator associate imported release evidence with an incident for investigation. See [Cloud setup](cloud/README.md), the [local reliability workspace](platform/README.md), and the [MCP plugin](plugins/semverge/README.md).
 
+The next release operations milestone is the [GitHub-to-Vercel deployment provenance pilot](docs/deployment-provenance.md). It records which commit an exact deployment used when both providers can substantiate the link.
+
 ## Get started
 
 Add one workflow file to a Node.js repository:
